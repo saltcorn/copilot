@@ -1,6 +1,5 @@
 const Workflow = require("@saltcorn/data/models/workflow");
 const Form = require("@saltcorn/data/models/form");
-const fsp = require("fs").promises;
 
 const configuration_workflow = () =>
   new Workflow({
