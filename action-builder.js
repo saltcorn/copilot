@@ -121,7 +121,11 @@ const runPost =
       form.values.prompt
     );
 
-    const completion = await getCompletion(module_config, fullPrompt);
+    const completion = await getCompletion(
+      module_config,
+      "JavaScript",
+      fullPrompt
+    );
 
     form.values.code = completion?.data?.choices?.[0]?.message?.content;
     res.sendWrap("Action Builder Copilot", [
@@ -131,7 +135,7 @@ const runPost =
   };
 
 const save_as_action = async (table_id, viewname, config, body, { req }) => {
-  const form = await getForm({ viewname, body });
+  const form = await getForm({ viewname, body, hasCode: true });
   form.validate(body);
   if (!form.hasErrors) {
     const { name, when_trigger, table_id, channel, prompt, code } = form.values;

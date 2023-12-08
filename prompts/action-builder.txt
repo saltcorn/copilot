@@ -161,5 +161,14 @@ optional user, if null then no authorization will be checked
 Optional noTrigger: boolean
 Returns Promise<void>
 
+The following tables are present in the database:
+
+{{# for (const table of tables) { }}
+{{ table.name }} table with name = "{{ table.name }}" which has the following fields:
+{{# for (const field of table.fields) { }} - {{ field.name }} of type {{ field.pretty_type }}
+{{# } }}
+{{# } }}
+
+Write the JavaScript code to implement the following functionality:
 
 {{ userPrompt }}

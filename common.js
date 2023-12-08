@@ -9,12 +9,15 @@ const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
 const { getState } = require("@saltcorn/data/db/state");
 
-const getPromptFromTemplate = async (tmplName, userPrompt) => {
+const getPromptFromTemplate = async (tmplName, userPrompt, extraCtx = {}) => {
+  const tables = await Table.find({});
   const context = {
     Table,
+    tables,
     View,
     scState: getState(),
     userPrompt,
+    ...extraCtx,
   };
   const fp = path.join(__dirname, "prompts", tmplName);
   const fileBuf = await fsp.readFile(fp);
@@ -28,7 +31,7 @@ const getPromptFromTemplate = async (tmplName, userPrompt) => {
   return prompt;
 };
 
-const getCompletion = async (config, prompt) => {
+const getCompletion = async (config, language, prompt) => {
   const client = axios.create({
     headers: {
       "Content-Type": "application/json",
@@ -41,8 +44,7 @@ const getCompletion = async (config, prompt) => {
     messages: [
       {
         role: "system",
-        content:
-          "You are a helpful code assistant. Your language of choice is JavaScript. Do not include any explanation, just generate the code block itself.",
+        content: `You are a helpful code assistant. Your language of choice is ${language}. Do not include any explanation, just generate the code block itself.`,
       },
       { role: "user", content: prompt },
     ],
