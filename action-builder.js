@@ -11,7 +11,7 @@ const { getState } = require("@saltcorn/data/db/state");
 
 const get_state_fields = () => [];
 
-const getForm = async ({ viewname, body }) => {
+const getForm = async ({ viewname, body, hasCode }) => {
   const tables = await Table.find({});
   const table_triggers = ["Insert", "Update", "Delete", "Validate"];
 
@@ -64,6 +64,17 @@ const getForm = async ({ viewname, body }) => {
       sublabel: "What would you like this action to do?",
       type: "String",
     },
+    ...(hasCode
+      ? [
+          {
+            name: "code",
+            label: "code",
+            fieldview: "textarea",
+            attributes: { mode: "application/javascript" },
+            input_type: "code",
+          },
+        ]
+      : []),
   ];
   const form = new Form({
     action: `/view/${viewname}`,
@@ -102,11 +113,14 @@ const runPost = async (
   body,
   { req, res }
 ) => {
-  const form = await getForm({ viewname, body });
+  const form = await getForm({ viewname, body, hasCode: true });
   form.validate(body);
 
   form.hasErrors = false;
   form.errors = {};
+
+  const fullPrompt = form.values.prompt;
+  form.values.code = "//code here";
   res.sendWrap("Action Builder Copilot", [
     renderForm(form, req.csrfToken()),
     js(viewname),
@@ -123,6 +137,7 @@ const save_as_action = async (table_id, viewname, config, body, { req }) => {
       when_trigger,
       table_id,
       channel,
+      description: prompt,
       action: "run_js_code",
       configuration: { code },
     });
