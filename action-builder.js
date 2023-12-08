@@ -8,7 +8,7 @@ const Workflow = require("@saltcorn/data/models/workflow");
 const { renderForm } = require("@saltcorn/markup");
 const { div, script, domReady, pre, code } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
-const { Configuration, OpenAIApi } = require("./openai/index");
+const axios = require("axios");
 const fsp = require("fs").promises;
 const get_state_fields = () => [];
 
@@ -69,7 +69,7 @@ const getForm = async ({ viewname, body, hasCode }) => {
       ? [
           {
             name: "code",
-            label: "code",
+            label: "Generated code",
             fieldview: "textarea",
             attributes: { mode: "application/javascript" },
             input_type: "code",
@@ -106,6 +106,29 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   const form = await getForm({ viewname });
   return renderForm(form, req.csrfToken());
 };
+
+const getCompletion = async (config, prompt) => {
+  const client = axios.create({
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + config.api_key,
+    },
+  });
+  const params = {
+    //prompt: "How are you?",
+    model: "gpt-3.5-turbo",
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.7,
+  };
+
+  const results = await client.post(
+    "https://api.openai.com/v1/chat/completions",
+    params
+  );
+
+  return results;
+};
+
 const runPost =
   (module_config) =>
   async (table_id, viewname, config, state, body, { req, res }) => {
@@ -117,20 +140,9 @@ const runPost =
 
     const fullPrompt = form.values.prompt;
 
-    console.log("api key", module_config.api_key);
+    const completion = await getCompletion(module_config, fullPrompt);
 
-    const configuration = new Configuration({
-      apiKey: module_config.api_key,
-    });
-    const openai = new OpenAIApi(configuration);
-
-    const completion = await openai.createCompletion({
-      model: "text-davinci-003",
-      prompt: fullPrompt,
-    });
-    console.log(completion);
-    console.log(completion?.data?.choices);
-    form.values.code = completion;
+    form.values.code = completion?.data?.choices?.[0]?.message?.content;
     res.sendWrap("Action Builder Copilot", [
       renderForm(form, req.csrfToken()),
       js(viewname),

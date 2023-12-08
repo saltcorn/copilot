@@ -4,7 +4,8 @@
   "description": "AI assistant for building Saltcorn applications",
   "main": "index.js",
   "dependencies": {
-    "@saltcorn/data": "^0.9.0"
+    "@saltcorn/data": "^0.9.0",
+    "axios": "0.16.2"
   },
   "author": "Tom Nielsen",
   "license": "MIT",
