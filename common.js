@@ -24,6 +24,7 @@ const getPromptFromTemplate = async (tmplName, userPrompt) => {
     interpolate: /\{\{([^#].+?)\}\}/g,
   });
   const prompt = template(context);
+  console.log("Full prompt:\n", prompt);
   return prompt;
 };
 
@@ -41,7 +42,7 @@ const getCompletion = async (config, prompt) => {
       {
         role: "system",
         content:
-          "You are a helpful code assistant that can teach a junior developer how to code. Your language of choice is JavaScript. Don't explain the code, just generate the code block itself.",
+          "You are a helpful code assistant. Your language of choice is JavaScript. Do not include any explanation, just generate the code block itself.",
       },
       { role: "user", content: prompt },
     ],

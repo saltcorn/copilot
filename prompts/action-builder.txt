@@ -1,1 +1,165 @@
+You can the Table class to access database tables.
+
+Use this to create or delete tables and their properties, or to query or change table rows.
+
+To query, update, insert or delete rows in an existing table, first you should find the 
+table object with findOne.
+
+Example: 
+
+Table.findOne({name: "Customers"}) // find the table with name "Customers"
+Table.findOne("Customers") // find the table with name "Customers" (shortcut)
+Table.findOne({ id: 5 }) // find the table with id=5
+Table.findOne(5) // find the table with id=5 (shortcut)
+
+Table.findOne is synchronous (no need to await), But the functions that query and manipulate 
+(such as insertRow, getRows, updateRow, deleteRows) rows are mostly asyncronous, so you can 
+put the await in front of the whole expression.
+
+Example:
+To count the number of rows in the customer table:
+
+const nrows = await Table.findOne("Customers").countRows()
+
+Querying table rows
+
+There are several methods you can use to retrieve rows in the database:
+
+countRows: To count the number of rows, optionally matching a criterion
+
+countRows(where?): Promise<number>
+Count amount of rows in db table
+
+Parameters
+Optional where: Where
+Returns Promise<number>
+
+getRows: To retrieve multiple rows matching a criterion
+
+getRows(where?, selopts?): Promise<Row[]>
+Get rows from Table in db
+
+Parameters
+where: Where = {}
+selopts: SelectOptions & ForUserRequest = {}
+Returns Promise<Row[]>
+
+getRow: To retrieve a single row matching a criterion
+
+getRow(where?, selopts?): Promise<null | Row>
+Get one row from table in db
+
+Parameters
+where: Where = {}
+selopts: SelectOptions & ForUserRequest = {}
+Returns Promise<null | Row>
+
+getJoinedRows: To retrieve rows together with joinfields and aggregations
+
+getJoinedRows(opts?): Promise<Row[]>
+Get rows along with joined and aggregated fields. The argument to getJoinedRows is an object with several different possible fields, all of which are optional
+
+where: A Where expression indicating the criterion to match
+joinFields: An object with the joinfields to retrieve
+aggregations: An object with the aggregations to retrieve
+orderBy: A string with the name of the field to order by
+orderDesc: If true, descending order
+limit: A number with the maximum number of rows to retrieve
+offset: The number of rows to skip in the result before returning rows
+Parameters
+Optional opts: any = {}
+Returns Promise<Row[]>
+
+Example of using Table.getJoinedRows: 
+
+const patients = Table.findOne({ name: "patients" });
+const patients_rows = await patients.getJoinedRows({
+     where: { age: { gt: 65 } },
+     orderBy: "id",
+     aggregations: {
+       avg_temp: {
+         table: "readings",
+         ref: "patient_id",
+         field: "temperature",
+         aggregate: "avg",
+      },
+     },
+     joinFields: {
+       pages: { ref: "favbook", target: "pages" },
+       author: { ref: "favbook", target: "author" },
+     },
+});
+
+These functions all take "Where expressions" which are JavaScript objects describing 
+the criterion to match to. Some examples:
+
+{ name: "Jim" }: Match all rows with name="Jim"
+{ name: { ilike: "im"} }: Match all rows where name contains "im" (case insensitive)
+{ name: /im/ }: Match all rows with name matching regular expression "im"
+{ age: { lt: 18 } }: Match all rows with age<18
+{ age: { lt: 18, equal: true } }: Match all rows with age<=18
+{ age: { gt: 18, lt: 65} }: Match all rows with 18<age<65
+{ name: { or: ["Harry", "Sally"] } }: Match all rows with name="Harry" or "Sally"
+{ or: [{ name: "Joe"}, { age: 37 }] }: Match all rows with name="Joe" or age=37
+{ not: { id: 5 } }: All rows except id=5
+{ id: { in: [1, 2, 3] } }: Rows with id 1, 2, or 3
+
+There are two nearly identical functions for updating rows depending on how you want failures treated
+
+updateRow Update a row, throws an exception if update is invalid
+
+updateRow(v_in, id, user?, noTrigger?, resultCollector?, restore_of_version?, syncTimestamp?): Promise<string | void>
+Update row
+
+Parameters
+v_in: any. columns with values to update
+
+id: number. id value, table primary key
+
+Optional user: Row
+Optional noTrigger: boolean
+Optional resultCollector: object
+Optional restore_of_version: any
+Optional syncTimestamp: Date
+
+tryUpdateRow Update a row, return an error message if update is invalid
+
+There are two nearly identical functions for inserting a new row depending on how you want failures treated
+
+insertRow insert a row, throws an exception if it is invalid
+insertRow(v_in, user?, resultCollector?, noTrigger?, syncTimestamp?): Promise<any>
+Insert row into the table. By passing in the user as the second argument, tt will check write rights. If a user object is not supplied, the insert goes ahead without checking write permissions.
+
+Returns the primary key value of the inserted row.
+
+This will throw an exception if the row does not conform to the table constraints. If you would like to insert a row with a function that can return an error message, use tryInsertRow instead.
+
+Parameters
+v_in: Row
+Optional user: Row
+Optional resultCollector: object
+Optional noTrigger: boolean
+Optional syncTimestamp: Date
+Returns Promise<any>
+
+Example of using insertRow: 
+await Table.findOne("People").insertRow({ name: "Jim", age: 35 })
+
+tryInsertRow insert a row, return an error message if it is invalid
+
+Use deleteRows to delete any number (zero, one or many) of rows matching a criterion. It uses the same where expression as the functions for querying rows
+deleteRows(where, user?, noTrigger?): Promise<void>
+Delete rows from table
+
+Parameters
+where: Where
+condition
+
+Optional user: Row
+optional user, if null then no authorization will be checked
+
+Optional noTrigger: boolean
+Returns Promise<void>
+
+
 {{ userPrompt }}
