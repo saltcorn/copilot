@@ -8,7 +8,8 @@ const Workflow = require("@saltcorn/data/models/workflow");
 const { renderForm } = require("@saltcorn/markup");
 const { div, script, domReady, pre, code } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
-
+const { Configuration, OpenAIApi } = require("./openai/index");
+const fsp = require("fs").promises;
 const get_state_fields = () => [];
 
 const getForm = async ({ viewname, body, hasCode }) => {
@@ -105,27 +106,36 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   const form = await getForm({ viewname });
   return renderForm(form, req.csrfToken());
 };
-const runPost = async (
-  table_id,
-  viewname,
-  config,
-  state,
-  body,
-  { req, res }
-) => {
-  const form = await getForm({ viewname, body, hasCode: true });
-  form.validate(body);
+const runPost =
+  (module_config) =>
+  async (table_id, viewname, config, state, body, { req, res }) => {
+    const form = await getForm({ viewname, body, hasCode: true });
+    form.validate(body);
 
-  form.hasErrors = false;
-  form.errors = {};
+    form.hasErrors = false;
+    form.errors = {};
 
-  const fullPrompt = form.values.prompt;
-  form.values.code = "//code here";
-  res.sendWrap("Action Builder Copilot", [
-    renderForm(form, req.csrfToken()),
-    js(viewname),
-  ]);
-};
+    const fullPrompt = form.values.prompt;
+
+    console.log("api key", module_config.api_key);
+
+    const configuration = new Configuration({
+      apiKey: module_config.api_key,
+    });
+    const openai = new OpenAIApi(configuration);
+
+    const completion = await openai.createCompletion({
+      model: "text-davinci-003",
+      prompt: fullPrompt,
+    });
+    console.log(completion);
+    console.log(completion?.data?.choices);
+    form.values.code = completion;
+    res.sendWrap("Action Builder Copilot", [
+      renderForm(form, req.csrfToken()),
+      js(viewname),
+    ]);
+  };
 
 const save_as_action = async (table_id, viewname, config, body, { req }) => {
   const form = await getForm({ viewname, body });
@@ -154,6 +164,6 @@ module.exports = (config) => ({
   tableless: true,
   singleton: true,
   run,
-  runPost,
+  runPost: runPost(config),
   routes: { save_as_action },
 });
