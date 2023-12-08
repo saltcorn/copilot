@@ -8,8 +8,8 @@ const Workflow = require("@saltcorn/data/models/workflow");
 const { renderForm } = require("@saltcorn/markup");
 const { div, script, domReady, pre, code } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
-const axios = require("axios");
-const fsp = require("fs").promises;
+const { getCompletion } = require("./common");
+
 const get_state_fields = () => [];
 
 const getForm = async ({ viewname, body, hasCode }) => {
@@ -105,28 +105,6 @@ function save_as_action(that) {
 const run = async (table_id, viewname, cfg, state, { res, req }) => {
   const form = await getForm({ viewname });
   return renderForm(form, req.csrfToken());
-};
-
-const getCompletion = async (config, prompt) => {
-  const client = axios.create({
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + config.api_key,
-    },
-  });
-  const params = {
-    //prompt: "How are you?",
-    model: "gpt-3.5-turbo",
-    messages: [{ role: "user", content: prompt }],
-    temperature: 0.7,
-  };
-
-  const results = await client.post(
-    "https://api.openai.com/v1/chat/completions",
-    params
-  );
-
-  return results;
 };
 
 const runPost =
