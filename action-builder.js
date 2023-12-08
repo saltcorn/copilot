@@ -68,27 +68,68 @@ const getForm = async ({ viewname, body }) => {
   const form = new Form({
     action: `/view/${viewname}`,
     fields,
-    onChange: "$(this).submit()",
-    noSubmitButton: true,
-    additionalButtons: [
-      {
-        label: "Generate",
-        onclick: "generate_action(this)",
-        class: "btn btn-primary",
-      },
-      {
-        label: "Save as action",
-        onclick: "save_as_action(this)",
-        class: "btn btn-primary",
-      },
-    ],
+    submitLabel: body?.prompt ? "Re-generate code" : "Generate code",
+    additionalButtons: body?.prompt
+      ? [
+          {
+            label: "Save as trigger",
+            onclick: "save_as_action(this)",
+            class: "btn btn-primary",
+          },
+        ]
+      : undefined,
   });
   return form;
 };
 
+const js = (viewname) =>
+  script(`
+function save_as_action(that) {
+  const form = $(that).closest('form');
+  view_post("${viewname}", "save_as_action", $(form).serialize())
+}
+`);
+
 const run = async (table_id, viewname, cfg, state, { res, req }) => {
   const form = await getForm({ viewname });
   return renderForm(form, req.csrfToken());
+};
+const runPost = async (
+  table_id,
+  viewname,
+  config,
+  state,
+  body,
+  { req, res }
+) => {
+  const form = await getForm({ viewname, body });
+  form.validate(body);
+
+  form.hasErrors = false;
+  form.errors = {};
+  res.sendWrap("Action Builder Copilot", [
+    renderForm(form, req.csrfToken()),
+    js(viewname),
+  ]);
+};
+
+const save_as_action = async (table_id, viewname, config, body, { req }) => {
+  const form = await getForm({ viewname, body });
+  form.validate(body);
+  if (!form.hasErrors) {
+    const { name, when_trigger, table_id, channel, prompt, code } = form.values;
+    await Trigger.create({
+      name,
+      when_trigger,
+      table_id,
+      channel,
+      action: "run_js_code",
+      configuration: { code },
+    });
+
+    return { json: { success: "ok", notify: `Trigger ${name} created` } };
+  }
+  return { json: { error: "Form incomplete" } };
 };
 
 module.exports = (config) => ({
@@ -98,4 +139,6 @@ module.exports = (config) => ({
   tableless: true,
   singleton: true,
   run,
+  runPost,
+  routes: { save_as_action },
 });
