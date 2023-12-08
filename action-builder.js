@@ -8,7 +8,7 @@ const Workflow = require("@saltcorn/data/models/workflow");
 const { renderForm } = require("@saltcorn/markup");
 const { div, script, domReady, pre, code } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
-const { getCompletion } = require("./common");
+const { getCompletion, getPromptFromTemplate } = require("./common");
 
 const get_state_fields = () => [];
 
@@ -116,7 +116,10 @@ const runPost =
     form.hasErrors = false;
     form.errors = {};
 
-    const fullPrompt = form.values.prompt;
+    const fullPrompt = await getPromptFromTemplate(
+      "action-builder.txt",
+      form.values.prompt
+    );
 
     const completion = await getCompletion(module_config, fullPrompt);
 
