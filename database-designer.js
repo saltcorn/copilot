@@ -3,6 +3,7 @@ const Table = require("@saltcorn/data/models/table");
 const Form = require("@saltcorn/data/models/form");
 const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
+const { findType } = require("@saltcorn/data/models/discovery");
 const db = require("@saltcorn/data/db");
 const Workflow = require("@saltcorn/data/models/workflow");
 const { renderForm } = require("@saltcorn/markup");
@@ -107,7 +108,27 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
     const { tableList, ast } = parser.parse(form.values.code, {
       database: "PostgreSQL",
     });
-    console.log(ast[0]);
+    for (const { type, keyword, create_definitions, table } of ast) {
+      if (type !== "create" || keyword !== "table" || !table?.length) continue;
+      const tbl = 1; //await Table.create(table[0].table);
+      for (const {
+        column,
+        definition,
+        primary_key,
+        reference_definition,
+      } of create_definitions) {
+        if (primary_key) continue;
+        const type = findType(definition.dataType.toLowerCase());
+        const fld = {
+          table: tbl,
+          name: column.column,
+          type,
+        };
+        console.log(fld, definition.dataType);
+
+        //await Field.create(fld);
+      }
+    }
 
     return { json: { success: "ok", notify: `Database created` } };
   }
