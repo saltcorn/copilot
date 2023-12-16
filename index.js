@@ -25,5 +25,8 @@ const configuration_workflow = () =>
 module.exports = {
   sc_plugin_api_version: 1,
   configuration_workflow,
-  viewtemplates: (config) => [require("./action-builder")(config)],
+  viewtemplates: (config) => [
+    require("./action-builder")(config),
+    require("./database-designer")(config),
+  ],
 };
