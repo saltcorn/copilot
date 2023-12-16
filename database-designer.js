@@ -118,7 +118,10 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
         reference_definition,
       } of create_definitions) {
         if (primary_key) continue;
-        const type = findType(definition.dataType.toLowerCase());
+        let type = findType(definition.dataType.toLowerCase());
+        if (reference_definition)
+          type = `Key to ${reference_definition.table[0].table}`;
+
         const fld = {
           table: tbl,
           name: column.column,
