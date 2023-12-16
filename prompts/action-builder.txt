@@ -1,4 +1,4 @@
-You can the Table class to access database tables.
+You can use the Table class to access database tables.
 
 Use this to create or delete tables and their properties, or to query or change table rows.
 
