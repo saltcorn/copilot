@@ -15,6 +15,7 @@ const getPromptFromTemplate = async (tmplName, userPrompt, extraCtx = {}) => {
     Table,
     tables,
     View,
+    userTable: Table.findOne("users"),
     scState: getState(),
     userPrompt,
     ...extraCtx,

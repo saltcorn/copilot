@@ -83,7 +83,6 @@ const runPost =
       "database-designer.txt",
       form.values.prompt
     );
-    console.log(fullPrompt);
     const completion = await getCompletion(module_config, "SQL", fullPrompt);
 
     form.values.code = completion?.data?.choices?.[0]?.message?.content;

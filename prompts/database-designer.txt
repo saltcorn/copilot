@@ -4,14 +4,14 @@ Your task is to design a database schema for the following application:
 
 Do not use natural or composite primary keys. Every table should have an auto incrementing primary key field called "id". 
 
-Your database currently contains the following tables: 
+Your database currently already contains a table for users with the following definitions.
 
-{{# for (const table of tables) { }}
-CREATE TABLE {{ table.name }} (
-{{# table.fields.forEach((field,ix)=>{ }} {{ field.name }} {{field.sql_type}}{{ix===table.fields.length-1 ? '':',' }}
+CREATE TABLE users (
+{{# userTable.fields.forEach((field,ix)=>{ }} {{ field.name }} {{field.sql_type}}{{ix===userTable.fields.length-1 ? '':',' }}
 {{# }) }}
 );
-{{# } }}
+
+Do not include the users table in you schema, but you can include foreign key fields referencing the id field of the users table.
 
 Write the SQL to define the tables for PostgreSQL for this application:
 
