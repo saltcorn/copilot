@@ -9,6 +9,8 @@ const { renderForm } = require("@saltcorn/markup");
 const { div, script, domReady, pre, code } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const { getCompletion, getPromptFromTemplate } = require("./common");
+const { Parser } = require("node-sql-parser");
+const parser = new Parser();
 
 const get_state_fields = () => [];
 
@@ -21,11 +23,7 @@ const getForm = async ({ viewname, body, hasCode }) => {
       sublabel: "What would you like to design a database for?",
       type: "String",
     },
-    {
-      name: "basic_views",
-      label: "Also generate basic views",
-      type: "Bool",
-    },
+
     ...(hasCode
       ? [
           {
@@ -34,6 +32,13 @@ const getForm = async ({ viewname, body, hasCode }) => {
             fieldview: "textarea",
             attributes: { mode: "application/javascript" },
             input_type: "code",
+          },
+          {
+            name: "basic_views",
+            label: "Generate views",
+            subabel:
+              "Also generate basic views (Show, Edit, List) for the generated tables",
+            type: "Bool",
           },
         ]
       : []),
@@ -48,8 +53,9 @@ const getForm = async ({ viewname, body, hasCode }) => {
       ? [
           {
             label: "Save this database permanently",
-            onclick: "save_as_action(this)",
+            onclick: "save_database(this)",
             class: "btn btn-primary",
+            afterSave: true,
           },
         ]
       : undefined,
@@ -95,14 +101,21 @@ const runPost =
 const save_database = async (table_id, viewname, config, body, { req }) => {
   const form = await getForm({ viewname, body, hasCode: true });
   form.validate(body);
+
   if (!form.hasErrors) {
+    const genTables = [];
+    const { tableList, ast } = parser.parse(form.values.code, {
+      database: "PostgreSQL",
+    });
+    console.log(ast[0]);
+
     return { json: { success: "ok", notify: `Database created` } };
   }
   return { json: { error: "Form incomplete" } };
 };
 
 module.exports = (config) => ({
-  name: "Database Designer Copilot",
+  name: "Database Design Copilot",
   display_state_form: false,
   get_state_fields,
   tableless: true,

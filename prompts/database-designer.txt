@@ -7,9 +7,8 @@ Do not use natural or composite primary keys. Every table should have an auto in
 Your database currently already contains a table for users with the following definitions.
 
 CREATE TABLE users (
-{{# userTable.fields.forEach((field,ix)=>{ }} {{ field.name }} {{field.sql_type}}{{ix===userTable.fields.length-1 ? '':',' }}
-{{# }) }}
-);
+{{# userTable.fields.forEach((field,ix)=>{ }} {{ field.name }} {{field.primary_key && field.type.name==="Integer"? "SERIAL PRIMARY KEY":field.sql_type}}{{ix===userTable.fields.length-1 ? '':',' }}
+{{# }) }});
 
 Do not include the users table in you schema, but you can include foreign key fields referencing the id field of the users table.
 

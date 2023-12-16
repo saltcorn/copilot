@@ -6,7 +6,8 @@
   "dependencies": {
     "@saltcorn/data": "^0.9.0",
     "axios": "0.16.2",
-    "underscore": "1.13.6"
+    "underscore": "1.13.6",
+    "node-sql-parser": "4.15.0"
   },
   "author": "Tom Nielsen",
   "license": "MIT",
