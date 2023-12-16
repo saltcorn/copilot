@@ -7,10 +7,10 @@ Do not use natural or composite primary keys. Every table should have an auto in
 Your database currently contains the following tables: 
 
 {{# for (const table of tables) { }}
-CREATE TABLE {{ table.name }} {
+CREATE TABLE {{ table.name }} (
 {{# table.fields.forEach((field,ix)=>{ }} {{ field.name }} {{field.sql_type}}{{ix===table.fields.length-1 ? '':',' }}
 {{# }) }}
-}
+);
 {{# } }}
 
 Write the SQL to define the tables for PostgreSQL for this application:
