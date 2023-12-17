@@ -108,9 +108,12 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
     const { tableList, ast } = parser.parse(form.values.code, {
       database: "PostgreSQL",
     });
+    const tables_to_create = [];
     for (const { type, keyword, create_definitions, table } of ast) {
       if (type !== "create" || keyword !== "table" || !table?.length) continue;
-      const tbl = 1; //await Table.create(table[0].table);
+      const tblName = table[0].table;
+
+      const fields = [];
       for (const {
         column,
         definition,
@@ -123,15 +126,35 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
           type = `Key to ${reference_definition.table[0].table}`;
 
         const fld = {
-          table: tbl,
+          table: tblName,
           name: column.column,
           type,
         };
         console.log(fld, definition.dataType);
-
-        //await Field.create(fld);
       }
+      tables_to_create.push({ name: tblName, fields });
     }
+    for (const table of tables_to_create) await Table.create(table.name);
+
+    for (const table of tables_to_create)
+      for (const field of table.fields) {
+        //pick summary field
+        if (field.type === "Key to users") {
+          field.attributes = { summary_field: "email" };
+        } else if (field.type.startsWith("Key to users")) {
+          const reftable_name = field.type.replace("Key to users", "");
+          const reftable = tables_to_create.find(
+            (t) => t.name === reftable_name
+          );
+          const summary_field = reftable.fields.find(
+            (f) => f.type === "String"
+          );
+          if (summary_field)
+            field.attributes = { summary_field: summary_field.name };
+          else field.attributes = { summary_field: "id" };
+        }
+        await Field.create(field);
+      }
 
     return { json: { success: "ok", notify: `Database created` } };
   }
