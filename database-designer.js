@@ -167,6 +167,25 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
         const list = await initial_view(table, "List");
         const edit = await initial_view(table, "Edit");
         const show = await initial_view(table, "Show");
+        await View.update(
+          {
+            configuration: {
+              ...list.configuration,
+              view_to_create: `Edit ${name}`,
+            },
+          },
+          list.id
+        );
+        await View.update(
+          {
+            configuration: {
+              ...edit.configuration,
+              view_when_done: `List ${name}`,
+              destination_type: "View",
+            },
+          },
+          edit.id
+        );
         //list create is edit
         // edit view when done is list
       }
