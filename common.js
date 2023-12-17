@@ -38,4 +38,23 @@ const getCompletion = async (language, prompt) => {
   });
 };
 
-module.exports = { getCompletion, getPromptFromTemplate };
+const incompleteCfgMsg = () => {
+  const plugin_cfgs = getState().plugin_cfgs;
+
+  if (
+    !plugin_cfgs["@saltcorn/large-language-model"] &&
+    !plugin_cfgs["large-language-model"]
+  ) {
+    const modName = Object.keys(plugin_cfgs).find((m) =>
+      m.includes("large-language-model")
+    );
+    if (modName)
+      return `LLM module not configured. Please configure <a href="/plugins/configure/${encodeURIComponent(
+        modName
+      )}">here<a> before using copilot.`;
+    else
+      return `LLM module not configured. Please install and configure <a href="/plugins">here<a> before using copilot.`;
+  }
+};
+
+module.exports = { getCompletion, getPromptFromTemplate, incompleteCfgMsg };

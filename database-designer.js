@@ -10,7 +10,11 @@ const Workflow = require("@saltcorn/data/models/workflow");
 const { renderForm } = require("@saltcorn/markup");
 const { div, script, domReady, pre, code } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
-const { getCompletion, getPromptFromTemplate } = require("./common");
+const {
+  getCompletion,
+  getPromptFromTemplate,
+  incompleteCfgMsg,
+} = require("./common");
 const { Parser } = require("node-sql-parser");
 const parser = new Parser();
 const { initial_config_all_fields } = require("@saltcorn/data/plugin-helper");
@@ -76,7 +80,9 @@ function save_database(that) {
 
 const run = async (table_id, viewname, cfg, state, { res, req }) => {
   const form = await getForm({ viewname });
-  return renderForm(form, req.csrfToken());
+  const cfgMsg = incompleteCfgMsg();
+  if (cfgMsg) return cfgMsg;
+  else return renderForm(form, req.csrfToken());
 };
 
 const runPost = async (
