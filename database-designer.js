@@ -79,27 +79,32 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   return renderForm(form, req.csrfToken());
 };
 
-const runPost =
-  (module_config) =>
-  async (table_id, viewname, config, state, body, { req, res }) => {
-    const form = await getForm({ viewname, body, hasCode: true });
-    form.validate(body);
+const runPost = async (
+  table_id,
+  viewname,
+  config,
+  state,
+  body,
+  { req, res }
+) => {
+  const form = await getForm({ viewname, body, hasCode: true });
+  form.validate(body);
 
-    form.hasErrors = false;
-    form.errors = {};
+  form.hasErrors = false;
+  form.errors = {};
 
-    const fullPrompt = await getPromptFromTemplate(
-      "database-designer.txt",
-      form.values.prompt
-    );
-    const completion = await getCompletion(module_config, "SQL", fullPrompt);
+  const fullPrompt = await getPromptFromTemplate(
+    "database-designer.txt",
+    form.values.prompt
+  );
+  const completion = await getCompletion("SQL", fullPrompt);
 
-    form.values.code = completion?.data?.choices?.[0]?.message?.content;
-    res.sendWrap("Databse Designer Copilot", [
-      renderForm(form, req.csrfToken()),
-      js(viewname),
-    ]);
-  };
+  form.values.code = completion;
+  res.sendWrap("Databse Designer Copilot", [
+    renderForm(form, req.csrfToken()),
+    js(viewname),
+  ]);
+};
 
 const save_database = async (table_id, viewname, config, body, { req }) => {
   const form = await getForm({ viewname, body, hasCode: true });
@@ -247,13 +252,13 @@ const initial_view = async (table, viewtemplate) => {
   return view;
 };
 
-module.exports = (config) => ({
+module.exports = {
   name: "Database Design Copilot",
   display_state_form: false,
   get_state_fields,
   tableless: true,
   singleton: true,
   run,
-  runPost: runPost(config),
+  runPost: runPost,
   routes: { save_database },
-});
+};

@@ -32,32 +32,10 @@ const getPromptFromTemplate = async (tmplName, userPrompt, extraCtx = {}) => {
   return prompt;
 };
 
-const getCompletion = async (config, language, prompt) => {
-  const client = axios.create({
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + config.api_key,
-    },
+const getCompletion = async (language, prompt) => {
+  return getState().functions.llm_generate.run(prompt, {
+    systemPrompt: `You are a helpful code assistant. Your language of choice is ${language}. Do not include any explanation, just generate the code block itself.`,
   });
-  const params = {
-    //prompt: "How are you?",
-    model: "gpt-3.5-turbo",
-    messages: [
-      {
-        role: "system",
-        content: `You are a helpful code assistant. Your language of choice is ${language}. Do not include any explanation, just generate the code block itself.`,
-      },
-      { role: "user", content: prompt },
-    ],
-    temperature: 0.3,
-  };
-
-  const results = await client.post(
-    "https://api.openai.com/v1/chat/completions",
-    params
-  );
-
-  return results;
 };
 
 module.exports = { getCompletion, getPromptFromTemplate };

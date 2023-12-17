@@ -107,32 +107,33 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   return renderForm(form, req.csrfToken());
 };
 
-const runPost =
-  (module_config) =>
-  async (table_id, viewname, config, state, body, { req, res }) => {
-    const form = await getForm({ viewname, body, hasCode: true });
-    form.validate(body);
+const runPost = async (
+  table_id,
+  viewname,
+  config,
+  state,
+  body,
+  { req, res }
+) => {
+  const form = await getForm({ viewname, body, hasCode: true });
+  form.validate(body);
 
-    form.hasErrors = false;
-    form.errors = {};
+  form.hasErrors = false;
+  form.errors = {};
 
-    const fullPrompt = await getPromptFromTemplate(
-      "action-builder.txt",
-      form.values.prompt
-    );
+  const fullPrompt = await getPromptFromTemplate(
+    "action-builder.txt",
+    form.values.prompt
+  );
 
-    const completion = await getCompletion(
-      module_config,
-      "JavaScript",
-      fullPrompt
-    );
+  const completion = await getCompletion("JavaScript", fullPrompt);
 
-    form.values.code = completion?.data?.choices?.[0]?.message?.content;
-    res.sendWrap("Action Builder Copilot", [
-      renderForm(form, req.csrfToken()),
-      js(viewname),
-    ]);
-  };
+  form.values.code = completion?.data?.choices?.[0]?.message?.content;
+  res.sendWrap("Action Builder Copilot", [
+    renderForm(form, req.csrfToken()),
+    js(viewname),
+  ]);
+};
 
 const save_as_action = async (table_id, viewname, config, body, { req }) => {
   const form = await getForm({ viewname, body, hasCode: true });
@@ -154,13 +155,13 @@ const save_as_action = async (table_id, viewname, config, body, { req }) => {
   return { json: { error: "Form incomplete" } };
 };
 
-module.exports = (config) => ({
+module.exports = {
   name: "Action Builder Copilot",
   display_state_form: false,
   get_state_fields,
   tableless: true,
   singleton: true,
   run,
-  runPost: runPost(config),
+  runPost: runPost,
   routes: { save_as_action },
-});
+};
