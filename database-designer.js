@@ -145,8 +145,8 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
         //pick summary field
         if (field.type === "Key to users") {
           field.attributes = { summary_field: "email" };
-        } else if (field.type.startsWith("Key to users")) {
-          const reftable_name = field.type.replace("Key to users", "");
+        } else if (field.type.startsWith("Key to ")) {
+          const reftable_name = field.type.replace("Key to ", "");
           const reftable = tables_to_create.find(
             (t) => t.name === reftable_name
           );
@@ -160,6 +160,9 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
         await Field.create(field);
       }
     }
+
+    //todo: menu, show view
+
     if (form.values.basic_views)
       for (const { name } of tables_to_create) {
         const table = Table.findOne({ name });
@@ -186,8 +189,6 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
           },
           edit.id
         );
-        //list create is edit
-        // edit view when done is list
       }
 
     return { json: { success: "ok", notify: `Database created` } };
