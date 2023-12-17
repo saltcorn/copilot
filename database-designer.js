@@ -4,6 +4,7 @@ const Form = require("@saltcorn/data/models/form");
 const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
 const { findType } = require("@saltcorn/data/models/discovery");
+const { save_menu_items } = require("@saltcorn/data/models/config");
 const db = require("@saltcorn/data/db");
 const Workflow = require("@saltcorn/data/models/workflow");
 const { renderForm } = require("@saltcorn/markup");
@@ -161,8 +162,6 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
       }
     }
 
-    //todo: menu, show view
-
     if (form.values.basic_views)
       for (const { name } of tables_to_create) {
         const table = Table.findOne({ name });
@@ -174,6 +173,30 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
           {
             configuration: {
               ...list.configuration,
+              columns: [
+                ...list.configuration.columns,
+                {
+                  type: "ViewLink",
+                  view: `Own:Show ${name}`,
+                  view_name: `Show ${name}`,
+                  link_style: "",
+                  view_label: "Show",
+                  header_label: "Show",
+                },
+                {
+                  type: "ViewLink",
+                  view: `Own:Edit ${name}`,
+                  view_name: `Edit ${name}`,
+                  link_style: "",
+                  view_label: "Edit",
+                  header_label: "Edit",
+                },
+                {
+                  type: "Action",
+                  action_name: "Delete",
+                  action_style: "btn-primary",
+                },
+              ],
               view_to_create: `Edit ${name}`,
             },
           },
@@ -189,13 +212,25 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
           },
           edit.id
         );
+        await add_to_menu({
+          label: name,
+          type: "View",
+          min_role: 100,
+          viewname: `List ${name}`,
+        });
       }
 
     return { json: { success: "ok", notify: `Database created` } };
   }
   return { json: { error: "Form incomplete" } };
 };
-
+const add_to_menu = async (item) => {
+  const current_menu = getState().getConfigCopy("menu_items", []);
+  const existing = current_menu.findIndex((m) => m.label === item.label);
+  if (existing >= 0) current_menu[existing] = item;
+  else current_menu.push(item);
+  await save_menu_items(current_menu);
+};
 const initial_view = async (table, viewtemplate) => {
   const configuration = await initial_config_all_fields(
     viewtemplate === "Edit"
