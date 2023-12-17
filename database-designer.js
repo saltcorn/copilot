@@ -38,7 +38,7 @@ const getForm = async ({ viewname, body, hasCode }) => {
           {
             name: "basic_views",
             label: "Generate views",
-            subabel:
+            sublabel:
               "Also generate basic views (Show, Edit, List) for the generated tables",
             type: "Bool",
           },
@@ -126,19 +126,22 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
         if (reference_definition)
           type = `Key to ${reference_definition.table[0].table}`;
 
-        const fld = {
-          table: tblName,
+        fields.push({
           name: column.column,
           type,
-        };
-        console.log(fld, definition.dataType);
+        });
+
+        //onsole.log(fld, definition.dataType);
       }
       tables_to_create.push({ name: tblName, fields });
     }
     for (const table of tables_to_create) await Table.create(table.name);
 
-    for (const table of tables_to_create)
-      for (const field of table.fields) {
+    for (const tbl of tables_to_create) {
+      const table = Table.findOne({ name: tbl.name });
+
+      for (const field of tbl.fields) {
+        field.table = table;
         //pick summary field
         if (field.type === "Key to users") {
           field.attributes = { summary_field: "email" };
@@ -156,6 +159,7 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
         }
         await Field.create(field);
       }
+    }
     if (form.values.basic_views)
       for (const { name } of tables_to_create) {
         const table = Table.findOne({ name });
