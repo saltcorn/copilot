@@ -12,6 +12,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const { getCompletion, getPromptFromTemplate } = require("./common");
 const { Parser } = require("node-sql-parser");
 const parser = new Parser();
+const { initial_config_all_fields } = require("@saltcorn/data/plugin-helper");
 
 const get_state_fields = () => [];
 
@@ -155,10 +156,36 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
         }
         await Field.create(field);
       }
+    if (form.values.basic_views)
+      for (const { name } of tables_to_create) {
+        const table = Table.findOne({ name });
+
+        const list = await initial_view(table, "List");
+        const edit = await initial_view(table, "Edit");
+        const show = await initial_view(table, "Show");
+        //list create is edit
+        // edit view when done is list
+      }
 
     return { json: { success: "ok", notify: `Database created` } };
   }
   return { json: { error: "Form incomplete" } };
+};
+
+const initial_view = async (table, viewtemplate) => {
+  const configuration = await initial_config_all_fields(
+    viewtemplate === "Edit"
+  )({ table_id: table.id });
+  //console.log(configuration);
+  const name = `${viewtemplate} ${table.name}`;
+  const view = await View.create({
+    name,
+    configuration,
+    viewtemplate,
+    table_id: table.id,
+    min_role: 100,
+  });
+  return view;
 };
 
 module.exports = (config) => ({
