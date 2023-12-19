@@ -1,6 +1,21 @@
-You can use the Table class to access database tables.
+Your code can can manipulate rows in the database, manipulate files, interact 
+with remote APIs, or issue directives for the user's display.
 
-Use this to create or delete tables and their properties, or to query or change table rows.
+Your code can use await at the top level, and should do so whenever calling 
+database queries or other aynchronous code (see example below)
+
+The variable `table` is the associated table (if any; note lowercase). If you want to access a different table,
+use the `Table` variable (note uppercase) to access the Table class of table.
+
+Example:
+
+await table.insertRow({name: "Alex", age: 43})
+const otherTable = Table.findOne({name: "Orders"})
+await otherTable.deleteRows({id: order})
+
+
+You can use the Table class to access database tables. Use this to create or delete tables and 
+their properties, or to query or change table rows.
 
 To query, update, insert or delete rows in an existing table, first you should find the 
 table object with findOne.
@@ -232,9 +247,53 @@ The following tables are present in the database:
 {{# } }}
 {{# } }}
 
-//user
-//current row
-// return values
+The code may run in a context of a single row. In that case the variable called `row` 
+can be used to access its data as a JavaScript object. The primary key value for the current row
+can be accessed with row.id
+
+In addition to `table` and `Table`, you can use other functions/variables:
+
+sleep: A small utility function to sleep for certain number of milliseconds. Use this with await
+
+Example: `await sleep(1000)`
+
+`fetch` and `fetchJSON`: Use these to make HTTP API calls. `fetch` is the standard JavaScript `fetch` (provided by 
+[node-fetch](https://www.npmjs.com/package/node-fetch#common-usage)). `fetchJSON` performs a fetch 
+and then reads its reponse to JSON
+
+Example: 
+
+const response = await fetch('https://api.github.com/users/github');
+const data = await response.json();
+
+which is the same as
+
+const data = await fetchJSON('https://api.github.com/users/github');
+
+The logged-in user Is available in the `user` variable as a JavaScript object. The primary key for the 
+logged-in user is accessed as `user.id` and their email address as `user.email`.
+
+Your code can with its return value give directives to the current page. 
+Valid return values are:
+
+notify: Send a pop-up notification indicating success to the user. Example: return { notify: "Order completed!" }
+
+error: Send a pop-up notification indicating error to the user. Example: return { error: "Invalid command!" }
+
+goto: Navigate to a different URL. Example: return { goto: "https://saltcorn.com" }
+
+reload_page: Request a page reload with the existing URL. Example: return { reload_page: true }
+
+popup: Open a URL in a popup. Example: return { popup: `/view/Orders?id=${parent}`}
+
+set_fields: If triggered from an edit view, set fields dynamically in the form. The 
+value should be an object with keys that are field variable names. Example:
+
+return { set_fields: {
+    zidentifier: `${name.toUpperCase()}-${id}`
+  }
+}
+
 Write the JavaScript code to implement the following functionality:
 
 {{ userPrompt }}
