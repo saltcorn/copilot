@@ -19,13 +19,14 @@ put the await in front of the whole expression.
 Example:
 To count the number of rows in the customer table:
 
-const nrows = await Table.findOne("Customers").countRows()
+const nrows = await Table.findOne("Customers").countRows({})
 
 Querying table rows
 
 There are several methods you can use to retrieve rows in the database:
 
-countRows: To count the number of rows, optionally matching a criterion
+countRows: Count the number of rows in db table. The argument is a where-expression with conditions the
+counted rows should match. countRows returns the number of matching rows wrapped in a promise.
 
 countRows(where?): Promise<number>
 Count amount of rows in db table
@@ -34,7 +35,28 @@ Parameters
 Optional where: Where
 Returns Promise<number>
 
-getRows: To retrieve multiple rows matching a criterion
+Example of using countRows: 
+const bookTable = Table.findOne({name: "books"})
+ 
+// Count the total number of rows in the books table
+const totalNumberOfBooks = await bookTable.countRows({})
+
+// Count the number of books where the cover_color field has the value is "Red"
+const numberOfRedBooks = await bookTable.countRows({cover_color: "Red"})
+
+// Count number of books with more than 500 pages
+const numberOfLongBooks = await bookTable.countRows({pages: {gt: 500}})
+
+getRows: Get all matching rows from the table in the database.
+
+The arguments are the same as for getRow. The first argument is where-expression
+with the conditions to match, and the second argument is an optional object and 
+allows you to set ordering and limit options. Keywords that can be used in the 
+second argument are orderBy, orderDesc, limit and offset.
+
+getRows will return an array of rows matching the where-expression in the first 
+argument, wrapped in a Promise (use await to read the array).
+
 
 getRows(where?, selopts?): Promise<Row[]>
 Get rows from Table in db
@@ -44,7 +66,29 @@ where: Where = {}
 selopts: SelectOptions & ForUserRequest = {}
 Returns Promise<Row[]>
 
-getRow: To retrieve a single row matching a criterion
+Example of using getRows:
+
+const bookTable = Table.findOne({name: "books"})
+
+// get the rows in the book table with author = "Henrik Pontoppidan"
+const myBooks = await bookTable.getRows({author: "Henrik Pontoppidan"})
+
+// get the 3 most recent books written by "Henrik Pontoppidan" with more that 500 pages
+const myBooks = await bookTable.getRows({author: "Henrik Pontoppidan", pages: {gt: 500}}, {orderBy: "published", orderDesc: true})
+
+getRow: Get one row from the table in the database. The matching row will be returned in a promise - 
+use await to read the value. If no matching rule can be found, null will be returned. If more than one
+ row matches, the first found row will be returned.
+
+The first argument to get row is a where-expression With the conditions the returned row should match.
+
+The second document is optional and is an object that can modify the search. This is mainly useful in 
+case there is more than one matching row for the where-expression in the first argument and you want to 
+give an explicit order. For example, use {orderBy: "name"} as the second argument to pick the first 
+row by the name field, ordered ascending. {orderBy: "name", orderDesc: true} to order by name, descending
+
+This is however rare and usually getRow is run with a single argument of a Where expression that uniquely 
+determines the row to return, if it exisits.
 
 getRow(where?, selopts?): Promise<null | Row>
 Get one row from table in db
@@ -53,6 +97,15 @@ Parameters
 where: Where = {}
 selopts: SelectOptions & ForUserRequest = {}
 Returns Promise<null | Row>
+
+Example of using getRow:
+const bookTable = Table.findOne({name: "books"})
+
+// get the row in the book table with id = 5
+const myBook = await bookTable.getRow({id: 5})
+
+// get the row for the last book published by Leo Tolstoy
+const myBook = await bookTable.getRow({author: "Leo Tolstoy"}, {orderBy: "published", orderDesc: true})
 
 getJoinedRows: To retrieve rows together with joinfields and aggregations
 
@@ -70,7 +123,7 @@ Parameters
 Optional opts: any = {}
 Returns Promise<Row[]>
 
-Example of using Table.getJoinedRows: 
+Example of using getJoinedRows: 
 
 const patients = Table.findOne({ name: "patients" });
 const patients_rows = await patients.getJoinedRows({
@@ -106,7 +159,7 @@ the criterion to match to. Some examples:
 
 There are two nearly identical functions for updating rows depending on how you want failures treated
 
-updateRow Update a row, throws an exception if update is invalid
+updateRow Update a row in the database table, throws an exception if update is invalid
 
 updateRow(v_in, id, user?, noTrigger?, resultCollector?, restore_of_version?, syncTimestamp?): Promise<string | void>
 Update row
@@ -121,6 +174,16 @@ Optional noTrigger: boolean
 Optional resultCollector: object
 Optional restore_of_version: any
 Optional syncTimestamp: Date
+
+Example of using updateRow: 
+
+const bookTable = Table.findOne({name: "books"})
+
+// get the row in the book table for Moby Dick
+const moby_dick = await bookTable.getRow({title: "Moby Dick"})
+
+// Update the read field to true and the rating field to 5 in the retrieved row.
+await bookTable.updateRow({read: true, rating: 5}, moby_dick.id)
 
 tryUpdateRow Update a row, return an error message if update is invalid
 
@@ -169,6 +232,9 @@ The following tables are present in the database:
 {{# } }}
 {{# } }}
 
+//user
+//current row
+// return values
 Write the JavaScript code to implement the following functionality:
 
 {{ userPrompt }}
