@@ -134,7 +134,7 @@ const runPost = async (
 
   const completion = await getCompletion("JavaScript", fullPrompt);
 
-  form.values.code = completion?.data?.choices?.[0]?.message?.content;
+  form.values.code = completion;
   res.sendWrap("Action Builder Copilot", [
     renderForm(form, req.csrfToken()),
     js(viewname),
