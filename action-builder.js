@@ -91,6 +91,7 @@ const getForm = async ({ viewname, body, hasCode }) => {
             label: "Save as trigger",
             onclick: "save_as_action(this)",
             class: "btn btn-primary",
+            afterSave: true,
           },
         ]
       : undefined,
