@@ -172,7 +172,7 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
 
       for (const field of tbl.fields) {
         field.table = table;
-        console.log(field.name, field.type);
+        console.log("field", field.name, "type", field.type);
         //pick summary field
         if (field.type === "Key to users") {
           field.attributes = { summary_field: "email" };
