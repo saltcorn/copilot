@@ -114,6 +114,7 @@ const runPost = async (
 
 const moreTypes = {
   decimal: "Float",
+  numeric: "Float",
   varchar: "String",
 };
 
@@ -137,14 +138,24 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
         definition,
         primary_key,
         reference_definition,
+        resource,
       } of create_definitions) {
         if (primary_key) continue;
+        if (resource === "constraint") continue;
+
         let type =
           findType(definition.dataType.toLowerCase()) ||
           moreTypes[definition.dataType.toLowerCase()];
         if (reference_definition)
           type = `Key to ${reference_definition.table[0].table}`;
-
+        const constraint = create_definitions.find(
+          (cd) =>
+            cd.resource === "constraint" &&
+            cd.definition?.[0]?.column === column.column
+        );
+        if (constraint?.reference_definition) {
+          type = `Key to ${constraint.reference_definition.table[0].table}`;
+        }
         fields.push({
           name: column.column,
           type,
@@ -161,6 +172,7 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
 
       for (const field of tbl.fields) {
         field.table = table;
+        console.log(field.name, field.type);
         //pick summary field
         if (field.type === "Key to users") {
           field.attributes = { summary_field: "email" };
