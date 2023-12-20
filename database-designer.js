@@ -112,6 +112,11 @@ const runPost = async (
   ]);
 };
 
+const moreTypes = {
+  decimal: "Float",
+  varchar: "String",
+};
+
 const save_database = async (table_id, viewname, config, body, { req }) => {
   const form = await getForm({ viewname, body, hasCode: true });
   form.validate(body);
@@ -134,7 +139,9 @@ const save_database = async (table_id, viewname, config, body, { req }) => {
         reference_definition,
       } of create_definitions) {
         if (primary_key) continue;
-        let type = findType(definition.dataType.toLowerCase());
+        let type =
+          findType(definition.dataType.toLowerCase()) ||
+          moreTypes[definition.dataType.toLowerCase()];
         if (reference_definition)
           type = `Key to ${reference_definition.table[0].table}`;
 
