@@ -1,5 +1,6 @@
 const Workflow = require("@saltcorn/data/models/workflow");
 const Form = require("@saltcorn/data/models/form");
+const { features } = require("@saltcorn/data/db/state");
 
 const configuration_workflow = () =>
   new Workflow({
@@ -11,4 +12,7 @@ module.exports = {
   //configuration_workflow,
   dependencies: ["@saltcorn/large-language-model"],
   viewtemplates: [require("./action-builder"), require("./database-designer")],
+  functions: features.workflows
+    ? { copilot_generate_workflow: require("./workflow-gen") }
+    : {},
 };
