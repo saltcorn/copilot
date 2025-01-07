@@ -77,6 +77,20 @@ const toArrayOfStrings = (opts) => {
 const fieldProperties = (field) => {
   const props = {};
   const typeName = field.type.name || field.type;
+  if (field.isRepeat) {
+    props.type = "array";
+    const properties = {};
+    field.fields.map((f) => {
+      properties[f.name] = {
+        description: f.sublabel || f.label,
+        ...fieldProperties(f),
+      };
+    });
+    props.items = {
+      type: "object",
+      properties,
+    };
+  }
   switch (typeName) {
     case "String":
       props.type = "string";
