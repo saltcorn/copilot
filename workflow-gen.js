@@ -1,8 +1,14 @@
 const { getState } = require("@saltcorn/data/db/state");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
+const Trigger = require("@saltcorn/data/models/trigger");
+const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
 
 const workflowSystemPrompt = () => {
   const actionExplainers = WorkflowStep.builtInActionExplainers();
+  let stateActions = getState().actions;
+  const stateActionList = Object.entries(stateActions).filter(
+    ([k, v]) => !v.disableInWorkflow
+  );
 
   return `You are an expert in constructing computational workflows according to specifications. You must create 
 the workflow by calling the generate_workflow tool, with the step required to implement the specification.
@@ -32,6 +38,7 @@ field. The available step types are:
 ${Object.entries(actionExplainers)
   .map(([k, v]) => `* ${k}: ${v}`)
   .join("\n")}
+${stateActionList.map(([k, v]) => `* ${k}: ${v.description || ""}`).join("\n")}
 
 `;
 };
@@ -76,7 +83,7 @@ const toArrayOfStrings = (opts) => {
 };
 const fieldProperties = (field) => {
   const props = {};
-  const typeName = field.type.name || field.type;
+  const typeName = field.type?.name || field.type || field.input_type;
   if (field.isRepeat) {
     props.type = "array";
     const properties = {};
@@ -106,6 +113,10 @@ const fieldProperties = (field) => {
     case "Float":
       props.type = "number";
       break;
+    case "select":
+      props.type = "string";
+      if (field.options) props.enum = toArrayOfStrings(field.options);
+      break;
   }
   return props;
 };
@@ -113,6 +124,11 @@ const fieldProperties = (field) => {
 const steps = async () => {
   const actionExplainers = WorkflowStep.builtInActionExplainers();
   const actionFields = await WorkflowStep.builtInActionConfigFields();
+
+  let stateActions = getState().actions;
+  const stateActionList = Object.entries(stateActions).filter(
+    ([k, v]) => !v.disableInWorkflow
+  );
 
   const stepTypeAndCfg = Object.keys(actionExplainers).map((actionName) => {
     const properties = { step_type: { const: actionName } };
@@ -134,6 +150,30 @@ const steps = async () => {
       required,
     };
   });
+  for (const [actionName, action] of stateActionList) {
+    try {
+      const properties = { step_type: { const: actionName } };
+      const cfgFields = await getActionConfigFields(action, null, {
+        mode: "workflow",
+      });
+      const required = ["step_type"];
+      cfgFields.forEach((f) => {
+        console.log(actionName, f);
+
+        if (f.required) required.push(f.name);
+        properties[f.name] = {
+          description: f.sublabel || f.label,
+          ...fieldProperties(f),
+        };
+      });
+      stepTypeAndCfg.push({
+        type: "object",
+        description: actionExplainers[actionName],
+        properties,
+        required,
+      });
+    } catch (e) {}
+  }
   const properties = {
     step_name: {
       description: "The name of this step as a valid Javascript identifier",
