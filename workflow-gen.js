@@ -2,6 +2,8 @@ const { getState } = require("@saltcorn/data/db/state");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 
 const workflowSystemPrompt = () => {
+  const actionExplainers = WorkflowStep.builtInActionExplainers();
+
   return `You are an expert in constructing computational workflows according to specifications. You must create 
 the workflow by calling the generate_workflow tool, with the step required to implement the specification.
 
@@ -22,6 +24,15 @@ and you would like the next step to be too_low if x is less than 10 and too_high
 use this as the next_step expression: x<10 ? too_low : too_high
 
 If the next_step is omitted then the workflow terminates.
+
+Each step has a step_configuration object which contains the step type and the specific parameters of 
+that step type. You should specify the step type in the step_type subfield of the step_configuration
+field. The available step types are:
+
+${Object.entries(actionExplainers)
+  .map(([k, v]) => `* ${k}: ${v}`)
+  .join("\n")}
+
 `;
 };
 
@@ -156,13 +167,16 @@ const workflow_function = async () => ({
 module.exports = {
   run: async (description) => {
     const rnd = Math.round(100 * Math.random());
+    const systemPrompt = workflowSystemPrompt();
+    console.log(systemPrompt);
+
     const toolargs = {
       tools: [await workflow_function()],
       tool_choice: {
         type: "function",
         function: { name: "generate_workflow" },
       },
-      systemPrompt: workflowSystemPrompt(),
+      systemPrompt,
     };
     const prompt = `Design a workflow to implement a workflow accorfing to the following specification: ${description}`;
     console.log(prompt);
@@ -177,18 +191,7 @@ module.exports = {
     const scsteps = resp.workflow_steps.map(to_saltcorn_step);
     console.log("scteps", scsteps);
 
-    return [
-      {
-        name: "step1",
-        next_step: "",
-        only_if: "",
-        action_name: "SetContext",
-        initial_step: true,
-        configuration: {
-          ctx_values: `{x: ${rnd}}`,
-        },
-      },
-    ];
+    return scsteps;
   },
   isAsync: true,
   description: "Generate a workflow",
