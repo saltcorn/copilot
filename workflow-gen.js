@@ -22,51 +22,6 @@ and you would like the next step to be too_low if x is less than 10 and too_high
 use this as the next_step expression: x<10 ? too_low : too_high
 
 If the next_step is omitted then the workflow terminates.
-
-The workflow steps can have different types according to what each step should accomplish. The available step types, 
-set in the "step_type" key in the step object, are Code, Form, Output, AskAI, Extract, Retrieve, ForLoop, EndForLoop and Stop. Here are some details of each step type:
-
-Code: if the step_type is "Code" then the step object should include the JavaScript code to be executed in the "code"
-key. You can use await in the code if you need to run asynchronous code. The values in the context are directly in scope and can be accessed using their name. In addition, the variable 
-"context" it's also in scope and can be used to address the context as a whole. To write values to the context, return an
-object. The values in this object will be written into the current context. If a value already exists in the context 
-it will be overridden. For example, If the context contains values x and x which are numbere and you would like to push
-the value "sum" which is the sum of x and y, then use this as the code: return {sum: x+y}. You cannot set the next step in the 
-return object or by returning a string from a Code step, this will not work. To set the next step from a code action, always use the next_step property of the step object.
-This expression for the next step can depend on value pushed to the context (by the return object in the code) as these values are in scope.  
-
-Form: Use a step with step_type of "Form" to ask questions or obtain information from the user. The execution of the 
-workflow is suspended until the user answers the questions by filling in the form. 
-
-Output: steps with step_type of "Output" can output data from the context to the user. It can do so by writing html, with 
-handlebars interpolations to access the context, or by displaying a table from arrays of objects. To output HTML,
-put the HTML you want to be displayed in the html key of 
-the step object. This HTML can use handlebars (starting with {{ and ending with }}) to access variables in the context. 
-For example if the context includes a value x, you can output this by {{ x }}, for example with this HTML: 
-<div>x={{x}}</div>. To output a table, out a JavaScript expression for the data to be displayed in the stop key 
-table_expression. For the table_expression exprssion, the variables in the 
-context are in scope, as well as the context as a whole by the identifier context.
-
-AskAI: use a AskAI step to consult an artificial intelligence language processor to ask a question in natural language in which the answer is given in natural language. The answer is based on a 
-question, specified as a JavaScript expression in the step object "ask_question_expression" key. Running the step will provide an answer by a 
-highly capable artificial intelligence processor who however does not have in-depth knowledge of the subject matter or any case specifics at hand - you
-must provide all these details in the question string, which should concatenate multiple background documents before asking the
-actual question. You must also provide a variable name (in the answer_variable key in the step definition) where the answer
-will be pushed to the context as a string.
-
-Extract: use Extract steps to extract structured information from text. Extract uses natural language processing to read a document, 
-and to generate JSON objects with specified fields. An Extract step requires four settings in the step object:  extract_description,
-a general description of what it is that should be extracted; extract_fields, which is an array of the fields in each object that is 
-extracted from the text, each with a name, a type and a description; extract_multiple a bully and that indicates whether exactly one object 
-or an array with any number of objects should be extracted; and extract_to_variable, the name of the variable should be written to in the
-context (as an object if extract_multiple is false and as an array if extract_multiple is true). 
-
-Retrieve: Retrieve steps will search a document database for a search term, and will push any matching documents to a variable in the 
-context. An Retrieve step requires two settings in the step object. Firstly, retrieve_term_expression is a JavaScript expression for the term to 
-search for. This expression can be based on the context, each of which values are directly in scope as well as the term context for the context as a whole).
-Secondly, retrieve_to_variable is the name of the variable containing an array any retrieved documents will be appended to. Each document will be
-appended to the array denoted by retrieve_to_variable as an object containing these fields: id, an integer, which is a unique identifier for the document;
-contents, a string, which is the main content of the document; title, a string containing the title; and url, a string containing a URL link to the original document.
 `;
 };
 
@@ -103,23 +58,55 @@ const survey_questions = {
     },
   },
 };
+const toArrayOfStrings = (opts) => {
+  if (typeof opts === "string") return opts.split(",").map((s) => s.trim());
+  if (Array.isArray(opts))
+    return opts.map((o) => (typeof o === "string" ? o : o.value || o.name));
+};
+const fieldProperties = (field) => {
+  const props = {};
+  const typeName = field.type.name || field.type;
+  switch (typeName) {
+    case "String":
+      props.type = "string";
+      if (field.attributes?.options)
+        props.enum = toArrayOfStrings(field.attributes.options);
+      break;
+    case "Boolean":
+      props.type = "boolean";
+      break;
+    case "Integer":
+      props.type = "integer";
+      break;
+    case "Float":
+      props.type = "number";
+      break;
+  }
+  return props;
+};
 
 const steps = async () => {
-  const actionExplainers = WorkflowStep.actionExplainers();
+  const actionExplainers = WorkflowStep.builtInActionExplainers();
   const actionFields = await WorkflowStep.builtInActionConfigFields();
+
   const stepTypeAndCfg = Object.keys(actionExplainers).map((actionName) => {
     const properties = { step_type: { const: actionName } };
-    actionFields
-      .filter((f) => f.wf_step_name === actionName)
-      .forEach((f) => {
-        properties[f.name] = {
-          description: f.sublabel || f.label,
-        };
-      });
+    const myFields = actionFields.filter(
+      (f) => f.showIf?.wf_action_name === actionName
+    );
+    const required = ["step_type"];
+    myFields.forEach((f) => {
+      if (f.required) required.push(f.name);
+      properties[f.name] = {
+        description: f.sublabel || f.label,
+        ...fieldProperties(f),
+      };
+    });
     return {
       type: "object",
       description: actionExplainers[actionName],
       properties,
+      required,
     };
   });
   const properties = {
@@ -132,11 +119,11 @@ const steps = async () => {
         "Optional JavaScript expression based on the context. If given, the chosen action will only be executed if evaluates to true",
       type: "string",
     },
-    step_type: {
+    /*step_type: {
       description: "The type of workflow step",
       type: "string",
       enum: Object.keys(actionExplainers),
-    },
+    },*/
     next_step: {
       description:
         "The next step in the workflow, as a JavaScript expression based on the context.",
@@ -170,7 +157,7 @@ module.exports = {
   run: async (description) => {
     const rnd = Math.round(100 * Math.random());
     const toolargs = {
-      tools: [await workflow_function],
+      tools: [await workflow_function()],
       tool_choice: {
         type: "function",
         function: { name: "generate_workflow" },
@@ -179,12 +166,17 @@ module.exports = {
     };
     const prompt = `Design a workflow to implement a workflow accorfing to the following specification: ${description}`;
     console.log(prompt);
+    console.log(JSON.stringify(toolargs, null, 2));
+
     const answer = await getState().functions.llm_generate.run(
       prompt,
       toolargs
     );
     const resp = JSON.parse(answer.tool_calls[0].function.arguments);
     console.log(JSON.stringify(resp, null, 2));
+    const scsteps = resp.workflow_steps.map(to_saltcorn_step);
+    console.log("scteps", scsteps);
+
     return [
       {
         name: "step1",
@@ -201,4 +193,15 @@ module.exports = {
   isAsync: true,
   description: "Generate a workflow",
   arguments: [{ name: "description", type: "String" }],
+};
+
+const to_saltcorn_step = (llm_step) => {
+  const { step_type, ...configuration } = llm_step.step_configuration;
+  return {
+    name: llm_step.step_name,
+    action_name: step_type,
+    next_step: llm_step.next_step,
+    only_if: llm_step.only_if,
+    configuration,
+  };
 };
