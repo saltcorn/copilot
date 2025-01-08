@@ -40,6 +40,26 @@ ${Object.entries(actionExplainers)
   .join("\n")}
 ${stateActionList.map(([k, v]) => `* ${k}: ${v.description || ""}`).join("\n")}
 
+Most of them are areplained by their parameter descriptions. Here are some additional information for some
+step types:
+
+run_js_code: if the step_type is "run_js_code" then the step object should include the JavaScript code to be executed in the "code"
+key. You can use await in the code if you need to run asynchronous code. The values in the context are directly in scope and can be accessed using their name. In addition, the variable 
+"context" is also in scope and can be used to address the context as a whole. To write values to the context, return an
+object. The values in this object will be written into the current context. If a value already exists in the context 
+it will be overwritten. For example, If the context contains values x and y which are numbers and you would like to push
+the value "sum" which is the sum of x and y, then use this as the code: return {sum: x+y}. You cannot set the next step in the 
+return object or by returning a string from a run_js_code step, this will not work. To set the next step from a code action, always use the next_step property of the step object.
+This expression for the next step can depend on value pushed to the context (by the return object in the code) as these values are in scope.  
+
+ForLoop: ForLoop steps loop over an array which is specified by the array_expression JavaScript expression. Execution of the workflow steps is temporarily diverted to another set
+of steps, starting from the step specified by the loop_body_inital_step value, and runs until it encounters a
+step with nothing specified for next_step at which point the next iteration (over the next item in the array) is started. When all items have
+been iterated over, the for loop is complete and execution continues with the next_step of the ForLoop step. During each iteration 
+of the loop, the current array item is temporarily set to a variable in the context specified by the item_variable variable. The steps between
+in the loop body can access this current aray items in the context by the context item_variable name.
+When all items have been iterated, the for loop will continue from the step indicated by its next_step. 
+
 `;
 };
 
@@ -158,7 +178,6 @@ const steps = async () => {
       });
       const required = ["step_type"];
       cfgFields.forEach((f) => {
-        console.log(actionName, f);
 
         if (f.required) required.push(f.name);
         properties[f.name] = {
