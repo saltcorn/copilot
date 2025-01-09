@@ -40,7 +40,7 @@ ${Object.entries(actionExplainers)
   .join("\n")}
 ${stateActionList.map(([k, v]) => `* ${k}: ${v.description || ""}`).join("\n")}
 
-Most of them are areplained by their parameter descriptions. Here are some additional information for some
+Most of them are are explained by their parameter descriptions. Here are some additional information for some
 step types:
 
 run_js_code: if the step_type is "run_js_code" then the step object should include the JavaScript code to be executed in the "code"
@@ -59,6 +59,22 @@ been iterated over, the for loop is complete and execution continues with the ne
 of the loop, the current array item is temporarily set to a variable in the context specified by the item_variable variable. The steps between
 in the loop body can access this current aray items in the context by the context item_variable name.
 When all items have been iterated, the for loop will continue from the step indicated by its next_step. 
+
+llm_generate: use a llm_generate step to consult an artificial intelligence language processor to ask a question in natural language in which the answer is given in natural language. The answer is based on a 
+question, specified as a string in the step conmfiguration "prompt_template" key in which you can user interpolation ({{ }}) to access context variables. Running the step will provide an answer by a 
+highly capable artificial intelligence processor who however does not have in-depth knowledge of the subject matter or any case specifics at hand - you
+must provide all these details in the question string, which should concatenate multiple background documents before asking the
+actual question. You must also provide a variable name (in the answer_field key in the step definition) where the answer
+will be pushed to the context as a string. If you specificy a variable name in chat_history_field, the invocation of subsequent llm_generate
+steps in the same workflow will contain the interaction history of previous invocations, so you don't have to repeat information in the prompt and can
+maintain a conversational interaction.
+
+llm_generate_json: use llm_generate_json steps to extract structured information from text. llm_generate_json uses natural language processing to read a document, 
+and to generate JSON objects with specified fields. A llm_generate_json step requires four settings in the step object:  gen_description,
+a general description of what it is that should be extracted; fields, which is an array of the fields in each object that is 
+extracted from the text, each with a name, a type and a description; multiple a boolean and that indicates whether exactly one object 
+or an array with any number of objects should be extracted; and answer_field, the name of the variable should be written to in the
+context (as an object if multiple is false and as an array if multiple is true). 
 
 `;
 };
