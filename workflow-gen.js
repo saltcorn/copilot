@@ -194,7 +194,7 @@ const steps = async () => {
       });
       const required = ["step_type"];
       cfgFields.forEach((f) => {
-
+        if (f.input_type === "section_header") return;
         if (f.required) required.push(f.name);
         properties[f.name] = {
           description: f.sublabel || f.label,
