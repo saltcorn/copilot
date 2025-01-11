@@ -191,6 +191,7 @@ const steps = async () => {
       const properties = { step_type: { const: actionName } };
       const cfgFields = await getActionConfigFields(action, null, {
         mode: "workflow",
+        copilot: true,
       });
       const required = ["step_type"];
       cfgFields.forEach((f) => {
