@@ -33,9 +33,10 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
   const form = new Form({
-    onSubmit: `event.preventDefault();view_post('${viewname}', 'interact', $(this).serialize(), processCopilotResponse);return false;`,
+    onSubmit: `event.preventDefault();press_store_button(this, true);view_post('${viewname}', 'interact', $(this).serialize(), processCopilotResponse);return false;`,
     formStyle: "vert",
     submitLabel: "Send",
+    class: "copilot",
     fields: [
       {
         type: "String",
@@ -48,9 +49,14 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   form.hidden("run_id");
   return div(
     h4("How can i help you?"),
+    div(
+      { class: "mb-3" },
+      "Skills you can request: " + actionClasses.map((ac) => ac.title).join(",")
+    ),
     div({ id: "copilotinteractions" }),
     style(`p.userinput {border-left: 3px solid #858585; padding-left: 5px;}`),
     script(`function processCopilotResponse(res) {
+        restore_old_button_elem($("form.copilot").find("button"))
         const $runidin= $("input[name=run_id")
         if(res.run_id && (!$runidin.val() || $runidin.val()=="undefined"))
           $runidin.val(res.run_id);
@@ -65,7 +71,17 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
 
         if(res.response)
             $("#copilotinteractions").append('<p>'+res.response+'</p>')
-    }`),
+    }
+    function restore_old_button_elem(btn) {
+        console.log("btn", btn )
+        const oldText = $(btn).data("old-text");
+        console.log("btn", btn, oldText)
+
+        btn.html(oldText);
+        btn.css({ width: "" });
+        btn.removeData("old-text");
+    }
+`),
     renderForm(form, req.csrfToken())
   );
 };
