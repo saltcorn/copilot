@@ -50,91 +50,93 @@ const fieldProperties = (field) => {
 };
 
 const steps = async () => {
-    const actionExplainers = WorkflowStep.builtInActionExplainers();
-    const actionFields = await WorkflowStep.builtInActionConfigFields();
-  
-    let stateActions = getState().actions;
-    const stateActionList = Object.entries(stateActions).filter(
-      ([k, v]) => !v.disableInWorkflow
+  const actionExplainers = WorkflowStep.builtInActionExplainers();
+  const actionFields = await WorkflowStep.builtInActionConfigFields();
+
+  let stateActions = getState().actions;
+  const stateActionList = Object.entries(stateActions).filter(
+    ([k, v]) => !v.disableInWorkflow
+  );
+
+  const stepTypeAndCfg = Object.keys(actionExplainers).map((actionName) => {
+    const properties = { step_type: { const: actionName } };
+    const myFields = actionFields.filter(
+      (f) => f.showIf?.wf_action_name === actionName
     );
-  
-    const stepTypeAndCfg = Object.keys(actionExplainers).map((actionName) => {
+    const required = ["step_type"];
+    myFields.forEach((f) => {
+      if (f.required) required.push(f.name);
+      properties[f.name] = {
+        description: f.sublabel || f.label,
+        ...fieldProperties(f),
+      };
+    });
+    return {
+      type: "object",
+      description: actionExplainers[actionName],
+      properties,
+      required,
+    };
+  });
+  for (const [actionName, action] of stateActionList) {
+    try {
       const properties = { step_type: { const: actionName } };
-      const myFields = actionFields.filter(
-        (f) => f.showIf?.wf_action_name === actionName
-      );
+      const cfgFields = await getActionConfigFields(action, null, {
+        mode: "workflow",
+        copilot: true,
+      });
       const required = ["step_type"];
-      myFields.forEach((f) => {
+      cfgFields.forEach((f) => {
+        if (f.input_type === "section_header") return;
         if (f.required) required.push(f.name);
         properties[f.name] = {
           description: f.sublabel || f.label,
           ...fieldProperties(f),
         };
       });
-      return {
+      stepTypeAndCfg.push({
         type: "object",
         description: actionExplainers[actionName],
         properties,
         required,
-      };
-    });
-    for (const [actionName, action] of stateActionList) {
-      try {
-        const properties = { step_type: { const: actionName } };
-        const cfgFields = await getActionConfigFields(action, null, {
-          mode: "workflow",
-          copilot: true,
-        });
-        const required = ["step_type"];
-        cfgFields.forEach((f) => {
-          if (f.input_type === "section_header") return;
-          if (f.required) required.push(f.name);
-          properties[f.name] = {
-            description: f.sublabel || f.label,
-            ...fieldProperties(f),
-          };
-        });
-        stepTypeAndCfg.push({
-          type: "object",
-          description: actionExplainers[actionName],
-          properties,
-          required,
-        });
-      } catch (e) {}
-    }
-    const properties = {
-      step_name: {
-        description: "The name of this step as a valid Javascript identifier",
-        type: "string",
-      },
-      only_if: {
-        description:
-          "Optional JavaScript expression based on the context. If given, the chosen action will only be executed if evaluates to true",
-        type: "string",
-      },
-      /*step_type: {
+      });
+    } catch (e) {}
+  }
+  const properties = {
+    step_name: {
+      description: "The name of this step as a valid Javascript identifier",
+      type: "string",
+    },
+    only_if: {
+      description:
+        "Optional JavaScript expression based on the context. If given, the chosen action will only be executed if evaluates to true",
+      type: "string",
+    },
+    /*step_type: {
         description: "The type of workflow step",
         type: "string",
         enum: Object.keys(actionExplainers),
       },*/
-      next_step: {
-        description:
-          "The next step in the workflow, as a JavaScript expression based on the context.",
-        type: "string",
-      },
-      step_configuration: { anyOf: stepTypeAndCfg },
-    };
-    return {
-      type: "array",
-      items: {
-        type: "object",
-        properties,
-      },
-    };
+    next_step: {
+      description:
+        "The next step in the workflow, as a JavaScript expression based on the context.",
+      type: "string",
+    },
+    step_configuration: { anyOf: stepTypeAndCfg },
   };
+  return {
+    type: "array",
+    items: {
+      type: "object",
+      properties,
+    },
+  };
+};
 
 class GenerateWorkflow {
   static function_name = "generate_workflow";
+  static description = "Generate the steps in a workflow";
+
   static async json_schema() {
     return {
       type: "object",
@@ -220,11 +222,11 @@ class GenerateWorkflow {
   context (as an object if multiple is false and as an array if multiple is true).`;
   }
 
-  static description = "Generate the steps in a workflow";
-
   static async execute() {}
 
-  static render_html() {}
+  static render_html(args) {
+    return `A workflow! Step names: ${1}`;
+  }
 
   //specific methods
 

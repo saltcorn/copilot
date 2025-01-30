@@ -9,14 +9,14 @@ const workflow_function = async () => ({
   function: {
     name: "generate_workflow",
     description: "Generate the steps in a workflow",
-    parameters: GenerateWorkflow.json_schema(),
+    parameters: await GenerateWorkflow.json_schema(),
   },
 });
 
 module.exports = {
   run: async (description) => {
     const rnd = Math.round(100 * Math.random());
-    const systemPrompt = GenerateWorkflow.system_prompt();
+    const systemPrompt = await GenerateWorkflow.system_prompt();
 
     const toolargs = {
       tools: [await workflow_function()],
