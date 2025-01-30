@@ -73,14 +73,19 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
             $("#copilotinteractions").append('<p>'+res.response+'</p>')
     }
     function restore_old_button_elem(btn) {
-        console.log("btn", btn )
         const oldText = $(btn).data("old-text");
-        console.log("btn", btn, oldText)
-
         btn.html(oldText);
         btn.css({ width: "" });
         btn.removeData("old-text");
     }
+        function processExecuteResponse(res) {
+          const btn = $("#exec-"+res.fcall_id)
+          restore_old_button_elem($("#exec-"+res.fcall_id))
+          btn.prop('disabled', true);
+          btn.html('<i class="fas fa-check me-1"></i>Executed')
+          btn.removeClass("btn-primary")
+          btn.addClass("btn-secondary")
+        }
 `),
     renderForm(form, req.csrfToken())
   );
@@ -124,6 +129,7 @@ const execute = async (table_id, viewname, config, body, { req }) => {
     (ac) => ac.function_name === fcall.name
   );
   await actionClass.execute(JSON.parse(fcall.arguments));
+  return { json: { success: "ok", fcall_id } };
 };
 
 const interact = async (table_id, viewname, config, body, { req }) => {
@@ -193,8 +199,9 @@ const interact = async (table_id, viewname, config, body, { req }) => {
           button(
             {
               type: "button",
+              id: "exec-" + tool_call.id,
               class: "btn btn-primary d-block mt-3",
-              onclick: `view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}})`,
+              onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
             },
             "Execute"
           )
