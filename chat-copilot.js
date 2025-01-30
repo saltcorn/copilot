@@ -17,6 +17,8 @@ const {
   input,
   h4,
   style,
+  h5,
+  button,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const {
@@ -57,7 +59,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         $("textarea[name=userinput]").val("")
 
         for(const action of res.actions||[]) {
-            $("#copilotinteractions").append('<div class="card">'+action+'</div>')
+            $("#copilotinteractions").append('<div class="card mb-3">'+action+'</div>')
           
         }
 
@@ -95,6 +97,18 @@ const getCompletionArguments = async () => {
 build a workflow that asks the user for their name and age
 
 */
+
+const execute = async (table_id, viewname, config, body, { req }) => {
+  const { fcall_id, run_id } = body;
+
+  const run = await WorkflowRun.findOne({ id: +run_id });
+
+  const fcall = run.context.funcalls[fcall_id];
+  const actionClass = actionClasses.find(
+    (ac) => ac.function_name === fcall.name
+  );
+  await actionClass.execute(JSON.parse(fcall.arguments));
+};
 
 const interact = async (table_id, viewname, config, body, { req }) => {
   const { userinput, run_id } = body;
@@ -154,7 +168,21 @@ const interact = async (table_id, viewname, config, body, { req }) => {
           interactions: run.context.interactions,
         },
       });
-      const markup = actionClass.render_html(args);
+      const inner_markup = actionClass.render_html(args);
+      const markup =
+        div({ class: "card-header" }, h5(actionClass.title)) +
+        div(
+          { class: "card-body" },
+          inner_markup,
+          button(
+            {
+              type: "button",
+              class: "btn btn-primary d-block mt-3",
+              onclick: `view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}})`,
+            },
+            "Execute"
+          )
+        );
       actions.push(markup);
     }
     return { json: { success: "ok", actions, run_id: run.id } };
@@ -168,5 +196,5 @@ module.exports = {
   tableless: true,
   singleton: true,
   run,
-  routes: { interact },
+  routes: { interact, execute },
 };

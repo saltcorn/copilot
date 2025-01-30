@@ -134,6 +134,7 @@ const steps = async () => {
 };
 
 class GenerateWorkflow {
+  static title = "Generate Workflow";
   static function_name = "generate_workflow";
   static description = "Generate the steps in a workflow";
 
@@ -222,10 +223,12 @@ class GenerateWorkflow {
   context (as an object if multiple is false and as an array if multiple is true).`;
   }
 
-  static async execute() {}
+  static async execute({ workflow_steps }) {
+    console.log("implmenteding", workflow_steps);
+  }
 
-  static render_html(args) {
-    return `A workflow! Step names: ${1}`;
+  static render_html({ workflow_steps }) {
+    return `A workflow! Step names: ${workflow_steps.map((s) => s.step_name)}`;
   }
 
   //specific methods
