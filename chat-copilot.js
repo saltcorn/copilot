@@ -51,7 +51,8 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
     h4("How can i help you?"),
     div(
       { class: "mb-3" },
-      "Skills you can request: " + actionClasses.map((ac) => ac.title).join(",")
+      "Skills you can request: " +
+        actionClasses.map((ac) => ac.title).join(", ")
     ),
     div({ id: "copilotinteractions" }),
     style(`p.userinput {border-left: 3px solid #858585; padding-left: 5px;}`),
@@ -78,14 +79,17 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         btn.css({ width: "" });
         btn.removeData("old-text");
     }
-        function processExecuteResponse(res) {
-          const btn = $("#exec-"+res.fcall_id)
-          restore_old_button_elem($("#exec-"+res.fcall_id))
-          btn.prop('disabled', true);
-          btn.html('<i class="fas fa-check me-1"></i>Executed')
-          btn.removeClass("btn-primary")
-          btn.addClass("btn-secondary")
+    function processExecuteResponse(res) {
+        const btn = $("#exec-"+res.fcall_id)
+        restore_old_button_elem($("#exec-"+res.fcall_id))
+        btn.prop('disabled', true);
+        btn.html('<i class="fas fa-check me-1"></i>Executed')
+        btn.removeClass("btn-primary")
+        btn.addClass("btn-secondary")
+        if(res.postExec) {
+          $('#postexec-'+res.fcall_id).html(res.postExec)
         }
+    }
 `),
     renderForm(form, req.csrfToken())
   );
@@ -128,8 +132,8 @@ const execute = async (table_id, viewname, config, body, { req }) => {
   const actionClass = actionClasses.find(
     (ac) => ac.function_name === fcall.name
   );
-  await actionClass.execute(JSON.parse(fcall.arguments));
-  return { json: { success: "ok", fcall_id } };
+  const result = await actionClass.execute(JSON.parse(fcall.arguments));
+  return { json: { success: "ok", fcall_id, ...(result || {}) } };
 };
 
 const interact = async (table_id, viewname, config, body, { req }) => {
@@ -204,7 +208,8 @@ const interact = async (table_id, viewname, config, body, { req }) => {
               onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
             },
             "Execute"
-          )
+          ),
+          div({ id: "postexec-" + tool_call.id })
         );
       actions.push(markup);
     }

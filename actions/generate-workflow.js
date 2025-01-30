@@ -2,6 +2,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
+const { a } = require("@saltcorn/markup/tags");
 
 const toArrayOfStrings = (opts) => {
   if (typeof opts === "string") return opts.split(",").map((s) => s.trim());
@@ -225,6 +226,7 @@ class GenerateWorkflow {
 
   static async execute({ workflow_steps }) {
     console.log("implmenteding", workflow_steps);
+    return { postExec: a({ href: "/" }, "click me") };
   }
 
   static render_html({ workflow_steps }) {
