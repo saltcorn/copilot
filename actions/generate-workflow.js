@@ -244,7 +244,6 @@ class GenerateWorkflow {
     { workflow_steps, workflow_name, when_trigger, trigger_table },
     req
   ) {
-    console.log("implmenteding", workflow_steps);
     const steps = this.process_all_steps(workflow_steps);
     let table_id;
     if (trigger_table) {
@@ -286,13 +285,19 @@ class GenerateWorkflow {
     const steps = this.process_all_steps(workflow_steps);
 
     if (WorkflowStep.generate_diagram) {
+      steps.forEach((step, ix) => {
+        step.id = ix + 1;
+      });
+      const mmdia = WorkflowStep.generate_diagram(
+        steps.map((s) => new WorkflowStep(s))
+      );
       return (
         div(
           `${workflow_name}${when_trigger ? `: ${when_trigger}` : ""}${
             trigger_table ? ` on ${trigger_table}` : ""
           }`
         ) +
-        pre({ class: "mermaid" }, WorkflowStep.generate_diagram(steps)) +
+        pre({ class: "mermaid" }, mmdia) +
         script(`mermaid.run({querySelector: 'pre.mermaid'});`)
       );
     }
