@@ -143,7 +143,7 @@ const execute = async (table_id, viewname, config, body, { req }) => {
   const actionClass = actionClasses.find(
     (ac) => ac.function_name === fcall.name
   );
-  const result = await actionClass.execute(JSON.parse(fcall.arguments));
+  const result = await actionClass.execute(JSON.parse(fcall.arguments), req);
   return { json: { success: "ok", fcall_id, ...(result || {}) } };
 };
 

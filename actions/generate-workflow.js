@@ -1,6 +1,7 @@
 const { getState } = require("@saltcorn/data/db/state");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");
+const Table = require("@saltcorn/data/models/table");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
 const { a, pre, script, div } = require("@saltcorn/markup/tags");
 
@@ -239,10 +240,41 @@ class GenerateWorkflow {
   context (as an object if multiple is false and as an array if multiple is true).`;
   }
 
-  static async execute({ workflow_steps }) {
+  static async execute(
+    { workflow_steps, workflow_name, when_trigger, trigger_table },
+    req
+  ) {
     console.log("implmenteding", workflow_steps);
     const steps = this.process_all_steps(workflow_steps);
-    return { postExec: a({ href: "/" }, "click me") };
+    let table_id;
+    if (trigger_table) {
+      const table = Table.findOne({ name: trigger_table });
+      if (!table) return { postExec: `Table not found: ${trigger_table}` };
+      table_id = table.id;
+    }
+    const trigger = await Trigger.create({
+      name: workflow_name,
+      when_trigger: when_trigger || "Never",
+      table_id,
+      action: "Workflow",
+      configuration: {},
+    });
+    for (const step of steps) {
+      step.trigger_id = trigger.id;
+      await WorkflowStep.create(step);
+    }
+    Trigger.emitEvent("AppChange", `Trigger ${trigger.name}`, req?.user, {
+      entity_type: "Trigger",
+      entity_name: trigger.name,
+    });
+    return {
+      postExec:
+        "Workflow created. " +
+        a(
+          { target: "_blank", href: `/actions/configure/${trigger.id}` },
+          "Configure workflow."
+        ),
+    };
   }
 
   static render_html({
@@ -265,7 +297,9 @@ class GenerateWorkflow {
       );
     }
 
-    return `A workflow! Step names: ${workflow_steps.map((s) => s.step_name)}`;
+    return `A workflow! Step names: ${workflow_steps.map(
+      (s) => s.step_name
+    )}. Upgrade Saltcorn to see diagrams in copilot`;
   }
 
   //specific methods
