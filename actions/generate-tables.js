@@ -22,7 +22,7 @@ class GenerateTables {
       attrs.forEach((a) => {
         properties[a.name] = {
           description:
-            a.copilot_description || `${a.label}.${a.sublabel ? ` ${a.sublabel}`|| ""}`,
+            a.copilot_description || `${a.label}.${a.sublabel ? ` ${a.sublabel}`: ""}`,
           ...fieldProperties(a),
         };
       });
