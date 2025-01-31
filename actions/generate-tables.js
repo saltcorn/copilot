@@ -22,7 +22,8 @@ class GenerateTables {
       attrs.forEach((a) => {
         properties[a.name] = {
           description:
-            a.copilot_description || `${a.label}.${a.sublabel ? ` ${a.sublabel}`: ""}`,
+            a.copilot_description ||
+            `${a.label}.${a.sublabel ? ` ${a.sublabel}` : ""}`,
           ...fieldProperties(a),
         };
       });
@@ -31,6 +32,18 @@ class GenerateTables {
         description: ty.copilot_description || ty.description,
         properties,
       };
+    });
+    fieldTypeCfg.push({
+      type: "object",
+      description:
+        "A foreign key to a different table. This will reference the primary key on another table.",
+      properties: {
+        data_type: { const: "ForeignKey" },
+        reference_table: {
+          type: "string",
+          description: "Name of the table being referenced",
+        },
+      },
     });
     return {
       type: "object",
@@ -69,8 +82,12 @@ class GenerateTables {
                       description:
                         "The value is unique - different rows must have different values for this field",
                     },
-
                     type_and_configuration: { anyOf: fieldTypeCfg },
+                    importance: {
+                      type: "number",
+                      description:
+                        "How important is this field if only some fields can be displayed to the user. From 1 (least important) to 10 (most important).",
+                    },
                   },
                 },
               },
