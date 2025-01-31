@@ -4,52 +4,7 @@ const Trigger = require("@saltcorn/data/models/trigger");
 const Table = require("@saltcorn/data/models/table");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
 const { a, pre, script, div } = require("@saltcorn/markup/tags");
-
-const toArrayOfStrings = (opts) => {
-  if (typeof opts === "string") return opts.split(",").map((s) => s.trim());
-  if (Array.isArray(opts))
-    return opts.map((o) => (typeof o === "string" ? o : o.value || o.name));
-};
-
-const fieldProperties = (field) => {
-  const props = {};
-  const typeName = field.type?.name || field.type || field.input_type;
-  if (field.isRepeat) {
-    props.type = "array";
-    const properties = {};
-    field.fields.map((f) => {
-      properties[f.name] = {
-        description: f.sublabel || f.label,
-        ...fieldProperties(f),
-      };
-    });
-    props.items = {
-      type: "object",
-      properties,
-    };
-  }
-  switch (typeName) {
-    case "String":
-      props.type = "string";
-      if (field.attributes?.options)
-        props.enum = toArrayOfStrings(field.attributes.options);
-      break;
-    case "Boolean":
-      props.type = "boolean";
-      break;
-    case "Integer":
-      props.type = "integer";
-      break;
-    case "Float":
-      props.type = "number";
-      break;
-    case "select":
-      props.type = "string";
-      if (field.options) props.enum = toArrayOfStrings(field.options);
-      break;
-  }
-  return props;
-};
+const { fieldProperties } = require("../common");
 
 const steps = async () => {
   const actionExplainers = WorkflowStep.builtInActionExplainers();
@@ -220,7 +175,7 @@ class GenerateWorkflow {
   step with nothing specified for next_step at which point the next iteration (over the next item in the array) is started. When all items have
   been iterated over, the for loop is complete and execution continues with the next_step of the ForLoop step. During each iteration 
   of the loop, the current array item is temporarily set to a variable in the context specified by the item_variable variable. The steps between
-  in the loop body can access this current aray items in the context by the context item_variable name.
+  in the loop body can access this current array items in the context by the context item_variable name.
   When all items have been iterated, the for loop will continue from the step indicated by its next_step. 
   
   llm_generate: use a llm_generate step to consult an artificial intelligence language processor to ask a question in natural language in which the answer is given in natural language. The answer is based on a 

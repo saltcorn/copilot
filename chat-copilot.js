@@ -30,6 +30,13 @@ const {
 const get_state_fields = () => [];
 
 const run = async (table_id, viewname, cfg, state, { res, req }) => {
+  console.log(
+    JSON.stringify(
+      await require("./actions/generate-tables").json_schema(),
+      null,
+      2
+    )
+  );
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
   const form = new Form({
@@ -106,7 +113,10 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   );
 };
 
-const actionClasses = [require("./actions/generate-workflow")];
+const actionClasses = [
+  require("./actions/generate-workflow"),
+  require("./actions/generate-tables"),
+];
 
 const getCompletionArguments = async () => {
   const tools = [];
