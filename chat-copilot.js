@@ -49,16 +49,16 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   form.hidden("run_id");
   return div(
     script({
-        src: `/static_assets/${db.connectObj.version_tag}/mermaid.min.js`,
-      }),
-      script(
-        { type: "module" },
-        `mermaid.initialize({securityLevel: 'loose'${
-          getState().getLightDarkMode(req.user) === "dark"
-            ? ",theme: 'dark',"
-            : ""
-        }});`
-      ),
+      src: `/static_assets/${db.connectObj.version_tag}/mermaid.min.js`,
+    }),
+    script(
+      { type: "module" },
+      `mermaid.initialize({securityLevel: 'loose'${
+        getState().getLightDarkMode(req.user) === "dark"
+          ? ",theme: 'dark',"
+          : ""
+      }});`
+    ),
     h4("How can i help you?"),
     div(
       { class: "mb-3" },
@@ -94,7 +94,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         const btn = $("#exec-"+res.fcall_id)
         restore_old_button_elem($("#exec-"+res.fcall_id))
         btn.prop('disabled', true);
-        btn.html('<i class="fas fa-check me-1"></i>Executed')
+        btn.html('<i class="fas fa-check me-1"></i>Implemented')
         btn.removeClass("btn-primary")
         btn.addClass("btn-secondary")
         if(res.postExec) {
@@ -218,7 +218,7 @@ const interact = async (table_id, viewname, config, body, { req }) => {
               class: "btn btn-primary d-block mt-3",
               onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
             },
-            "Execute"
+            "Implement"
           ),
           div({ id: "postexec-" + tool_call.id })
         );
