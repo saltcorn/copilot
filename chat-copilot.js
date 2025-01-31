@@ -48,6 +48,17 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   });
   form.hidden("run_id");
   return div(
+    script({
+        src: `/static_assets/${db.connectObj.version_tag}/mermaid.min.js`,
+      }),
+      script(
+        { type: "module" },
+        `mermaid.initialize({securityLevel: 'loose'${
+          getState().getLightDarkMode(req.user) === "dark"
+            ? ",theme: 'dark',"
+            : ""
+        }});`
+      ),
     h4("How can i help you?"),
     div(
       { class: "mb-3" },

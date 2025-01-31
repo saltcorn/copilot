@@ -11,11 +11,9 @@ module.exports = {
   sc_plugin_api_version: 1,
   //configuration_workflow,
   dependencies: ["@saltcorn/large-language-model"],
-  viewtemplates: [
-    require("./action-builder"),
-    require("./database-designer"),
-    require("./chat-copilot"),
-  ],
+  viewtemplates: features.workflows
+    ? [require("./chat-copilot")]
+    : [require("./action-builder"), require("./database-designer")],
   functions: features.workflows
     ? { copilot_generate_workflow: require("./workflow-gen") }
     : {},

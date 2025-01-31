@@ -2,7 +2,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
-const { a } = require("@saltcorn/markup/tags");
+const { a, pre, script } = require("@saltcorn/markup/tags");
 
 const toArrayOfStrings = (opts) => {
   if (typeof opts === "string") return opts.split(",").map((s) => s.trim());
@@ -226,14 +226,33 @@ class GenerateWorkflow {
 
   static async execute({ workflow_steps }) {
     console.log("implmenteding", workflow_steps);
+    const steps = this.process_all_steps(workflow_steps);
     return { postExec: a({ href: "/" }, "click me") };
   }
 
   static render_html({ workflow_steps }) {
+    console.log("wf steps", workflow_steps);
+
+    const steps = this.process_all_steps(workflow_steps);
+    console.log("steps", steps);
+
+    if (WorkflowStep.generate_diagram) {
+      return (
+        pre({ class: "mermaid" }, WorkflowStep.generate_diagram(steps)) +
+        script(`mermaid.run({querySelector: 'pre.mermaid'});`)
+      );
+    }
+
     return `A workflow! Step names: ${workflow_steps.map((s) => s.step_name)}`;
   }
 
   //specific methods
+
+  static process_all_steps(steps) {
+    const scsteps = steps.map((s) => this.to_saltcorn_step(s));
+    if (scsteps.length) scsteps[0].initial_step = true;
+    return scsteps;
+  }
 
   static to_saltcorn_step(llm_step) {
     const { step_type, ...configuration } = llm_step.step_configuration;
