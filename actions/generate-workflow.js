@@ -2,7 +2,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
-const { a, pre, script } = require("@saltcorn/markup/tags");
+const { a, pre, script, div } = require("@saltcorn/markup/tags");
 
 const toArrayOfStrings = (opts) => {
   if (typeof opts === "string") return opts.split(",").map((s) => s.trim());
@@ -144,6 +144,21 @@ class GenerateWorkflow {
       type: "object",
       properties: {
         workflow_steps: await steps(),
+        workflow_name: {
+          description: "The name of the workflow",
+          type: "string",
+        },
+        when_trigger: {
+          description:
+            "When the workflow should trigger. Optional, leave blank if unspecified or workflow will be run on button click",
+          type: "string",
+          enum: ["Insert", "Delete", "Update", "Daily", "Hourly", "Weekly"],
+        },
+        trigger_table: {
+          description:
+            "If the workflow trigger is Insert, Delete or Update, the name of the table that triggers the workflow",
+          type: "string",
+        },
       },
     };
   }
@@ -230,14 +245,21 @@ class GenerateWorkflow {
     return { postExec: a({ href: "/" }, "click me") };
   }
 
-  static render_html({ workflow_steps }) {
-    console.log("wf steps", workflow_steps);
-
+  static render_html({
+    workflow_steps,
+    workflow_name,
+    when_trigger,
+    trigger_table,
+  }) {
     const steps = this.process_all_steps(workflow_steps);
-    console.log("steps", steps);
 
     if (WorkflowStep.generate_diagram) {
       return (
+        div(
+          `${workflow_name}${when_trigger ? `: ${when_trigger}` : ""}${
+            trigger_table ? ` on ${trigger_table}` : ""
+          }`
+        ) +
         pre({ class: "mermaid" }, WorkflowStep.generate_diagram(steps)) +
         script(`mermaid.run({querySelector: 'pre.mermaid'});`)
       );
