@@ -30,13 +30,8 @@ const {
 const get_state_fields = () => [];
 
 const run = async (table_id, viewname, cfg, state, { res, req }) => {
-  console.log(
-    JSON.stringify(
-      await require("./actions/generate-tables").json_schema(),
-      null,
-      2
-    )
-  );
+  console.log(await require("./actions/generate-tables").system_prompt());
+
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
   const form = new Form({

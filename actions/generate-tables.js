@@ -45,6 +45,14 @@ class GenerateTables {
         },
       },
     });
+    fieldTypeCfg.push({
+      type: "object",
+      description:
+        "A reference (file path) to a file on disk. This can be used for example to hold images or documents",
+      properties: {
+        data_type: { const: "File" },
+      },
+    });
     return {
       type: "object",
       properties: {
@@ -96,6 +104,38 @@ class GenerateTables {
         },
       },
     };
+  }
+
+  static async system_prompt() {
+    const tableLines = [];
+    const tables = await Table.find({});
+    tables.forEach((table) => {
+      const fieldLines = table.fields.map(
+        (f) =>
+          `  * ${f.name} with type: ${f.pretty_type.replace(
+            "Key to",
+            "ForeignKey referencing"
+          )}.${f.description ? ` ${f.description}` : ""}`
+      );
+      tableLines.push(
+        `${table.name}${
+          table.description ? `: ${table.description}.` : "."
+        } Contains the following fields:\n${fieldLines.join("\n")}`
+      );
+    });
+    return `Use the generate_tables tool to construct one or more database tables. If you are
+    building more than one table, use one call to the generate_tables tool to build all the 
+    tables.
+
+    The argument to generate_tables is an array of tables, each with an array of fields. You do not
+    need to specify a primary key, a primary key called id with autoincrementing integers is
+    autmatically generated. 
+
+    The database already contains the following tables: 
+
+    ${tableLines.join("\n\n")}
+    
+    `;
   }
 }
 
