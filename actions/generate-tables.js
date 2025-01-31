@@ -72,6 +72,12 @@ class GenerateTables {
                 type: "array",
                 items: {
                   type: "object",
+                  required: [
+                    "name",
+                    "label",
+                    "type_and_configuration",
+                    "importance",
+                  ],
                   properties: {
                     name: {
                       type: "string",
@@ -143,9 +149,7 @@ class GenerateTables {
     `;
   }
   static render_html({ tables }) {
-    //console.log(JSON.stringify(tables, null, 2));
-
-    const sctables = tables.map((t) => this.process_table(t));
+    const sctables = this.process_tables(tables);
     const mmdia = buildMermaidMarkup(sctables);
     return (
       pre({ class: "mermaid" }, mmdia) +
@@ -153,24 +157,47 @@ class GenerateTables {
     );
   }
 
-  static async execute({ tables }, req) {}
+  static async execute({ tables }, req) {
+    const sctables = this.process_tables(tables);
+  }
 
-  static process_table(table) {
-    return new Table({
-      name: table.table_name,
-      fields: table.fields.map((f) => {
-        const { data_type, reference_table, ...attributes } =
-          f.type_and_configuration;
-        let type = data_type;
-        if (data_type === "ForeignKey") type = `Key to ${reference_table}`;
+  static process_tables(tables) {
+    return tables.map((table) => {
+      return new Table({
+        name: table.table_name,
+        fields: table.fields.map((f) => {
+          const { data_type, reference_table, ...attributes } =
+            f.type_and_configuration;
+          let type = data_type;
+          const scattributes = { ...attributes, importance: f.importance };
+          if (data_type === "ForeignKey") {
+            type = `Key to ${reference_table}`;
+            let refTableHere = tables.find(
+              (t) => t.table_name === reference_table
+            );
+            if (refTableHere) {
+              const strFields = refTableHere.fields.filter(
+                (f) => f.type_and_configuration.data_type === "String"
+              );
+              if (strFields.length) {
+                const maxImp = strFields.reduce(function (prev, current) {
+                  return prev && prev.importance > current.importance
+                    ? prev
+                    : current;
+                });
+                if (maxImp) scattributes.summary_field = maxImp.name;
+              }
+            }
+          }
 
-        return {
-          ...f,
-          type,
-          required: f.not_null,
-          attributes: { ...attributes, importance: f.importance },
-        };
-      }),
+          return {
+            ...f,
+            type,
+            required: f.not_null,
+            attributes: scattributes,
+          };
+        }),
+      });
     });
   }
 }

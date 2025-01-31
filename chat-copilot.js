@@ -210,7 +210,7 @@ const interact = async (table_id, viewname, config, body, { req }) => {
           interactions: run.context.interactions,
         },
       });
-      const inner_markup = actionClass.render_html(args);
+      const inner_markup = await actionClass.render_html(args);
       const markup =
         div({ class: "card-header" }, h5(actionClass.title)) +
         div(
