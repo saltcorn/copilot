@@ -157,6 +157,7 @@ const interact = async (table_id, viewname, config, body, { req }) => {
   let run;
   if (!run_id || run_id === "undefined")
     run = await WorkflowRun.create({
+      status: "Running",
       context: {
         interactions: [{ role: "user", content: userinput }],
         funcalls: {},

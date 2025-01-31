@@ -162,8 +162,7 @@ class GenerateTables {
     for (const table of sctables) await Table.create(table.name);
     for (const table of sctables) {
       for (const field of table.fields) {
-        const table = Table.findOne({ name: table.name });
-        field.table = table;
+        field.table = Table.findOne({ name: table.name });
         await Field.create(field);
       }
     }
