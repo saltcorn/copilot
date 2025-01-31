@@ -2,7 +2,8 @@ const { getState } = require("@saltcorn/data/db/state");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");
 const Table = require("@saltcorn/data/models/table");
-const { apply } = require("@saltcorn/data/utils");
+const Field = require("@saltcorn/data/models/field");
+const { apply, removeAllWhiteSpace } = require("@saltcorn/data/utils");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
 const { a, pre, script, div } = require("@saltcorn/markup/tags");
 const { fieldProperties } = require("../common");
@@ -55,11 +56,13 @@ class GenerateTables {
     });
     return {
       type: "object",
+      required: ["tables"],
       properties: {
         tables: {
           type: "array",
           items: {
             type: "object",
+            required: ["table_name", "fields"],
             properties: {
               table_name: {
                 type: "string",
@@ -123,7 +126,9 @@ class GenerateTables {
         } Contains the following fields:\n${fieldLines.join("\n")}`
       );
     });
-    return `Use the generate_tables tool to construct one or more database tables. If you are
+    return `Use the generate_tables tool to construct one or more database tables.
+
+    Do not call this tool more than once. It should only be called one time. If you are
     building more than one table, use one call to the generate_tables tool to build all the 
     tables.
 
@@ -134,9 +139,73 @@ class GenerateTables {
     The database already contains the following tables: 
 
     ${tableLines.join("\n\n")}
-    
+
     `;
   }
+  static render_html({ tables }) {
+    //console.log(JSON.stringify(tables, null, 2));
+
+    const sctables = tables.map((t) => this.process_table(t));
+    const mmdia = buildMermaidMarkup(sctables);
+    return (
+      pre({ class: "mermaid" }, mmdia) +
+      script(`mermaid.run({querySelector: 'pre.mermaid'});`)
+    );
+  }
+
+  static async execute({ tables }, req) {}
+
+  static process_table(table) {
+    return new Table({
+      name: table.table_name,
+      fields: table.fields.map((f) => {
+        const { data_type, reference_table, ...attributes } =
+          f.type_and_configuration;
+        let type = data_type;
+        if (data_type === "ForeignKey") type = `Key to ${reference_table}`;
+
+        return {
+          ...f,
+          type,
+          required: f.not_null,
+          attributes: { ...attributes, importance: f.importance },
+        };
+      }),
+    });
+  }
 }
+
+const EOL = "\n";
+const indentString = (str, indent) => `${" ".repeat(indent)}${str}`;
+
+const srcCardinality = (field) => (field.required ? "||" : "|o");
+
+const buildTableMarkup = (table) => {
+  const fields = table.getFields();
+  const members = fields
+    // .filter((f) => !f.reftable_name)
+    .map((f) =>
+      indentString(`${removeAllWhiteSpace(f.type_name)} ${f.name}`, 6)
+    )
+    .join(EOL);
+  const keys = table
+    .getForeignKeys()
+    .map((f) =>
+      indentString(
+        `"${table.name}"${srcCardinality(f)}--|| "${f.reftable_name}" : "${
+          f.name
+        }"`,
+        2
+      )
+    )
+    .join(EOL);
+  return `${keys}
+  "${table.name}" {${EOL}${members}${EOL}  }`;
+};
+
+const buildMermaidMarkup = (tables) => {
+  const lines = tables.map((table) => buildTableMarkup(table)).join(EOL);
+  return `${indentString("erDiagram", 2)}${EOL}${lines}`;
+};
 
 module.exports = GenerateTables;
