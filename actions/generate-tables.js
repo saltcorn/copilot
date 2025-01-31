@@ -159,6 +159,18 @@ class GenerateTables {
 
   static async execute({ tables }, req) {
     const sctables = this.process_tables(tables);
+    for (const table of sctables) await Table.create(table.name);
+    for (const table of sctables) {
+      for (const field of table.fields) {
+        const table = Table.findOne({ name: table.name });
+        field.table = table;
+        await Field.create(field);
+      }
+    }
+    Trigger.emitEvent("AppChange", `Tables created`, req?.user, {
+      entity_type: "Table",
+      entity_names: sctables.map((t) => t.name),
+    });
   }
 
   static process_tables(tables) {
@@ -187,6 +199,8 @@ class GenerateTables {
                 });
                 if (maxImp) scattributes.summary_field = maxImp.name;
               }
+            } else if (reference_table === "users") {
+              scattributes.summary_field = "email";
             }
           }
 

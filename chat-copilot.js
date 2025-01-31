@@ -176,7 +176,10 @@ const interact = async (table_id, viewname, config, body, { req }) => {
   }
   const complArgs = await getCompletionArguments();
   complArgs.chat = run.context.interactions;
-  console.log(complArgs);
+  //console.log(complArgs);
+
+  //build a database for a bicycle rental company
+  //add a boolean field called "paid" to the payments table
 
   const answer = await getState().functions.llm_generate.run(
     userinput,
@@ -187,11 +190,21 @@ const interact = async (table_id, viewname, config, body, { req }) => {
       funcalls: run.context.funcalls,
       interactions: [
         ...run.context.interactions,
-        { role: "system", content: answer },
+        ...(typeof answer === "object" && answer.tool_calls
+          ? [
+              { role: "assistant", tool_calls: answer.tool_calls },
+              ...answer.tool_calls.map((tc) => ({
+                role: "tool",
+                tool_call_id: tc.id,
+                name: tc.function.name,
+                content: "Action suggested to user.",
+              })),
+            ]
+          : [{ role: "assistant", content: answer }]),
       ],
     },
   });
-  console.log(answer);
+  console.log("answer", answer);
 
   if (typeof answer === "object" && answer.tool_calls) {
     const actions = [];
