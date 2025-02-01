@@ -7,7 +7,7 @@ const { findType } = require("@saltcorn/data/models/discovery");
 const { save_menu_items } = require("@saltcorn/data/models/config");
 const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
-const { renderForm, localeDateTime } = require("@saltcorn/markup");
+const { localeDateTime } = require("@saltcorn/markup");
 const {
   div,
   script,
@@ -23,6 +23,8 @@ const {
   i,
   p,
   span,
+  form,
+  textarea,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const {
@@ -88,29 +90,43 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
     }
     runInteractions = interactMarkups.join("");
   }
-  const form = new Form({
-    onSubmit: `event.preventDefault();press_store_button(this, true);view_post('${viewname}', 'interact', $(this).serialize(), processCopilotResponse);return false;`,
-    formStyle: "vert",
-    submitLabel: "Send",
-    class: "copilot",
-    fields: [
-      {
-        type: "String",
-        label: " ",
+  const input_form = form(
+    {
+      onsubmit:
+        "event.preventDefault();press_store_button(this, true);view_post('Saltcorn Copilot', 'interact', $(this).serialize(), processCopilotResponse);return false;",
+      class: "form-namespace copilot",
+      method: "post",
+    },
+    input({
+      type: "hidden",
+      name: "_csrf",
+      value: req.csrfToken(),
+    }),
+    input({
+      type: "hidden",
+      class: "form-control  ",
+      name: "run_id",
+      value: state.run_id ? +state.run_id : undefined,
+    }),
+    div(
+      { class: "form-group" },
+
+      textarea({
+        class: "form-control  ",
         name: "userinput",
-        fieldview: "textarea",
-        sublabel:
-          "Skills you can request: " +
-          actionClasses.map((ac) => ac.title).join(", "),
-        attributes: { placeholder: "How can I help you?" },
-      },
-    ],
-  });
-  form.hidden("run_id");
-  if (state.run_id) form.values.run_id = +state.run_id;
+        "data-fieldname": "userinput",
+        placeholder: "How can I help you?",
+        id: "inputuserinput",
+        rows: "5",
+      }),
+      i("Skills you can request: Generate Workflow, Generate Tables")
+    ),
+
+    button({ type: "submit", class: "btn btn-primary" }, "Send")
+  );
   return {
     widths: [3, 9],
-    gx: 4, 
+    gx: 4,
     besides: [
       {
         type: "container",
@@ -213,7 +229,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         }
     }
 `),
-            renderForm(form, req.csrfToken())
+            input_form
           )
         ),
       },
