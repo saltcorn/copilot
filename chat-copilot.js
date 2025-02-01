@@ -146,7 +146,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         $("textarea[name=userinput]").val("")
 
         for(const action of res.actions||[]) {
-            $("#copilotinteractions").append('<div class="card mb-3">'+action+'</div>')
+            $("#copilotinteractions").append(action)
           
         }
 
@@ -292,7 +292,13 @@ const renderToolcall = async (tool_call, viewname, implemented) => {
   const args = JSON.parse(tool_call.function.arguments);
 
   const inner_markup = await actionClass.render_html(args);
-  return wrapAction(inner_markup, viewname, tool_call, actionClass, implemented);
+  return wrapAction(
+    inner_markup,
+    viewname,
+    tool_call,
+    actionClass,
+    implemented
+  );
 };
 
 const wrapAction = (
@@ -302,21 +308,24 @@ const wrapAction = (
   actionClass,
   implemented
 ) =>
-  div({ class: "card-header" }, h5(actionClass.title)) +
   div(
-    { class: "card-body" },
-    inner_markup,
-    !implemented &&
-      button(
-        {
-          type: "button",
-          id: "exec-" + tool_call.id,
-          class: "btn btn-primary d-block mt-3",
-          onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
-        },
-        "Implement"
-      ),
-    div({ id: "postexec-" + tool_call.id })
+    { class: "card mb-3" },
+    div({ class: "card-header" }, h5(actionClass.title)),
+    div(
+      { class: "card-body" },
+      inner_markup,
+      !implemented &&
+        button(
+          {
+            type: "button",
+            id: "exec-" + tool_call.id,
+            class: "btn btn-primary d-block mt-3",
+            onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
+          },
+          "Implement"
+        ),
+      div({ id: "postexec-" + tool_call.id })
+    )
   );
 
 const addToContext = async (run, newCtx) => {
@@ -353,7 +362,6 @@ module.exports = {
 
 /* todo
 
-previous runs on side
 update visuals
   - textarea input group
   - more chat like
