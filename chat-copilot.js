@@ -112,7 +112,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
     div(
       { class: "input-group" },
       textarea({
-        class: "form-control  ",
+        class: "form-control border-end-0 ",
         name: "userinput",
         "data-fieldname": "userinput",
         placeholder: "How can I help you?",
