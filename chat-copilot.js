@@ -22,6 +22,7 @@ const {
   text_attr,
   i,
   p,
+  span,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const {
@@ -50,16 +51,35 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
 
       switch (interact.role) {
         case "user":
-          interactMarkups.push(p({ class: "userinput" }, interact.content));
+          interactMarkups.push(
+            div(
+              { class: "interaction-segment" },
+              span({ class: "badge bg-secondary" }, "You"),
+              p(interact.content)
+            )
+          );
           break;
         case "assistant":
         case "system":
           if (interact.tool_calls) {
             for (const tool_call of interact.tool_calls) {
               const markup = await renderToolcall(tool_call, viewname, true);
-              interactMarkups.push(markup);
+              interactMarkups.push(
+                div(
+                  { class: "interaction-segment" },
+                  span({ class: "badge bg-secondary" }, "Copilot"),
+                  markup
+                )
+              );
             }
-          } else interactMarkups.push(p(interact.content));
+          } else
+            interactMarkups.push(
+              div(
+                { class: "interaction-segment" },
+                span({ class: "badge bg-secondary" }, "Copilot"),
+                p(interact.content)
+              )
+            );
           break;
         case "tool":
           //ignore
@@ -79,6 +99,9 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         label: " ",
         name: "userinput",
         fieldview: "textarea",
+        sublabel: "Skills you can request: " +
+                actionClasses.map((ac) => ac.title).join(", "),
+        attributes: {placeholder: "How can I help you?"}
       },
     ],
   });
@@ -137,16 +160,12 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
                   ? ",theme: 'dark',"
                   : ""
               }});`
-            ),
-            h4("How can i help you?"),
-            div(
-              { class: "mb-3" },
-              "Skills you can request: " +
-                actionClasses.map((ac) => ac.title).join(", ")
-            ),
+            ),          
             div({ id: "copilotinteractions" }, runInteractions),
             style(
-              `p.userinput {border-left: 3px solid #858585; padding-left: 5px;}
+              `div.interaction-segment {border-top: 1px solid gray; padding-top: 5px;padding-bottom: 5px;}
+              div.interaction-segment p {margin-bottom: 0px;}
+              div.interaction-segment div.card {margin-top: 0.5rem;}
             div.prevcopilotrun {border-top: 1px solid gray;padding-top:3px; padding-bottom:3px}
             div.prevcopilotrun:hover {cursor: pointer}
             p.prevrun_content {
