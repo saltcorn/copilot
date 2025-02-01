@@ -7,7 +7,7 @@ const { findType } = require("@saltcorn/data/models/discovery");
 const { save_menu_items } = require("@saltcorn/data/models/config");
 const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
-const { renderForm } = require("@saltcorn/markup");
+const { renderForm, localeDateTime } = require("@saltcorn/markup");
 const {
   div,
   script,
@@ -19,6 +19,8 @@ const {
   style,
   h5,
   button,
+  text_attr,
+  p,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const {
@@ -31,7 +33,12 @@ const get_state_fields = () => [];
 
 const run = async (table_id, viewname, cfg, state, { res, req }) => {
   console.log(await require("./actions/generate-tables").system_prompt());
-
+  const prevRuns = (
+    await WorkflowRun.find(
+      { trigger_id: null },
+      { orderBy: "started_at", orderDesc: true }
+    )
+  ).filter((r) => r.context.interactions);
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
   const form = new Form({
@@ -49,27 +56,61 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
     ],
   });
   form.hidden("run_id");
-  return div(
-    script({
-      src: `/static_assets/${db.connectObj.version_tag}/mermaid.min.js`,
-    }),
-    script(
-      { type: "module" },
-      `mermaid.initialize({securityLevel: 'loose'${
-        getState().getLightDarkMode(req.user) === "dark"
-          ? ",theme: 'dark',"
-          : ""
-      }});`
-    ),
-    h4("How can i help you?"),
-    div(
-      { class: "mb-3" },
-      "Skills you can request: " +
-        actionClasses.map((ac) => ac.title).join(", ")
-    ),
-    div({ id: "copilotinteractions" }),
-    style(`p.userinput {border-left: 3px solid #858585; padding-left: 5px;}`),
-    script(`function processCopilotResponse(res) {
+  return {
+    widths: [3, 9],
+    besides: [
+      {
+        type: "container",
+        contents: div(
+          prevRuns.map((run) =>
+            div(
+              {
+                onclick: `show_copilot_run(${run.id})`,
+                class: "prevcopilotrun",
+              },
+              localeDateTime(run.started_at),
+
+              p(
+                { class: "prevrun_content" },
+                run.context.interactions[0]?.content
+              )
+            )
+          )
+        ),
+      },
+      {
+        type: "container",
+        contents: div(
+          script({
+            src: `/static_assets/${db.connectObj.version_tag}/mermaid.min.js`,
+          }),
+          script(
+            { type: "module" },
+            `mermaid.initialize({securityLevel: 'loose'${
+              getState().getLightDarkMode(req.user) === "dark"
+                ? ",theme: 'dark',"
+                : ""
+            }});`
+          ),
+          h4("How can i help you?"),
+          div(
+            { class: "mb-3" },
+            "Skills you can request: " +
+              actionClasses.map((ac) => ac.title).join(", ")
+          ),
+          div({ id: "copilotinteractions" }),
+          style(
+            `p.userinput {border-left: 3px solid #858585; padding-left: 5px;}
+            div.prevcopilotrun {border-bottom: 1px solid gray;padding-top:3px; padding-bottom:3px}
+            div.prevcopilotrun:hover {cursor: pointer}
+            p.prevrun_content {
+               white-space: nowrap;
+    overflow: hidden;
+    margin-bottom: 0px;
+    display: block;
+    text-overflow: ellipsis;}`
+          ),
+          script(`function processCopilotResponse(res) {
         restore_old_button_elem($("form.copilot").find("button"))
         const $runidin= $("input[name=run_id")
         if(res.run_id && (!$runidin.val() || $runidin.val()=="undefined"))
@@ -104,8 +145,17 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         }
     }
 `),
-    renderForm(form, req.csrfToken())
-  );
+          renderForm(form, req.csrfToken())
+        ),
+      },
+    ],
+  };
+};
+
+const ellipsize = (s, nchars) => {
+  if (!s || !s.length) return "";
+  if (s.length <= (nchars || 20)) return text_attr(s);
+  return text_attr(s.substr(0, (nchars || 20) - 3)) + "...";
 };
 
 const actionClasses = [
