@@ -110,6 +110,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   if (state.run_id) form.values.run_id = +state.run_id;
   return {
     widths: [3, 9],
+    gx: 4, 
     besides: [
       {
         type: "container",
@@ -165,10 +166,10 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
             ),
             div({ id: "copilotinteractions" }, runInteractions),
             style(
-              `div.interaction-segment {border-top: 1px solid gray; padding-top: 5px;padding-bottom: 5px;}
+              `div.interaction-segment {border-top: 1px solid #e7e7e7; padding-top: 5px;padding-bottom: 5px;}
               div.interaction-segment p {margin-bottom: 0px;}
               div.interaction-segment div.card {margin-top: 0.5rem;}
-            div.prevcopilotrun {border-top: 1px solid gray;padding-top:3px; padding-bottom:3px}
+            div.prevcopilotrun {border-top: 1px solid #e7e7e7;padding-top:3px; padding-bottom:3px}
             div.prevcopilotrun:hover {cursor: pointer}
             p.prevrun_content {
                white-space: nowrap;
