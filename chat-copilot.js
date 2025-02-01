@@ -165,14 +165,8 @@ const interact = async (table_id, viewname, config, body, { req }) => {
     });
   else {
     run = await WorkflowRun.findOne({ id: +run_id });
-    await run.update({
-      context: {
-        funcalls: run.context.funcalls,
-        interactions: [
-          ...run.context.interactions,
-          { role: "user", content: userinput },
-        ],
-      },
+    await addToContext(run, {
+      interactions: [{ role: "user", content: userinput }],
     });
   }
   const complArgs = await getCompletionArguments();
@@ -186,24 +180,19 @@ const interact = async (table_id, viewname, config, body, { req }) => {
     userinput,
     complArgs
   );
-  await run.update({
-    context: {
-      funcalls: run.context.funcalls,
-      interactions: [
-        ...run.context.interactions,
-        ...(typeof answer === "object" && answer.tool_calls
-          ? [
-              { role: "assistant", tool_calls: answer.tool_calls },
-              ...answer.tool_calls.map((tc) => ({
-                role: "tool",
-                tool_call_id: tc.id,
-                name: tc.function.name,
-                content: "Action suggested to user.",
-              })),
-            ]
-          : [{ role: "assistant", content: answer }]),
-      ],
-    },
+  await addToContext(run, {
+    interactions:
+      typeof answer === "object" && answer.tool_calls
+        ? [
+            { role: "assistant", tool_calls: answer.tool_calls },
+            ...answer.tool_calls.map((tc) => ({
+              role: "tool",
+              tool_call_id: tc.id,
+              name: tc.function.name,
+              content: "Action suggested to user.",
+            })),
+          ]
+        : [{ role: "assistant", content: answer }],
   });
   console.log("answer", answer);
 
@@ -215,15 +204,10 @@ const interact = async (table_id, viewname, config, body, { req }) => {
         (ac) => ac.function_name === fname
       );
       const args = JSON.parse(tool_call.function.arguments);
-      await run.update({
-        context: {
-          funcalls: {
-            ...run.context.funcalls,
-            [tool_call.id]: tool_call.function,
-          },
-          interactions: run.context.interactions,
-        },
+      await addToContext(run, {
+        funcalls: { [tool_call.id]: tool_call.function },
       });
+
       const inner_markup = await actionClass.render_html(args);
       const markup =
         div({ class: "card-header" }, h5(actionClass.title)) +
@@ -247,6 +231,28 @@ const interact = async (table_id, viewname, config, body, { req }) => {
   } else return { json: { success: "ok", response: answer, run_id: run.id } };
 };
 
+const addToContext = async (run, newCtx) => {
+  if (run.addToContext) return await run.addToContext(newCtx);
+  let changed = true;
+  Object.keys(newCtx).forEach((k) => {
+    if (Array.isArray(run.context[k])) {
+      if (!Array.isArray(newCtx[k]))
+        throw new Error("Must be array to append to array");
+      run.context[k].push(...newCtx[k]);
+      changed = true;
+    } else if (typeof run.context[k] === "object") {
+      if (typeof newCtx[k] !== "object")
+        throw new Error("Must be object to append to object");
+      Object.assign(run.context[k], newCtx[k]);
+      changed = true;
+    } else {
+      run.context[k] = newCtx[k];
+      changed = true;
+    }
+  });
+  if (changed) await run.update({ context: run.context });
+};
+
 module.exports = {
   name: "Saltcorn Copilot",
   display_state_form: false,
@@ -256,3 +262,13 @@ module.exports = {
   run,
   routes: { interact, execute },
 };
+
+/* todo
+
+previous runs on side
+update visuals
+  - textarea input group
+  - more chat like
+
+
+*/

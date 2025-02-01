@@ -249,3 +249,11 @@ const buildMermaidMarkup = (tables) => {
 };
 
 module.exports = GenerateTables;
+
+/* todo
+
+- tag
+- generate descriptions
+- generate views
+
+*/
