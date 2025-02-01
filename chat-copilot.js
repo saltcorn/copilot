@@ -91,7 +91,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         contents: div(
           div(
             {
-              class: "prevcopilotrun d-flex justify-content-between align-middle",
+              class: "d-flex justify-content-between align-middle mb-2",
             },
             h5("Sessions"),
 
@@ -144,7 +144,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
           div({ id: "copilotinteractions" }, runInteractions),
           style(
             `p.userinput {border-left: 3px solid #858585; padding-left: 5px;}
-            div.prevcopilotrun {border-bottom: 1px solid gray;padding-top:3px; padding-bottom:3px}
+            div.prevcopilotrun {border-top: 1px solid gray;padding-top:3px; padding-bottom:3px}
             div.prevcopilotrun:hover {cursor: pointer}
             p.prevrun_content {
                white-space: nowrap;
