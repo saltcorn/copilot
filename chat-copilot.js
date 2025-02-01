@@ -110,9 +110,9 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
       value: state.run_id ? +state.run_id : undefined,
     }),
     div(
-      { class: "input-group" },
+      { class: "copilot-entry" },
       textarea({
-        class: "form-control border-end-0 ",
+        class: "form-control",
         name: "userinput",
         "data-fieldname": "userinput",
         placeholder: "How can I help you?",
@@ -120,7 +120,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         rows: "3",
       }),
       button(
-        { type: "submit", class: "btn btn-outline-secondary border-start-0" },
+        { type: "submit", class: "btn btn-link" },
         i({ class: "far fa-paper-plane" })
       )
     ),
@@ -191,6 +191,13 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
               div.interaction-segment div.card {margin-top: 0.5rem;}
             div.prevcopilotrun {border-top: 1px solid #e7e7e7;padding-top:3px; padding-bottom:3px}
             div.prevcopilotrun:hover {cursor: pointer}
+            .copilot-entry button {
+              position: relative; 
+              top: -2.2rem;
+              left: 0px;
+              color: unset
+            }
+
             p.prevrun_content {
                white-space: nowrap;
     overflow: hidden;
