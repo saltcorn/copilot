@@ -32,15 +32,41 @@ const {
 const get_state_fields = () => [];
 
 const run = async (table_id, viewname, cfg, state, { res, req }) => {
-  console.log(await require("./actions/generate-tables").system_prompt());
   const prevRuns = (
     await WorkflowRun.find(
       { trigger_id: null },
-      { orderBy: "started_at", orderDesc: true }
+      { orderBy: "started_at", orderDesc: true, limit: 30 }
     )
   ).filter((r) => r.context.interactions);
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
+  let runInteractions = "";
+  if (state.run_id) {
+    const run = prevRuns.find((r) => r.id == state.run_id);
+    const interactMarkups = [];
+    for (const interact of run.context.interactions) {
+      console.log(interact);
+
+      switch (interact.role) {
+        case "user":
+          interactMarkups.push(p({ class: "userinput" }, interact.content));
+          break;
+        case "assistant":
+        case "system":
+          if (interact.tool_calls) {
+            for (const tool_call of interact.tool_calls) {
+              const markup = await renderToolcall(tool_call, viewname, true);
+              interactMarkups.push(markup);
+            }
+          } else interactMarkups.push(p(interact.content));
+          break;
+        case "tool":
+          //ignore
+          break;
+      }
+    }
+    runInteractions = interactMarkups.join("");
+  }
   const form = new Form({
     onSubmit: `event.preventDefault();press_store_button(this, true);view_post('${viewname}', 'interact', $(this).serialize(), processCopilotResponse);return false;`,
     formStyle: "vert",
@@ -65,7 +91,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
           prevRuns.map((run) =>
             div(
               {
-                onclick: `show_copilot_run(${run.id})`,
+                onclick: `set_state_field('run_id',${run.id})`,
                 class: "prevcopilotrun",
               },
               localeDateTime(run.started_at),
@@ -98,7 +124,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
             "Skills you can request: " +
               actionClasses.map((ac) => ac.title).join(", ")
           ),
-          div({ id: "copilotinteractions" }),
+          div({ id: "copilotinteractions" }, runInteractions),
           style(
             `p.userinput {border-left: 3px solid #858585; padding-left: 5px;}
             div.prevcopilotrun {border-bottom: 1px solid gray;padding-top:3px; padding-bottom:3px}
@@ -249,37 +275,49 @@ const interact = async (table_id, viewname, config, body, { req }) => {
   if (typeof answer === "object" && answer.tool_calls) {
     const actions = [];
     for (const tool_call of answer.tool_calls) {
-      const fname = tool_call.function.name;
-      const actionClass = actionClasses.find(
-        (ac) => ac.function_name === fname
-      );
-      const args = JSON.parse(tool_call.function.arguments);
       await addToContext(run, {
         funcalls: { [tool_call.id]: tool_call.function },
       });
+      const markup = await renderToolcall(tool_call, viewname);
 
-      const inner_markup = await actionClass.render_html(args);
-      const markup =
-        div({ class: "card-header" }, h5(actionClass.title)) +
-        div(
-          { class: "card-body" },
-          inner_markup,
-          button(
-            {
-              type: "button",
-              id: "exec-" + tool_call.id,
-              class: "btn btn-primary d-block mt-3",
-              onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
-            },
-            "Implement"
-          ),
-          div({ id: "postexec-" + tool_call.id })
-        );
       actions.push(markup);
     }
     return { json: { success: "ok", actions, run_id: run.id } };
   } else return { json: { success: "ok", response: answer, run_id: run.id } };
 };
+
+const renderToolcall = async (tool_call, viewname, implemented) => {
+  const fname = tool_call.function.name;
+  const actionClass = actionClasses.find((ac) => ac.function_name === fname);
+  const args = JSON.parse(tool_call.function.arguments);
+
+  const inner_markup = await actionClass.render_html(args);
+  return wrapAction(inner_markup, viewname, tool_call, actionClass, implemented);
+};
+
+const wrapAction = (
+  inner_markup,
+  viewname,
+  tool_call,
+  actionClass,
+  implemented
+) =>
+  div({ class: "card-header" }, h5(actionClass.title)) +
+  div(
+    { class: "card-body" },
+    inner_markup,
+    !implemented &&
+      button(
+        {
+          type: "button",
+          id: "exec-" + tool_call.id,
+          class: "btn btn-primary d-block mt-3",
+          onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
+        },
+        "Implement"
+      ),
+    div({ id: "postexec-" + tool_call.id })
+  );
 
 const addToContext = async (run, newCtx) => {
   if (run.addToContext) return await run.addToContext(newCtx);
