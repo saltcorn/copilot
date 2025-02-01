@@ -63,7 +63,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         case "system":
           if (interact.tool_calls) {
             for (const tool_call of interact.tool_calls) {
-              const markup = await renderToolcall(tool_call, viewname, true);
+              const markup = await renderToolcall(tool_call, viewname);
               interactMarkups.push(
                 div(
                   { class: "interaction-segment" },
@@ -99,13 +99,15 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         label: " ",
         name: "userinput",
         fieldview: "textarea",
-        sublabel: "Skills you can request: " +
-                actionClasses.map((ac) => ac.title).join(", "),
-        attributes: {placeholder: "How can I help you?"}
+        sublabel:
+          "Skills you can request: " +
+          actionClasses.map((ac) => ac.title).join(", "),
+        attributes: { placeholder: "How can I help you?" },
       },
     ],
   });
   form.hidden("run_id");
+  if (state.run_id) form.values.run_id = +state.run_id;
   return {
     widths: [3, 9],
     besides: [
@@ -160,7 +162,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
                   ? ",theme: 'dark',"
                   : ""
               }});`
-            ),          
+            ),
             div({ id: "copilotinteractions" }, runInteractions),
             style(
               `div.interaction-segment {border-top: 1px solid gray; padding-top: 5px;padding-bottom: 5px;}
@@ -180,17 +182,17 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         const $runidin= $("input[name=run_id")
         if(res.run_id && (!$runidin.val() || $runidin.val()=="undefined"))
           $runidin.val(res.run_id);
-
-        $("#copilotinteractions").append('<p class="userinput">'+$("textarea[name=userinput]").val()+'</p>')
+        const wrapSegment = (html, who) => '<div class="interaction-segment"><span class="badge bg-secondary">'+who+'</span>'+html+'</div>'
+        $("#copilotinteractions").append(wrapSegment('<p>'+$("textarea[name=userinput]").val()+'</p>', "You"))
         $("textarea[name=userinput]").val("")
 
         for(const action of res.actions||[]) {
-            $("#copilotinteractions").append(action)
+            $("#copilotinteractions").append(wrapSegment(action, "Copilot"))
           
         }
 
         if(res.response)
-            $("#copilotinteractions").append('<p>'+res.response+'</p>')
+            $("#copilotinteractions").append(wrapSegment('<p>'+res.response+'</p>', "Copilot"))
     }
     function restore_old_button_elem(btn) {
         const oldText = $(btn).data("old-text");
@@ -202,7 +204,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         const btn = $("#exec-"+res.fcall_id)
         restore_old_button_elem($("#exec-"+res.fcall_id))
         btn.prop('disabled', true);
-        btn.html('<i class="fas fa-check me-1"></i>Implemented')
+        btn.html('<i class="fas fa-check me-1"></i>Applied')
         btn.removeClass("btn-primary")
         btn.addClass("btn-secondary")
         if(res.postExec) {
@@ -359,10 +361,10 @@ const wrapAction = (
           {
             type: "button",
             id: "exec-" + tool_call.id,
-            class: "btn btn-primary d-block mt-3",
+            class: "btn btn-primary d-block mt-3 float-end",
             onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
           },
-          "Implement"
+          "Apply"
         ),
       div({ id: "postexec-" + tool_call.id })
     )
