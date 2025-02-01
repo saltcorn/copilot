@@ -197,7 +197,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
               left: 0px;
               color: unset
             }
-
+            .copilot-entry {margin-bottom: -2rem; margin-top: 1rem;}
             p.prevrun_content {
                white-space: nowrap;
     overflow: hidden;
