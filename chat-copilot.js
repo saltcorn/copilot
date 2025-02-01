@@ -20,6 +20,7 @@ const {
   h5,
   button,
   text_attr,
+  i,
   p,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
@@ -88,6 +89,22 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
       {
         type: "container",
         contents: div(
+          div(
+            {
+              class: "prevcopilotrun d-flex justify-content-between align-middle",
+            },
+            h5("Sessions"),
+
+            button(
+              {
+                type: "button",
+                class: "btn btn-secondary btn-sm",
+                onclick: "unset_state_field('run_id')",
+                title: "New session",
+              },
+              i({ class: "fas fa-redo" })
+            )
+          ),
           prevRuns.map((run) =>
             div(
               {
