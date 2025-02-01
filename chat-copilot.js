@@ -23,6 +23,7 @@ const {
   i,
   p,
   span,
+  small,
   form,
   textarea,
 } = require("@saltcorn/markup/tags");
@@ -94,7 +95,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
     {
       onsubmit:
         "event.preventDefault();press_store_button(this, true);view_post('Saltcorn Copilot', 'interact', $(this).serialize(), processCopilotResponse);return false;",
-      class: "form-namespace copilot",
+      class: "form-namespace copilot mt-2",
       method: "post",
     },
     input({
@@ -109,20 +110,22 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
       value: state.run_id ? +state.run_id : undefined,
     }),
     div(
-      { class: "form-group" },
-
+      { class: "input-group" },
       textarea({
         class: "form-control  ",
         name: "userinput",
         "data-fieldname": "userinput",
         placeholder: "How can I help you?",
         id: "inputuserinput",
-        rows: "5",
+        rows: "3",
       }),
-      i("Skills you can request: Generate Workflow, Generate Tables")
+      button(
+        { type: "submit", class: "btn btn-outline-secondary border-start-0" },
+        i({ class: "far fa-paper-plane" })
+      )
     ),
 
-    button({ type: "submit", class: "btn btn-primary" }, "Send")
+    i(small("Skills you can request: Generate Workflow, Generate Tables"))
   );
   return {
     widths: [3, 9],
@@ -182,7 +185,8 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
             ),
             div({ id: "copilotinteractions" }, runInteractions),
             style(
-              `div.interaction-segment {border-top: 1px solid #e7e7e7; padding-top: 5px;padding-bottom: 5px;}
+              `div.interaction-segment:not(:first-child) {border-top: 1px solid #e7e7e7; }
+              div.interaction-segment {padding-top: 5px;padding-bottom: 5px;}
               div.interaction-segment p {margin-bottom: 0px;}
               div.interaction-segment div.card {margin-top: 0.5rem;}
             div.prevcopilotrun {border-top: 1px solid #e7e7e7;padding-top:3px; padding-bottom:3px}
