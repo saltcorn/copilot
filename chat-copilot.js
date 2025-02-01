@@ -124,26 +124,29 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
       {
         type: "container",
         contents: div(
-          script({
-            src: `/static_assets/${db.connectObj.version_tag}/mermaid.min.js`,
-          }),
-          script(
-            { type: "module" },
-            `mermaid.initialize({securityLevel: 'loose'${
-              getState().getLightDarkMode(req.user) === "dark"
-                ? ",theme: 'dark',"
-                : ""
-            }});`
-          ),
-          h4("How can i help you?"),
+          { class: "card" },
           div(
-            { class: "mb-3" },
-            "Skills you can request: " +
-              actionClasses.map((ac) => ac.title).join(", ")
-          ),
-          div({ id: "copilotinteractions" }, runInteractions),
-          style(
-            `p.userinput {border-left: 3px solid #858585; padding-left: 5px;}
+            { class: "card-body" },
+            script({
+              src: `/static_assets/${db.connectObj.version_tag}/mermaid.min.js`,
+            }),
+            script(
+              { type: "module" },
+              `mermaid.initialize({securityLevel: 'loose'${
+                getState().getLightDarkMode(req.user) === "dark"
+                  ? ",theme: 'dark',"
+                  : ""
+              }});`
+            ),
+            h4("How can i help you?"),
+            div(
+              { class: "mb-3" },
+              "Skills you can request: " +
+                actionClasses.map((ac) => ac.title).join(", ")
+            ),
+            div({ id: "copilotinteractions" }, runInteractions),
+            style(
+              `p.userinput {border-left: 3px solid #858585; padding-left: 5px;}
             div.prevcopilotrun {border-top: 1px solid gray;padding-top:3px; padding-bottom:3px}
             div.prevcopilotrun:hover {cursor: pointer}
             p.prevrun_content {
@@ -152,8 +155,8 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
     margin-bottom: 0px;
     display: block;
     text-overflow: ellipsis;}`
-          ),
-          script(`function processCopilotResponse(res) {
+            ),
+            script(`function processCopilotResponse(res) {
         restore_old_button_elem($("form.copilot").find("button"))
         const $runidin= $("input[name=run_id")
         if(res.run_id && (!$runidin.val() || $runidin.val()=="undefined"))
@@ -188,7 +191,8 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         }
     }
 `),
-          renderForm(form, req.csrfToken())
+            renderForm(form, req.csrfToken())
+          )
         ),
       },
     ],
