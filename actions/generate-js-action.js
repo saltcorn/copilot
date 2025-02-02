@@ -76,7 +76,33 @@ class GenerateJsAction {
       trigger_table,
     },
     req
-  ) {}
+  ) {
+    let table_id;
+    if (trigger_table) {
+      const table = Table.findOne({ name: trigger_table });
+      if (!table) return { postExec: `Table not found: ${trigger_table}` };
+      table_id = table.id;
+    }
+    const trigger = await Trigger.create({
+      name: action_name,
+      when_trigger: when_trigger || "Never",
+      table_id,
+      action: "run_js_code",
+      configuration: {code: action_javascript_code},
+    });
+    Trigger.emitEvent("AppChange", `Trigger ${trigger.name}`, req?.user, {
+      entity_type: "Trigger",
+      entity_name: trigger.name,
+    });
+    return {
+      postExec:
+        "Action created. " +
+        a(
+          { target: "_blank", href: `/actions/configure/${trigger.id}` },
+          "Configure action."
+        ),
+    };
+  }
 }
 
 module.exports = GenerateJsAction;

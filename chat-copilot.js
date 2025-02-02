@@ -66,7 +66,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         case "system":
           if (interact.tool_calls) {
             for (const tool_call of interact.tool_calls) {
-              const markup = await renderToolcall(tool_call, viewname);
+              const markup = await renderToolcall(tool_call, viewname, false, run);
               interactMarkups.push(
                 div(
                   { class: "interaction-segment" },
@@ -365,7 +365,7 @@ const interact = async (table_id, viewname, config, body, { req }) => {
       await addToContext(run, {
         funcalls: { [tool_call.id]: tool_call.function },
       });
-      const markup = await renderToolcall(tool_call, viewname);
+      const markup = await renderToolcall(tool_call, viewname, false, run);
 
       actions.push(markup);
     }
@@ -373,7 +373,7 @@ const interact = async (table_id, viewname, config, body, { req }) => {
   } else return { json: { success: "ok", response: answer, run_id: run.id } };
 };
 
-const renderToolcall = async (tool_call, viewname, implemented) => {
+const renderToolcall = async (tool_call, viewname, implemented, run) => {
   const fname = tool_call.function.name;
   const actionClass = actionClasses.find((ac) => ac.function_name === fname);
   const args = JSON.parse(tool_call.function.arguments);
@@ -384,7 +384,8 @@ const renderToolcall = async (tool_call, viewname, implemented) => {
     viewname,
     tool_call,
     actionClass,
-    implemented
+    implemented,
+    run
   );
 };
 
@@ -393,7 +394,8 @@ const wrapAction = (
   viewname,
   tool_call,
   actionClass,
-  implemented
+  implemented,
+  run
 ) =>
   div(
     { class: "card mb-3" },
