@@ -50,8 +50,6 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
     const run = prevRuns.find((r) => r.id == state.run_id);
     const interactMarkups = [];
     for (const interact of run.context.interactions) {
-      console.log(interact);
-
       switch (interact.role) {
         case "user":
           interactMarkups.push(
@@ -66,7 +64,14 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         case "system":
           if (interact.tool_calls) {
             for (const tool_call of interact.tool_calls) {
-              const markup = await renderToolcall(tool_call, viewname, false, run);
+              const markup = await renderToolcall(
+                tool_call,
+                viewname,
+                (run.context.implemented_fcall_ids || []).includes(
+                  tool_call.id
+                ),
+                run
+              );
               interactMarkups.push(
                 div(
                   { class: "interaction-segment" },
@@ -126,7 +131,12 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
       )
     ),
 
-    i(small("Skills you can request: "+actionClasses.map(ac=>ac.title).join(", ")))
+    i(
+      small(
+        "Skills you can request: " +
+          actionClasses.map((ac) => ac.title).join(", ")
+      )
+    )
   );
   return {
     widths: [3, 9],
@@ -312,6 +322,7 @@ const execute = async (table_id, viewname, config, body, { req }) => {
     (ac) => ac.function_name === fcall.name
   );
   const result = await actionClass.execute(JSON.parse(fcall.arguments), req);
+  await addToContext(run, { implemented_fcall_ids: [fcall_id] });
   return { json: { success: "ok", fcall_id, ...(result || {}) } };
 };
 
@@ -322,6 +333,7 @@ const interact = async (table_id, viewname, config, body, { req }) => {
     run = await WorkflowRun.create({
       status: "Running",
       context: {
+        implemented_fcall_ids: [],
         interactions: [{ role: "user", content: userinput }],
         funcalls: {},
       },
@@ -403,16 +415,25 @@ const wrapAction = (
     div(
       { class: "card-body" },
       inner_markup,
-      !implemented &&
-        button(
-          {
-            type: "button",
-            id: "exec-" + tool_call.id,
-            class: "btn btn-primary d-block mt-3 float-end",
-            onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
-          },
-          "Apply"
-        ),
+      implemented
+        ? button(
+            {
+              type: "button",
+              class: "btn btn-secondary d-block mt-3 float-end",
+              disabled: true,
+            },
+            i({ class: "fas fa-check me-1" }),
+            "Applied"
+          )
+        : button(
+            {
+              type: "button",
+              id: "exec-" + tool_call.id,
+              class: "btn btn-primary d-block mt-3 float-end",
+              onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
+            },
+            "Apply"
+          ),
       div({ id: "postexec-" + tool_call.id })
     )
   );
