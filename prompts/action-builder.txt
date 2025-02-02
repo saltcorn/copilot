@@ -301,7 +301,3 @@ return { set_fields: {
     zidentifier: `${name.toUpperCase()}-${id}`
   }
 }
-
-Write the JavaScript code to implement the following functionality:
-
-{{ userPrompt }}

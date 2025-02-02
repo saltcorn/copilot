@@ -128,10 +128,14 @@ const runPost = async (
   form.hasErrors = false;
   form.errors = {};
 
-  const fullPrompt = await getPromptFromTemplate(
+  const partPrompt = await getPromptFromTemplate(
     "action-builder.txt",
     form.values.prompt
   );
+  const fullPrompt =
+    partPrompt +
+    "\n\nWrite the JavaScript code to implement the following functionality:\n\n" +
+    form.values.prompt;
 
   const completion = await getCompletion("JavaScript", fullPrompt);
 

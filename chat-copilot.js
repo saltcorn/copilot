@@ -126,7 +126,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
       )
     ),
 
-    i(small("Skills you can request: Generate Workflow, Generate Tables"))
+    i(small("Skills you can request: "+actionClasses.map(ac=>ac.title).join(", ")))
   );
   return {
     widths: [3, 9],
@@ -273,6 +273,7 @@ const ellipsize = (s, nchars) => {
 const actionClasses = [
   require("./actions/generate-workflow"),
   require("./actions/generate-tables"),
+  require("./actions/generate-js-action"),
 ];
 
 const getCompletionArguments = async () => {
