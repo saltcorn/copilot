@@ -118,10 +118,11 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         placeholder: "How can I help you?",
         id: "inputuserinput",
         rows: "3",
+        autofocus: true,
       }),
-      button(
-        { type: "submit", class: "btn btn-link" },
-        i({ class: "far fa-paper-plane" })
+      span(
+        { class: "submit-button p-2", onclick: "$('form.copilot').submit()" },
+        i({ id: "sendbuttonicon", class: "far fa-paper-plane" })
       )
     ),
 
@@ -184,6 +185,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
               }});`
             ),
             div({ id: "copilotinteractions" }, runInteractions),
+            input_form,
             style(
               `div.interaction-segment:not(:first-child) {border-top: 1px solid #e7e7e7; }
               div.interaction-segment {padding-top: 5px;padding-bottom: 5px;}
@@ -191,13 +193,14 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
               div.interaction-segment div.card {margin-top: 0.5rem;}
             div.prevcopilotrun {border-top: 1px solid #e7e7e7;padding-top:3px; padding-bottom:3px}
             div.prevcopilotrun:hover {cursor: pointer}
-            .copilot-entry button {
+            .copilot-entry .submit-button:hover { cursor: pointer}
+
+            .copilot-entry .submit-button {
               position: relative; 
-              top: -2.2rem;
-              left: 0px;
-              color: unset
+              top: -1.8rem;
+              left: 0.1rem;              
             }
-            .copilot-entry {margin-bottom: -2rem; margin-top: 1rem;}
+            .copilot-entry {margin-bottom: -1.25rem; margin-top: 1rem;}
             p.prevrun_content {
                white-space: nowrap;
     overflow: hidden;
@@ -239,8 +242,18 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
           $('#postexec-'+res.fcall_id).html(res.postExec)
         }
     }
-`),
-            input_form
+    function submitOnEnter(event) {
+        if (event.which === 13) {
+            if (!event.repeat) {
+                const newEvent = new Event("submit", {cancelable: true});
+                event.target.form.dispatchEvent(newEvent);
+            }
+
+            event.preventDefault(); // Prevents the addition of a new line in the text field
+        }        
+    }
+    document.getElementById("inputuserinput").addEventListener("keydown", submitOnEnter);
+`)
           )
         ),
       },
