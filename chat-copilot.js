@@ -94,7 +94,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   const input_form = form(
     {
       onsubmit:
-        "event.preventDefault();press_store_button(this, true);view_post('Saltcorn Copilot', 'interact', $(this).serialize(), processCopilotResponse);return false;",
+        "event.preventDefault();spin_send_button();view_post('Saltcorn Copilot', 'interact', $(this).serialize(), processCopilotResponse);return false;",
       class: "form-namespace copilot mt-2",
       method: "post",
     },
@@ -209,7 +209,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
     text-overflow: ellipsis;}`
             ),
             script(`function processCopilotResponse(res) {
-        restore_old_button_elem($("form.copilot").find("button"))
+        $("#sendbuttonicon").attr("class","far fa-paper-plane");
         const $runidin= $("input[name=run_id")
         if(res.run_id && (!$runidin.val() || $runidin.val()=="undefined"))
           $runidin.val(res.run_id);
@@ -253,6 +253,9 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         }        
     }
     document.getElementById("inputuserinput").addEventListener("keydown", submitOnEnter);
+    function spin_send_button() {
+      $("#sendbuttonicon").attr("class","fas fa-spinner fa-spin");
+    }
 `)
           )
         ),
