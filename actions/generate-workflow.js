@@ -57,7 +57,9 @@ const steps = async () => {
         properties,
         required,
       });
-    } catch (e) {}
+    } catch (e) {
+      //ignore
+    }
   }
   const properties = {
     step_name: {
@@ -101,7 +103,7 @@ class GenerateWorkflow {
       properties: {
         workflow_steps: await steps(),
         workflow_name: {
-          description: "The name of the workflow",
+          description: "The name of the workflow. Can include spaces and mixed case, should be 1-5 words.",
           type: "string",
         },
         when_trigger: {

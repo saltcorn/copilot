@@ -445,12 +445,3 @@ module.exports = {
   run,
   routes: { interact, execute },
 };
-
-/* todo
-
-update visuals
-  - textarea input group
-  - more chat like
-
-
-*/
