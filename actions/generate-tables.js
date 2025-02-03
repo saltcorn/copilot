@@ -20,14 +20,15 @@ class GenerateTables {
         data_type: { const: ty.name },
       };
       const attrs = apply(ty.attributes, {}) || [];
-      attrs.forEach((a) => {
-        properties[a.name] = {
-          description:
-            a.copilot_description ||
-            `${a.label}.${a.sublabel ? ` ${a.sublabel}` : ""}`,
-          ...fieldProperties(a),
-        };
-      });
+      if (Array.isArray(attrs))
+        attrs.forEach((a) => {
+          properties[a.name] = {
+            description:
+              a.copilot_description ||
+              `${a.label}.${a.sublabel ? ` ${a.sublabel}` : ""}`,
+            ...fieldProperties(a),
+          };
+        });
       return {
         type: "object",
         description: ty.copilot_description || ty.description,
