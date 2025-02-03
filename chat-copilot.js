@@ -154,11 +154,12 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
             button(
               {
                 type: "button",
-                class: "btn btn-secondary btn-sm",
+                class: "btn btn-secondary btn-sm py-0",
+                style: "font-size: 0.9em;height:1.5em",
                 onclick: "unset_state_field('run_id')",
                 title: "New session",
               },
-              i({ class: "fas fa-redo" })
+              i({ class: "fas fa-redo fa-sm" })
             )
           ),
           prevRuns.map((run) =>
