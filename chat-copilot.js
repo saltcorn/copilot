@@ -410,7 +410,7 @@ const wrapAction = (
   run
 ) =>
   div(
-    { class: "card mb-3" },
+    { class: "card mb-3 bg-secondary-subtle" },
     div({ class: "card-header" }, h5(actionClass.title)),
     div(
       { class: "card-body" },
