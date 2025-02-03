@@ -53,13 +53,45 @@ const steps = async () => {
       });
       stepTypeAndCfg.push({
         type: "object",
-        description: actionExplainers[actionName],
+        description:
+          actionExplainers[actionName] ||
+          `${actionName}.${action.description ? ` ${action.description}` : ""}`,
         properties,
         required,
       });
     } catch (e) {
       //ignore
     }
+  }
+  const triggers = Trigger.find({
+    when_trigger: { or: ["API call", "Never"] },
+  }).filter((tr) => tr.description && tr.name && tr !== "Workflow");
+  //TODO workflows
+  for (const trigger of triggers) {
+    const properties = {
+      step_type: { const: trigger.name },
+    };
+    if (trigger.table_id) {
+      const table = Table.findOne({ id: trigger.table_id });
+      const fieldSpecs = [];
+      table.fields.forEach((f) => {
+        // TODO fkeys dereferenced.
+        fieldSpecs.push(`${f.name} with ${f.pretty_type} type`);
+      });
+      properties.row_expr = {
+        type: "string",
+        description: `JavaScript expression for the input to the action. This should be an expression for an object, with the following field name and types: ${fieldSpecs.join(
+          "; "
+        )}.`,
+      };
+    }
+    const required = ["step_type"];
+    stepTypeAndCfg.push({
+      type: "object",
+      description: `${trigger.name}: ${trigger.description}`,
+      properties,
+      required,
+    });
   }
   const properties = {
     step_name: {
@@ -103,7 +135,8 @@ class GenerateWorkflow {
       properties: {
         workflow_steps: await steps(),
         workflow_name: {
-          description: "The name of the workflow. Can include spaces and mixed case, should be 1-5 words.",
+          description:
+            "The name of the workflow. Can include spaces and mixed case, should be 1-5 words.",
           type: "string",
         },
         when_trigger: {

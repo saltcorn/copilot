@@ -134,7 +134,7 @@ class GenerateTables {
     });
     return `Use the generate_tables tool to construct one or more database tables.
 
-    Do not call this tool more than once. It should only be called one time. If you are
+    Do not call this tool more than once. It should only be called once. If you are
     building more than one table, use one call to the generate_tables tool to build all the 
     tables.
 
