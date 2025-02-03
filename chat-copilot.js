@@ -166,7 +166,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
             div(
               {
                 onclick: `set_state_field('run_id',${run.id})`,
-                class: "prevcopilotrun",
+                class: "prevcopilotrun border p-2",
               },
               localeDateTime(run.started_at),
 
@@ -201,8 +201,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
               `div.interaction-segment:not(:first-child) {border-top: 1px solid #e7e7e7; }
               div.interaction-segment {padding-top: 5px;padding-bottom: 5px;}
               div.interaction-segment p {margin-bottom: 0px;}
-              div.interaction-segment div.card {margin-top: 0.5rem;}
-            div.prevcopilotrun {border-top: 1px solid #e7e7e7;border-right: 1px solid #e7e7e7;padding-top:3px; padding-bottom:3px; padding-right: 1rem;}
+              div.interaction-segment div.card {margin-top: 0.5rem;}            
             div.prevcopilotrun:hover {cursor: pointer; background-color: var(--tblr-secondary-bg-subtle, var(--bs-secondary-bg-subtle, gray));}
             .copilot-entry .submit-button:hover { cursor: pointer}
 
