@@ -1,4 +1,3 @@
-const axios = require("axios");
 const fsp = require("fs").promises;
 const _ = require("underscore");
 const path = require("path");

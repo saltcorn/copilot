@@ -33,6 +33,8 @@ const {
   getPromptFromTemplate,
   incompleteCfgMsg,
 } = require("./common");
+const MarkdownIt = require("markdown-it"),
+  md = new MarkdownIt();
 
 const get_state_fields = () => [];
 
@@ -85,7 +87,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
               div(
                 { class: "interaction-segment" },
                 span({ class: "badge bg-secondary" }, "Copilot"),
-                p(interact.content)
+                md.render(interact.content)
               )
             );
           break;
@@ -382,7 +384,10 @@ const interact = async (table_id, viewname, config, body, { req }) => {
       actions.push(markup);
     }
     return { json: { success: "ok", actions, run_id: run.id } };
-  } else return { json: { success: "ok", response: answer, run_id: run.id } };
+  } else
+    return {
+      json: { success: "ok", response: md.render(answer), run_id: run.id },
+    };
 };
 
 const renderToolcall = async (tool_call, viewname, implemented, run) => {
