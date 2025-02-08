@@ -416,9 +416,9 @@ const wrapAction = (
   implemented,
   run
 ) =>
+  span({ class: "badge bg-info ms-1" }, actionClass.title) +
   div(
     { class: "card mb-3 bg-secondary-subtle" },
-    div({ class: "card-header" }, h5(actionClass.title)),
     div(
       { class: "card-body" },
       inner_markup,
