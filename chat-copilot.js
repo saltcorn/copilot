@@ -238,7 +238,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
     function restore_old_button_elem(btn) {
         const oldText = $(btn).data("old-text");
         btn.html(oldText);
-        btn.css({ width: "" });
+        btn.css({ width: "" }).prop("disabled", false);
         btn.removeData("old-text");
     }
     function processExecuteResponse(res) {
