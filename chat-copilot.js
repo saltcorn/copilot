@@ -87,7 +87,9 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
               div(
                 { class: "interaction-segment" },
                 span({ class: "badge bg-secondary" }, "Copilot"),
-                md.render(interact.content)
+                typeof interact.content === "string"
+                  ? md.render(interact.content)
+                  : interact.content
               )
             );
           break;
