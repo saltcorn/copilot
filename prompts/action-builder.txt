@@ -251,7 +251,7 @@ The following tables are present in the database:
 
 {{# for (const table of tables) { }}
 {{ table.name }} table with name = "{{ table.name }}" which has the following fields:
-{{# for (const field of table.fields) { }} - {{ field.name }} of type {{ field.pretty_type }}
+{{# for (const field of table.fields) { }} - {{ field.name }} of type {{ field.pretty_type.replace("Key to","ForeignKey referencing") }}
 {{# } }}
 {{# } }}
 
