@@ -41,7 +41,7 @@ const get_state_fields = () => [];
 const run = async (table_id, viewname, cfg, state, { res, req }) => {
   const prevRuns = (
     await WorkflowRun.find(
-      { trigger_id: null },
+      { trigger_id: null, /*started_by: req.user?.id*/ }, //todo uncomment
       { orderBy: "started_at", orderDesc: true, limit: 30 }
     )
   ).filter((r) => r.context.interactions);
@@ -336,6 +336,7 @@ const interact = async (table_id, viewname, config, body, { req }) => {
   if (!run_id || run_id === "undefined")
     run = await WorkflowRun.create({
       status: "Running",
+      started_by: req.user?.id,
       context: {
         implemented_fcall_ids: [],
         interactions: [{ role: "user", content: userinput }],
