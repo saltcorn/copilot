@@ -80,10 +80,10 @@ const get_state_fields = () => [];
 const run = async (table_id, viewname, cfg, state, { res, req }) => {
   const prevRuns = (
     await WorkflowRun.find(
-      { trigger_id: null /*started_by: req.user?.id*/ }, //todo uncomment
+      { trigger_id: null, started_by: req.user?.id },
       { orderBy: "started_at", orderDesc: true, limit: 30 }
     )
-  ).filter((r) => r.context.interactions);
+  ).filter((r) => r.context.interactions && r.copilot === viewname);
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
   let runInteractions = "";
@@ -142,7 +142,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   const input_form = form(
     {
       onsubmit:
-        "event.preventDefault();spin_send_button();view_post('Saltcorn Copilot', 'interact', $(this).serialize(), processCopilotResponse);return false;",
+        `event.preventDefault();spin_send_button();view_post('${viewname}', 'interact', $(this).serialize(), processCopilotResponse);return false;`,
       class: "form-namespace copilot mt-2",
       method: "post",
     },
@@ -317,16 +317,8 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   };
 };
 
-const ellipsize = (s, nchars) => {
-  if (!s || !s.length) return "";
-  if (s.length <= (nchars || 20)) return text_attr(s);
-  return text_attr(s.substr(0, (nchars || 20) - 3)) + "...";
-};
-
 const actionClasses = [
-  require("./actions/generate-workflow"),
-  require("./actions/generate-tables"),
-  require("./actions/generate-js-action"),
+ 
 ];
 
 const getCompletionArguments = async () => {
@@ -400,6 +392,7 @@ const interact = async (table_id, viewname, config, body, { req }) => {
     userinput,
     complArgs
   );
+  console.log("answer", answer);
   await addToContext(run, {
     interactions:
       typeof answer === "object" && answer.tool_calls
@@ -414,7 +407,6 @@ const interact = async (table_id, viewname, config, body, { req }) => {
           ]
         : [{ role: "assistant", content: answer }],
   });
-  console.log("answer", answer);
 
   if (typeof answer === "object" && answer.tool_calls) {
     const actions = [];
