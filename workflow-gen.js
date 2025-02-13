@@ -27,8 +27,8 @@ module.exports = {
       systemPrompt,
     };
     const prompt = `Design a workflow to implement a workflow accorfing to the following specification: ${description}`;
-    console.log(prompt);
-    console.log(JSON.stringify(toolargs, null, 2));
+    //console.log(prompt);
+    //console.log(JSON.stringify(toolargs, null, 2));
 
     const answer = await getState().functions.llm_generate.run(
       prompt,

@@ -27,7 +27,7 @@ const getPromptFromTemplate = async (tmplName, userPrompt, extraCtx = {}) => {
     interpolate: /\{\{([^#].+?)\}\}/g,
   });
   const prompt = template(context);
-  console.log("Full prompt:\n", prompt);
+  //console.log("Full prompt:\n", prompt);
   return prompt;
 };
 
