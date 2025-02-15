@@ -32,6 +32,7 @@ const {
   getCompletion,
   getPromptFromTemplate,
   incompleteCfgMsg,
+  fieldProperties,
 } = require("./common");
 const MarkdownIt = require("markdown-it"),
   md = new MarkdownIt();
@@ -75,7 +76,7 @@ const configuration_workflow = (req) =>
                 label: "Actions",
                 fields: [
                   {
-                    name: "action_name",
+                    name: "trigger_name",
                     label: "Action",
                     sublabel: "Only actions with a description can be enabled",
                     type: "String",
@@ -87,9 +88,9 @@ const configuration_workflow = (req) =>
                     name: "confirm_view",
                     label: "Confirm view",
                     type: "String",
-                    showIf: { confirm: true, action_name: hasTable },
+                    showIf: { confirm: true, trigger_name: hasTable },
                     attributes: {
-                      calcOptions: ["action_name", confirm_view_opts],
+                      calcOptions: ["trigger_name", confirm_view_opts],
                     },
                   },
                 ],
@@ -198,14 +199,14 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         { class: "submit-button p-2", onclick: "$('form.copilot').submit()" },
         i({ id: "sendbuttonicon", class: "far fa-paper-plane" })
       )
-    ),
+    )
 
-    i(
+    /*i(
       small(
         "Skills you can request: " +
           actionClasses.map((ac) => ac.title).join(", ")
       )
-    )
+    )*/
   );
   return {
     widths: [3, 9],
@@ -343,24 +344,38 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   };
 };
 
-const actionClasses = [];
-
-const getCompletionArguments = async () => {
+const getCompletionArguments = async (config) => {
   let tools = [];
   const sysPrompts = [];
-  for (const actionClass of actionClasses) {
+  for (const action of config?.actions || []) {
+    let properties = {};
+
+    const trigger = Trigger.findOne({ name: action.trigger_name });
+    if (trigger.table_id) {
+      const table = Table.findOne({ id: trigger.table_id });
+
+      table.fields.forEach((field) => {
+        properties[field.name] = {
+          description: field.label + " " + field.description || "",
+          ...fieldProperties(field),
+        };
+      });
+    }
     tools.push({
       type: "function",
       function: {
-        name: actionClass.function_name,
-        description: actionClass.description,
-        parameters: await actionClass.json_schema(),
+        name: action.trigger_name,
+        description: trigger.description,
+        parameters: {
+          type: "object",
+          //required: ["action_javascript_code", "action_name"],
+          properties,
+        },
       },
     });
-    sysPrompts.push(await actionClass.system_prompt());
   }
   const systemPrompt =
-    "You are building application components in a database application builder called Saltcorn.\n\n" +
+    "You are helping users retrieve information and perform actions on a relational database" +
     sysPrompts.join("\n\n");
   if (tools.length === 0) tools = undefined;
   return { tools, systemPrompt };
@@ -406,12 +421,12 @@ const interact = async (table_id, viewname, config, body, { req }) => {
       interactions: [{ role: "user", content: userinput }],
     });
   }
-  const complArgs = await getCompletionArguments();
+  const complArgs = await getCompletionArguments(config);
   complArgs.chat = run.context.interactions;
   //console.log(complArgs);
 
-  //build a database for a bicycle rental company
-  //add a boolean field called "paid" to the payments table
+ 
+  //console.log("complArgs", JSON.stringify(complArgs, null, 2));
 
   const answer = await getState().functions.llm_generate.run(
     userinput,
