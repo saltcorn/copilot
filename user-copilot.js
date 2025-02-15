@@ -83,7 +83,8 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
       { trigger_id: null, started_by: req.user?.id },
       { orderBy: "started_at", orderDesc: true, limit: 30 }
     )
-  ).filter((r) => r.context.interactions && r.copilot === viewname);
+  ).filter((r) => r.context.interactions && r.context.copilot === viewname);
+  
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
   let runInteractions = "";
@@ -141,8 +142,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   }
   const input_form = form(
     {
-      onsubmit:
-        `event.preventDefault();spin_send_button();view_post('${viewname}', 'interact', $(this).serialize(), processCopilotResponse);return false;`,
+      onsubmit: `event.preventDefault();spin_send_button();view_post('${viewname}', 'interact', $(this).serialize(), processCopilotResponse);return false;`,
       class: "form-namespace copilot mt-2",
       method: "post",
     },
@@ -317,12 +317,10 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   };
 };
 
-const actionClasses = [
- 
-];
+const actionClasses = [];
 
 const getCompletionArguments = async () => {
-  const tools = [];
+  let tools = [];
   const sysPrompts = [];
   for (const actionClass of actionClasses) {
     tools.push({
@@ -338,6 +336,7 @@ const getCompletionArguments = async () => {
   const systemPrompt =
     "You are building application components in a database application builder called Saltcorn.\n\n" +
     sysPrompts.join("\n\n");
+  if (tools.length === 0) tools = undefined;
   return { tools, systemPrompt };
 };
 
