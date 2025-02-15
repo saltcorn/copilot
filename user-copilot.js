@@ -3,8 +3,7 @@ const Table = require("@saltcorn/data/models/table");
 const Form = require("@saltcorn/data/models/form");
 const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
-const { findType } = require("@saltcorn/data/models/discovery");
-const { save_menu_items } = require("@saltcorn/data/models/config");
+const FieldRepeat = require("@saltcorn/data/models/fieldrepeat");
 const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
 const Workflow = require("@saltcorn/data/models/workflow");
@@ -62,13 +61,40 @@ const configuration_workflow = (req) =>
           const actions = (await Trigger.find({})).filter(
             (action) => action.description
           );
+          const hasTable = actions.filter((a) => a.table_id).map((a) => a.name);
+          const confirm_view_opts = {};
+          for (const a of actions) {
+            if (!a.table_id) continue;
+            const views = await View.find({ table_id: a.table_id });
+            confirm_view_opts[a.name] = views.map((v) => v.name);
+          }
           return new Form({
-            blurb: "Only actions with a description can be enabled",
-            fields: actions.map((action) => ({
-              name: "enable_action_" + action.id,
-              label: action.name,
-              type: "Bool",
-            })),
+            fields: [
+              new FieldRepeat({
+                name: "actions",
+                label: "Actions",
+                fields: [
+                  {
+                    name: "action_name",
+                    label: "Action",
+                    sublabel: "Only actions with a description can be enabled",
+                    type: "String",
+                    required: true,
+                    attributes: { options: actions.map((a) => a.name) },
+                  },
+                  { name: "confirm", label: "User confirmation", type: "Bool" },
+                  {
+                    name: "confirm_view",
+                    label: "Confirm view",
+                    type: "String",
+                    showIf: { confirm: true, action_name: hasTable },
+                    attributes: {
+                      calcOptions: ["action_name", confirm_view_opts],
+                    },
+                  },
+                ],
+              }),
+            ],
           });
         },
       },
@@ -84,7 +110,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
       { orderBy: "started_at", orderDesc: true, limit: 30 }
     )
   ).filter((r) => r.context.interactions && r.context.copilot === viewname);
-  
+
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
   let runInteractions = "";
