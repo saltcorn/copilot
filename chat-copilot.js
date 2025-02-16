@@ -44,7 +44,11 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
       { trigger_id: null /*started_by: req.user?.id*/ }, //todo uncomment
       { orderBy: "started_at", orderDesc: true, limit: 30 }
     )
-  ).filter((r) => r.context.interactions);
+  ).filter(
+    (r) =>
+      r.context.interactions &&
+      (r.context.copilot === "_system" || !r.context.copilot)
+  );
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
   let runInteractions = "";
