@@ -104,7 +104,7 @@ const configuration_workflow = (req) =>
 
 const get_state_fields = () => [];
 
-const run = async (table_id, viewname, cfg, state, { res, req }) => {
+const run = async (table_id, viewname, config, state, { res, req }) => {
   const prevRuns = (
     await WorkflowRun.find(
       { trigger_id: null, started_by: req.user?.id },
@@ -125,7 +125,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
             div(
               { class: "interaction-segment" },
               span({ class: "badge bg-secondary" }, "You"),
-              p(interact.content)
+              md.render(interact.content)
             )
           );
           break;
@@ -133,21 +133,21 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
         case "system":
           if (interact.tool_calls) {
             for (const tool_call of interact.tool_calls) {
-              const markup = await renderToolcall(
-                tool_call,
-                viewname,
-                (run.context.implemented_fcall_ids || []).includes(
-                  tool_call.id
-                ),
-                run
+              const action = config.actions.find(
+                (a) => a.trigger_name === tool_call.function.name
               );
-              interactMarkups.push(
-                div(
-                  { class: "interaction-segment" },
-                  span({ class: "badge bg-secondary" }, "Copilot"),
-                  markup
-                )
-              );
+              if (action) {
+                const row = JSON.parse(tool_call.function.arguments);
+                interactMarkups.push(
+                  wrapSegment(
+                    wrapCard(
+                      action.trigger_name,
+                      pre(JSON.stringify(row, null, 2))
+                    ),
+                    "Copilot"
+                  )
+                );
+              }
             }
           } else
             interactMarkups.push(
