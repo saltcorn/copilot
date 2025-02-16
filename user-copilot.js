@@ -57,6 +57,47 @@ const configuration_workflow = (req) =>
         },
       },
       {
+        name: req.__("Tables"),
+        form: async (context) => {
+          const tables = await Table.find({});
+          const show_view_opts = {};
+          for (const t of tables) {
+            const views = await View.find({
+              table_id: t.id,
+              viewtemplate: "Show",
+            });
+            show_view_opts[t.name] = views.map((v) => v.name);
+          }
+          return new Form({
+            fields: [
+              new FieldRepeat({
+                name: "tables",
+                label: "Tables",
+                fields: [
+                  {
+                    name: "table_name",
+                    label: "Table",
+                    sublabel:
+                      "Only tables with a description can be enabled for access",
+                    type: "String",
+                    required: true,
+                    attributes: { options: tables.map((a) => a.name) },
+                  },
+                  {
+                    name: "show_view",
+                    label: "Show view",
+                    type: "String",
+                    attributes: {
+                      calcOptions: ["table_name", show_view_opts],
+                    },
+                  },
+                ],
+              }),
+            ],
+          });
+        },
+      },
+      {
         name: req.__("Actions"),
         form: async (context) => {
           const actions = (await Trigger.find({})).filter(
@@ -395,20 +436,6 @@ build a workflow that asks the user for their name and age
 
 */
 
-const execute = async (table_id, viewname, config, body, { req }) => {
-  const { fcall_id, run_id } = body;
-
-  const run = await WorkflowRun.findOne({ id: +run_id });
-
-  const fcall = run.context.funcalls[fcall_id];
-  const actionClass = actionClasses.find(
-    (ac) => ac.function_name === fcall.name
-  );
-  const result = await actionClass.execute(JSON.parse(fcall.arguments), req);
-  await addToContext(run, { implemented_fcall_ids: [fcall_id] });
-  return { json: { success: "ok", fcall_id, ...(result || {}) } };
-};
-
 const interact = async (table_id, viewname, config, body, { req }) => {
   const { userinput, run_id } = body;
   let run;
@@ -527,22 +554,6 @@ const wrapSegment = (html, who) =>
   html +
   "</div>";
 
-const renderToolcall = async (tool_call, viewname, implemented, run) => {
-  const fname = tool_call.function.name;
-  const actionClass = actionClasses.find((ac) => ac.function_name === fname);
-  const args = JSON.parse(tool_call.function.arguments);
-
-  const inner_markup = await actionClass.render_html(args);
-  return wrapAction(
-    inner_markup,
-    viewname,
-    tool_call,
-    actionClass,
-    implemented,
-    run
-  );
-};
-
 const wrapCard = (title, inner) =>
   span({ class: "badge bg-info ms-1" }, title) +
   div(
@@ -610,5 +621,5 @@ module.exports = {
   get_state_fields,
   tableless: true,
   run,
-  routes: { interact, execute },
+  routes: { interact },
 };
