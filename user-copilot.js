@@ -295,15 +295,10 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
           $runidin.val(res.run_id);
         const wrapSegment = (html, who) => '<div class="interaction-segment"><span class="badge bg-secondary">'+who+'</span>'+html+'</div>'
         $("#copilotinteractions").append(wrapSegment('<p>'+$("textarea[name=userinput]").val()+'</p>', "You"))
-        $("textarea[name=userinput]").val("")
-
-        for(const action of res.actions||[]) {
-            $("#copilotinteractions").append(wrapSegment(action, "Copilot"))
-          
-        }
+        $("textarea[name=userinput]").val("")      
 
         if(res.response)
-            $("#copilotinteractions").append(wrapSegment('<p>'+res.response+'</p>', "Copilot"))
+            $("#copilotinteractions").append(res.response)
     }
     function restore_old_button_elem(btn) {
         const oldText = $(btn).data("old-text");
@@ -426,7 +421,13 @@ const interact = async (table_id, viewname, config, body, { req }) => {
   return await process_interaction(run, userinput, config, req);
 };
 
-const process_interaction = async (run, input, config, req) => {
+const process_interaction = async (
+  run,
+  input,
+  config,
+  req,
+  prevResponses = []
+) => {
   const complArgs = await getCompletionArguments(config);
   complArgs.chat = run.context.interactions;
   //console.log(complArgs);
@@ -440,6 +441,7 @@ const process_interaction = async (run, input, config, req) => {
         ? [{ role: "assistant", tool_calls: answer.tool_calls }]
         : [{ role: "assistant", content: answer }],
   });
+  const responses = [];
 
   if (typeof answer === "object" && answer.tool_calls) {
     //const actions = [];
@@ -458,6 +460,9 @@ const process_interaction = async (run, input, config, req) => {
       if (action) {
         const trigger = Trigger.findOne({ name: action.trigger_name });
         const row = JSON.parse(tool_call.function.arguments);
+        responses.push(
+          wrapCard(action.trigger_name, pre(JSON.stringify(row, null, 2)))
+        );
         const result = await trigger.runWithoutRow({ user: req.user, row });
         console.log("ran trigger with result", {
           name: trigger.name,
@@ -479,16 +484,24 @@ const process_interaction = async (run, input, config, req) => {
         });
       }
     }
-    if (hasResult) return await process_interaction(run, "", config, req);
-    else
-      return {
-        json: { success: "ok", run_id: run.id },
-      };
-  } else
-    return {
-      json: { success: "ok", response: md.render(answer), run_id: run.id },
-    };
+    if (hasResult)
+      return await process_interaction(run, "", config, req, [
+        ...prevResponses,
+        ...responses,
+      ]);
+  } else responses.push(wrapSegment(md.render(answer), "Copilot"));
+
+  return {
+    json: { success: "ok", response: responses.join(""), run_id: run.id },
+  };
 };
+
+const wrapSegment = (html, who) =>
+  '<div class="interaction-segment"><span class="badge bg-secondary">' +
+  who +
+  "</span>" +
+  html +
+  "</div>";
 
 const renderToolcall = async (tool_call, viewname, implemented, run) => {
   const fname = tool_call.function.name;
@@ -506,6 +519,13 @@ const renderToolcall = async (tool_call, viewname, implemented, run) => {
   );
 };
 
+const wrapCard = (title, inner) =>
+  span({ class: "badge bg-info ms-1" }, title) +
+  div(
+    { class: "card mb-3 bg-secondary-subtle" },
+    div({ class: "card-body" }, inner)
+  );
+
 const wrapAction = (
   inner_markup,
   viewname,
@@ -514,33 +534,27 @@ const wrapAction = (
   implemented,
   run
 ) =>
-  span({ class: "badge bg-info ms-1" }, actionClass.title) +
-  div(
-    { class: "card mb-3 bg-secondary-subtle" },
-    div(
-      { class: "card-body" },
-      inner_markup,
-      implemented
-        ? button(
-            {
-              type: "button",
-              class: "btn btn-secondary d-block mt-3 float-end",
-              disabled: true,
-            },
-            i({ class: "fas fa-check me-1" }),
-            "Applied"
-          )
-        : button(
-            {
-              type: "button",
-              id: "exec-" + tool_call.id,
-              class: "btn btn-primary d-block mt-3 float-end",
-              onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
-            },
-            "Apply"
-          ),
-      div({ id: "postexec-" + tool_call.id })
-    )
+  wrapCard(
+    actionClass.title,
+    inner_markup + implemented
+      ? button(
+          {
+            type: "button",
+            class: "btn btn-secondary d-block mt-3 float-end",
+            disabled: true,
+          },
+          i({ class: "fas fa-check me-1" }),
+          "Applied"
+        )
+      : button(
+          {
+            type: "button",
+            id: "exec-" + tool_call.id,
+            class: "btn btn-primary d-block mt-3 float-end",
+            onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
+          },
+          "Apply"
+        ) + div({ id: "postexec-" + tool_call.id })
   );
 
 const addToContext = async (run, newCtx) => {
