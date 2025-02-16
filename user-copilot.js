@@ -208,7 +208,11 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
               wrapSegment(
                 wrapCard(
                   interact.name,
-                  pre(JSON.stringify(interact.content, null, 2))
+                  pre(
+                    interact.name.startsWith("Query")
+                      ? JSON.stringify(JSON.parse(interact.content), null, 2)
+                      : JSON.stringify(interact.content, null, 2)
+                  )
                 ),
                 "Copilot"
               )
