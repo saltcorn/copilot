@@ -354,12 +354,14 @@ const getCompletionArguments = async (config) => {
     if (trigger.table_id) {
       const table = Table.findOne({ id: trigger.table_id });
 
-      table.fields.forEach((field) => {
-        properties[field.name] = {
-          description: field.label + " " + field.description || "",
-          ...fieldProperties(field),
-        };
-      });
+      table.fields
+        .filter((f) => !f.primary_key)
+        .forEach((field) => {
+          properties[field.name] = {
+            description: field.label + " " + field.description || "",
+            ...fieldProperties(field),
+          };
+        });
     }
     tools.push({
       type: "function",
@@ -411,7 +413,7 @@ const interact = async (table_id, viewname, config, body, { req }) => {
       context: {
         copilot: viewname,
         implemented_fcall_ids: [],
-        interactions: [{ role: "user", content: userinput }],
+        interactions: [],
         funcalls: {},
       },
     });
@@ -421,44 +423,67 @@ const interact = async (table_id, viewname, config, body, { req }) => {
       interactions: [{ role: "user", content: userinput }],
     });
   }
+  return await process_interaction(run, userinput, config, req);
+};
+
+const process_interaction = async (run, input, config, req) => {
   const complArgs = await getCompletionArguments(config);
   complArgs.chat = run.context.interactions;
   //console.log(complArgs);
-
- 
   //console.log("complArgs", JSON.stringify(complArgs, null, 2));
 
-  const answer = await getState().functions.llm_generate.run(
-    userinput,
-    complArgs
-  );
+  const answer = await getState().functions.llm_generate.run(input, complArgs);
   console.log("answer", answer);
   await addToContext(run, {
     interactions:
       typeof answer === "object" && answer.tool_calls
-        ? [
-            { role: "assistant", tool_calls: answer.tool_calls },
-            ...answer.tool_calls.map((tc) => ({
-              role: "tool",
-              tool_call_id: tc.id,
-              name: tc.function.name,
-              content: "Action suggested to user.",
-            })),
-          ]
+        ? [{ role: "assistant", tool_calls: answer.tool_calls }]
         : [{ role: "assistant", content: answer }],
   });
 
   if (typeof answer === "object" && answer.tool_calls) {
-    const actions = [];
+    //const actions = [];
+    let hasResult = false;
     for (const tool_call of answer.tool_calls) {
+      console.log("call function", tool_call.function);
+
       await addToContext(run, {
         funcalls: { [tool_call.id]: tool_call.function },
       });
-      const markup = await renderToolcall(tool_call, viewname, false, run);
+      const action = config.actions.find(
+        (a) => a.trigger_name === tool_call.function.name
+      );
+      console.log({ action });
 
-      actions.push(markup);
+      if (action) {
+        const trigger = Trigger.findOne({ name: action.trigger_name });
+        const row = JSON.parse(tool_call.function.arguments);
+        const result = await trigger.runWithoutRow({ user: req.user, row });
+        console.log("ran trigger with result", {
+          name: trigger.name,
+          row,
+          result,
+        });
+
+        if (typeof result === "object" && Object.keys(result || {}).length)
+          hasResult = true;
+        await addToContext(run, {
+          interactions: [
+            {
+              role: "tool",
+              tool_call_id: tool_call.id,
+              name: tool_call.function.name,
+              content: result || "Action run",
+            },
+          ],
+        });
+      }
     }
-    return { json: { success: "ok", actions, run_id: run.id } };
+    if (hasResult) return await process_interaction(run, "", config, req);
+    else
+      return {
+        json: { success: "ok", run_id: run.id },
+      };
   } else
     return {
       json: { success: "ok", response: md.render(answer), run_id: run.id },
