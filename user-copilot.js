@@ -394,6 +394,35 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
 const getCompletionArguments = async (config) => {
   let tools = [];
   const sysPrompts = [];
+  for (const tableCfg of config?.tables || []) {
+    let properties = {};
+
+    const table = Table.findOne({ name: tableCfg.table_name });
+
+    table.fields
+      .filter((f) => !f.primary_key)
+      .forEach((field) => {
+        properties[field.name] = {
+          description: field.label + " " + field.description || "",
+          ...fieldProperties(field),
+        };
+      });
+
+    tools.push({
+      type: "function",
+      function: {
+        name: "Query" + table.name,
+        description: `Query the ${table.name} table. ${
+          table.description || ""
+        }`,
+        parameters: {
+          type: "object",
+          //required: ["action_javascript_code", "action_name"],
+          properties,
+        },
+      },
+    });
+  }
   for (const action of config?.actions || []) {
     let properties = {};
 
@@ -425,7 +454,8 @@ const getCompletionArguments = async (config) => {
   }
   const systemPrompt =
     "You are helping users retrieve information and perform actions on a relational database" +
-    sysPrompts.join("\n\n");
+    config.sys_prompt;
+
   if (tools.length === 0) tools = undefined;
   return { tools, systemPrompt };
 };
@@ -469,7 +499,7 @@ const process_interaction = async (
   const complArgs = await getCompletionArguments(config);
   complArgs.chat = run.context.interactions;
   //console.log(complArgs);
-  //console.log("complArgs", JSON.stringify(complArgs, null, 2));
+  console.log("complArgs", JSON.stringify(complArgs, null, 2));
 
   const answer = await getState().functions.llm_generate.run(input, complArgs);
   console.log("answer", answer);
@@ -533,6 +563,33 @@ const process_interaction = async (
             },
           ],
         });
+      } else if (tool_call.function.name.startsWith("Query")) {
+        const table = Table.findOne({
+          name: tool_call.function.name.replace("Query", ""),
+        });
+        const query = JSON.parse(tool_call.function.arguments);
+        const result = await table.getRows(query);
+        await addToContext(run, {
+          interactions: [
+            {
+              role: "tool",
+              tool_call_id: tool_call.id,
+              name: tool_call.function.name,
+              content: JSON.stringify(result),
+            },
+          ],
+        });
+        responses.push(
+          wrapSegment(
+            wrapCard(
+              "Query " + table.name,
+              div("Query: ", code(JSON.stringify(query))),
+              pre(JSON.stringify(result, null, 2))
+            ),
+            "Copilot"
+          )
+        );
+        hasResult = true;
       }
     }
     if (hasResult)
@@ -543,7 +600,11 @@ const process_interaction = async (
   } else responses.push(wrapSegment(md.render(answer), "Copilot"));
 
   return {
-    json: { success: "ok", response: responses.join(""), run_id: run.id },
+    json: {
+      success: "ok",
+      response: [...prevResponses, ...responses].join(""),
+      run_id: run.id,
+    },
   };
 };
 
@@ -554,11 +615,11 @@ const wrapSegment = (html, who) =>
   html +
   "</div>";
 
-const wrapCard = (title, inner) =>
+const wrapCard = (title, ...inners) =>
   span({ class: "badge bg-info ms-1" }, title) +
   div(
     { class: "card mb-3 bg-secondary-subtle" },
-    div({ class: "card-body" }, inner)
+    div({ class: "card-body" }, inners)
   );
 
 const wrapAction = (
