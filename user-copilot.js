@@ -408,7 +408,7 @@ const interact = async (table_id, viewname, config, body, { req }) => {
       context: {
         copilot: viewname,
         implemented_fcall_ids: [],
-        interactions: [],
+        interactions: [{ role: "user", content: userinput }],
         funcalls: {},
       },
     });
@@ -461,7 +461,10 @@ const process_interaction = async (
         const trigger = Trigger.findOne({ name: action.trigger_name });
         const row = JSON.parse(tool_call.function.arguments);
         responses.push(
-          wrapCard(action.trigger_name, pre(JSON.stringify(row, null, 2)))
+          wrapSegment(
+            wrapCard(action.trigger_name, pre(JSON.stringify(row, null, 2))),
+            "Copilot"
+          )
         );
         const result = await trigger.runWithoutRow({ user: req.user, row });
         console.log("ran trigger with result", {
