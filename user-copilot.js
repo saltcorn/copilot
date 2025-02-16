@@ -162,6 +162,17 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
           break;
         case "tool":
           //ignore
+          if (interact.content !== "Action run") {
+            interactMarkups.push(
+              wrapSegment(
+                wrapCard(
+                  interact.name,
+                  pre(JSON.stringify(interact.content, null, 2))
+                ),
+                "Copilot"
+              )
+            );
+          }
           break;
       }
     }
@@ -473,8 +484,18 @@ const process_interaction = async (
           result,
         });
 
-        if (typeof result === "object" && Object.keys(result || {}).length)
+        if (typeof result === "object" && Object.keys(result || {}).length) {
+          responses.push(
+            wrapSegment(
+              wrapCard(
+                action.trigger_name + " result",
+                pre(JSON.stringify(result, null, 2))
+              ),
+              "Copilot"
+            )
+          );
           hasResult = true;
+        }
         await addToContext(run, {
           interactions: [
             {
