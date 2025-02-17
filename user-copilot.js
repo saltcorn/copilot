@@ -138,7 +138,7 @@ const configuration_workflow = (req) =>
                     required: true,
                     attributes: { options: actions.map((a) => a.name) },
                   },
-                  { name: "confirm", label: "User confirmation", type: "Bool" },
+                  /*{ name: "confirm", label: "User confirmation", type: "Bool" },
                   {
                     name: "confirm_view",
                     label: "Confirm view",
@@ -147,7 +147,7 @@ const configuration_workflow = (req) =>
                     attributes: {
                       calcOptions: ["trigger_name", confirm_view_opts],
                     },
-                  },
+                  },*/
                 ],
               }),
             ],
