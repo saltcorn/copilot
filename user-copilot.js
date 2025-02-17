@@ -527,13 +527,19 @@ const renderQueryInteraction = async (table, result, config, req) => {
   if (result.length === 1) {
     const view = View.findOne({ name: tableCfg.show_view });
     if (view) {
-      
       viewRes = await view.run(
         { [table.pk_name]: result[0][table.pk_name] },
         { req }
       );
     } else viewRes = pre(JSON.stringify(result[0], null, 2));
   } else {
+    const view = View.findOne({ name: tableCfg.list_view });
+    if (view) {
+      viewRes = await view.run(
+        { [table.pk_name]: { in: result.map((r) => r[table.pk_name]) } },
+        { req }
+      );
+    } else viewRes = pre(JSON.stringify(result, null, 2));
   }
   return wrapSegment(
     wrapCard(
