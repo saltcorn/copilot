@@ -481,7 +481,10 @@ const getCompletionArguments = async (config) => {
           ];
         } else Object.assign(fieldProperties(field), properties[field.name]);
       });
-
+    properties.sql_id_query = {
+      type: "string",
+      description: `An SQL query for this table's primary keys (${table.pk_name}). This must select only the primary keys, for example SELECT ${table.name[0]}."${table.pk_name}" from "${table.name}" ${table.name[0]} JOIN ... where... Use this to join other tables in the database. If you use sql_id_query, use it alone, do not combine with other field queries. Any other fields you want to filter on must be accessed in the WHERE clause`,
+    };
     tools.push({
       type: "function",
       function: {
@@ -539,7 +542,12 @@ const getCompletionArguments = async (config) => {
 ` +
     tables
       .map(
-        (t) => `CREATE TABLE "${t.name}" (
+        (t) => `CREATE TABLE "${t.name}" (${
+          t.description
+            ? `
+  /* ${t.description} */`
+            : ""
+        }
 ${t.fields
   .map(
     (f) =>
@@ -553,7 +561,7 @@ ${t.fields
 )`
       )
       .join(";\n\n");
-  console.log("sysprompt", systemPrompt);
+  //console.log("sysprompt", systemPrompt);
 
   if (tools.length === 0) tools = undefined;
   return { tools, systemPrompt };
@@ -707,10 +715,37 @@ const process_interaction = async (
           name: tool_call.function.name.replace("Query", ""),
         });
         const query = JSON.parse(tool_call.function.arguments);
-        const result = await table.getRows(query, {
-          forUser: req.user,
-          forPublic: !req.user,
-        });
+        let result;
+        if (query.sql_id_query) {
+          const is_sqlite = db.isSQLite;
+
+          const client = is_sqlite ? db : await db.getClient();
+          await client.query(`BEGIN;`);
+          if (!is_sqlite) {
+            await client.query(
+              `SET LOCAL search_path TO "${db.getTenantSchema()}";`
+            );
+            await client.query(
+              `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;`
+            );
+          }
+
+          const { rows } = await client.query(query.sql_id_query);
+          await client.query(`ROLLBACK;`);
+
+          if (!is_sqlite) client.release(true);
+          result = await table.getRows(
+            { [table.pk_name]: { in: rows.map((r) => r[table.pk_name]) } },
+            {
+              forUser: req.user,
+              forPublic: !req.user,
+            }
+          );
+        } else
+          result = await table.getRows(query, {
+            forUser: req.user,
+            forPublic: !req.user,
+          });
         await addToContext(run, {
           interactions: [
             {
