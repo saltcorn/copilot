@@ -193,15 +193,16 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
               );
               if (action) {
                 const row = JSON.parse(tool_call.function.arguments);
-                interactMarkups.push(
-                  wrapSegment(
-                    wrapCard(
-                      action.trigger_name,
-                      pre(JSON.stringify(row, null, 2))
-                    ),
-                    "Copilot"
-                  )
-                );
+                if (Object.keys(row || {}).length)
+                  interactMarkups.push(
+                    wrapSegment(
+                      wrapCard(
+                        action.trigger_name,
+                        pre(JSON.stringify(row, null, 2))
+                      ),
+                      "Copilot"
+                    )
+                  );
               }
             }
           } else
@@ -233,11 +234,7 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
               wrapSegment(
                 wrapCard(
                   interact.name,
-                  pre(
-                    interact.name.startsWith("Query")
-                      ? JSON.stringify(JSON.parse(interact.content), null, 2)
-                      : JSON.stringify(interact.content, null, 2)
-                  )
+                  pre(JSON.stringify(JSON.parse(interact.content), null, 2))
                 ),
                 "Copilot"
               )
@@ -636,12 +633,13 @@ const process_interaction = async (
       if (action) {
         const trigger = Trigger.findOne({ name: action.trigger_name });
         const row = JSON.parse(tool_call.function.arguments);
-        responses.push(
-          wrapSegment(
-            wrapCard(action.trigger_name, pre(JSON.stringify(row, null, 2))),
-            "Copilot"
-          )
-        );
+        if (Object.keys(row || {}).length)
+          responses.push(
+            wrapSegment(
+              wrapCard(action.trigger_name, pre(JSON.stringify(row, null, 2))),
+              "Copilot"
+            )
+          );
         const result = await trigger.runWithoutRow({ user: req.user, row });
         console.log("ran trigger with result", {
           name: trigger.name,
@@ -667,7 +665,7 @@ const process_interaction = async (
               role: "tool",
               tool_call_id: tool_call.id,
               name: tool_call.function.name,
-              content: result || "Action run",
+              content: result ? JSON.stringify(result) : "Action run",
             },
           ],
         });
