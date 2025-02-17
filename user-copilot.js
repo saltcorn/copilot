@@ -176,8 +176,6 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
     const run = prevRuns.find((r) => r.id == state.run_id);
     const interactMarkups = [];
     for (const interact of run.context.interactions) {
-      console.log(interact);
-
       switch (interact.role) {
         case "user":
           interactMarkups.push(
