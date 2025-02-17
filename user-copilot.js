@@ -68,10 +68,12 @@ const configuration_workflow = (req) =>
               viewtemplate: "Show",
             });
             show_view_opts[t.name] = views.map((v) => v.name);
-            const lviews = await View.find({
-              table_id: t.id,
-              viewtemplate: "List",
-            });
+            const lviews = await View.find_table_views_where(
+              t.id,
+              ({ state_fields, viewrow }) =>
+                viewrow.viewtemplate !== "Edit" &&
+                state_fields.every((sf) => !sf.required)
+            );
             list_view_opts[t.name] = lviews.map((v) => v.name);
           }
           return new Form({
