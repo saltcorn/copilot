@@ -526,9 +526,34 @@ const getCompletionArguments = async (config) => {
       },
     });
   }
+  const tables = (await Table.find({})).filter(
+    (t) => !t.external && !t.provider_name
+  );
+  const schemaPrefix = db.getTenantSchemaPrefix();
   const systemPrompt =
     "You are helping users retrieve information and perform actions on a relational database" +
-    config.sys_prompt;
+    config.sys_prompt +
+    `
+    If you are generating SQL, Your database the following tables in PostgreSQL: 
+
+` +
+    tables
+      .map(
+        (t) => `CREATE TABLE "${t.name}" (
+${t.fields
+  .map(
+    (f) =>
+      `  "${f.name}" ${
+        f.primary_key && f.type?.name === "Integer"
+          ? "SERIAL PRIMARY KEY"
+          : f.sql_type.replace(schemaPrefix, "")
+      }`
+  )
+  .join(",\n")}
+)`
+      )
+      .join(";\n\n");
+  console.log("sysprompt", systemPrompt);
 
   if (tools.length === 0) tools = undefined;
   return { tools, systemPrompt };
