@@ -176,6 +176,8 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
     const run = prevRuns.find((r) => r.id == state.run_id);
     const interactMarkups = [];
     for (const interact of run.context.interactions) {
+      console.log(interact);
+
       switch (interact.role) {
         case "user":
           interactMarkups.push(
@@ -205,6 +207,20 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
                       "Copilot"
                     )
                   );
+              } else if (tool_call.function.name.startsWith("Query")) {
+                const query = JSON.parse(tool_call.function.arguments);
+                const queryText = query.sql_id_query
+                  ? query.sql_id_query
+                  : JSON.stringify(query, null, 2);
+                interactMarkups.push(
+                  wrapSegment(
+                    wrapCard(
+                      "Query " + tool_call.function.name.replace("Query", ""),
+                      pre(queryText)
+                    ),
+                    "Copilot"
+                  )
+                );
               }
             }
           } else
@@ -740,6 +756,15 @@ const process_interaction = async (
               forUser: req.user,
               forPublic: !req.user,
             }
+          );
+          responses.push(
+            wrapSegment(
+              wrapCard(
+                "Query " + tool_call.function.name.replace("Query", ""),
+                pre(query.sql_id_query)
+              ),
+              "Copilot"
+            )
           );
         } else
           result = await table.getRows(query, {
