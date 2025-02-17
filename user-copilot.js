@@ -676,7 +676,10 @@ const process_interaction = async (
           name: tool_call.function.name.replace("Query", ""),
         });
         const query = JSON.parse(tool_call.function.arguments);
-        const result = await table.getRows(query);
+        const result = await table.getRows(query, {
+          forUser: req.user,
+          forPublic: !req.user,
+        });
         await addToContext(run, {
           interactions: [
             {
