@@ -61,12 +61,18 @@ const configuration_workflow = (req) =>
         form: async (context) => {
           const tables = await Table.find({});
           const show_view_opts = {};
+          const list_view_opts = {};
           for (const t of tables) {
             const views = await View.find({
               table_id: t.id,
               viewtemplate: "Show",
             });
             show_view_opts[t.name] = views.map((v) => v.name);
+            const lviews = await View.find({
+              table_id: t.id,
+              viewtemplate: "List",
+            });
+            list_view_opts[t.name] = lviews.map((v) => v.name);
           }
           return new Form({
             fields: [
@@ -89,6 +95,14 @@ const configuration_workflow = (req) =>
                     type: "String",
                     attributes: {
                       calcOptions: ["table_name", show_view_opts],
+                    },
+                  },
+                  {
+                    name: "list_view",
+                    label: "List view",
+                    type: "String",
+                    attributes: {
+                      calcOptions: ["table_name", list_view_opts],
                     },
                   },
                 ],
@@ -202,8 +216,19 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
             );
           break;
         case "tool":
-          //ignore
-          if (interact.content !== "Action run") {
+          if (interact.name.startsWith("Query")) {
+            const table = Table.findOne({
+              name: interact.name.replace("Query", ""),
+            });
+            interactMarkups.push(
+              await renderQueryInteraction(
+                table,
+                JSON.parse(interact.content),
+                config,
+                req
+              )
+            );
+          } else if (interact.content !== "Action run") {
             interactMarkups.push(
               wrapSegment(
                 wrapCard(
@@ -470,7 +495,7 @@ build a workflow that asks the user for their name and age
 
 */
 
-const interact = async (table_id, viewname, config, body, { req }) => {
+const interact = async (table_id, viewname, config, body, { req, res }) => {
   const { userinput, run_id } = body;
   let run;
   if (!run_id || run_id === "undefined")
@@ -491,6 +516,33 @@ const interact = async (table_id, viewname, config, body, { req }) => {
     });
   }
   return await process_interaction(run, userinput, config, req);
+};
+
+const renderQueryInteraction = async (table, result, config, req) => {
+  if (result.length === 0) return "No rows found";
+
+  const tableCfg = config.tables.find((t) => t.table_name === table.name);
+  let viewRes = "";
+
+  if (result.length === 1) {
+    const view = View.findOne({ name: tableCfg.show_view });
+    if (view) {
+      
+      viewRes = await view.run(
+        { [table.pk_name]: result[0][table.pk_name] },
+        { req }
+      );
+    } else viewRes = pre(JSON.stringify(result[0], null, 2));
+  } else {
+  }
+  return wrapSegment(
+    wrapCard(
+      "Query " + table.name,
+      //div("Query: ", code(JSON.stringify(query))),
+      viewRes
+    ),
+    "Copilot"
+  );
 };
 
 const process_interaction = async (
@@ -584,14 +636,7 @@ const process_interaction = async (
           ],
         });
         responses.push(
-          wrapSegment(
-            wrapCard(
-              "Query " + table.name,
-              div("Query: ", code(JSON.stringify(query))),
-              pre(JSON.stringify(result, null, 2))
-            ),
-            "Copilot"
-          )
+          await renderQueryInteraction(table, result, config, req)
         );
         hasResult = true;
       }
