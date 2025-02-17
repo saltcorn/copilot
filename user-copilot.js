@@ -444,9 +444,16 @@ const getCompletionArguments = async (config) => {
                   type: "string",
                   description: "Case insensitive substring match.",
                 },
+                in: {
+                  type: "array",
+                  description: "Match any one of these values",
+                  items: {
+                    type: "string",
+                  },
+                },
               },
             },
-          ]
+          ];
         }
         if (field.type.name === "Integer" || field.type.name === "Float") {
           const basetype = field.type.name === "Integer" ? "integer" : "number";
@@ -462,6 +469,13 @@ const getCompletionArguments = async (config) => {
                 lt: {
                   type: basetype,
                   description: "Less than this value",
+                },
+                in: {
+                  type: "array",
+                  description: "Match any one of these values",
+                  items: {
+                    type: basetype,
+                  },
                 },
               },
             },
