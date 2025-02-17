@@ -647,7 +647,10 @@ const process_interaction = async (
           result,
         });
 
-        if (typeof result === "object" && Object.keys(result || {}).length) {
+        if (
+          (typeof result === "object" && Object.keys(result || {}).length) ||
+          typeof result === "string"
+        ) {
           responses.push(
             wrapSegment(
               wrapCard(
@@ -665,7 +668,10 @@ const process_interaction = async (
               role: "tool",
               tool_call_id: tool_call.id,
               name: tool_call.function.name,
-              content: result ? JSON.stringify(result) : "Action run",
+              content:
+                result && typeof result !== "string"
+                  ? JSON.stringify(result)
+                  : result || "Action run",
             },
           ],
         });
