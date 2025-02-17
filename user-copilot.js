@@ -433,8 +433,40 @@ const getCompletionArguments = async (config) => {
       .forEach((field) => {
         properties[field.name] = {
           description: field.label + " " + field.description || "",
-          ...fieldProperties(field),
         };
+        if (field.type.name === "String") {
+          properties[field.name].anyOf = [
+            { type: "string", description: "Match this value exactly" },
+            {
+              type: "object",
+              properties: {
+                ilike: {
+                  type: "string",
+                  description: "Case insensitive substring match.",
+                },
+              },
+            },
+          ]
+        }
+        if (field.type.name === "Integer" || field.type.name === "Float") {
+          const basetype = field.type.name === "Integer" ? "integer" : "number";
+          properties[field.name].anyOf = [
+            { type: basetype, description: "Match this value exactly" },
+            {
+              type: "object",
+              properties: {
+                gt: {
+                  type: basetype,
+                  description: "Greater than this value",
+                },
+                lt: {
+                  type: basetype,
+                  description: "Less than this value",
+                },
+              },
+            },
+          ];
+        } else Object.assign(fieldProperties(field), properties[field.name]);
       });
 
     tools.push({
