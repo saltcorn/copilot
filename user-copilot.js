@@ -107,6 +107,13 @@ const configuration_workflow = (req) =>
                       calcOptions: ["table_name", list_view_opts],
                     },
                   },
+                  {
+                    name: "exclude_fields",
+                    label: "Exclude fields",
+                    sublabel:
+                      "Exclude fields from the chat context. Comma-separated list.",
+                    type: "String",
+                  },
                 ],
               }),
             ],
@@ -522,12 +529,13 @@ ${t.fields
   .join(",\n")}
 )`
       )
-      .join(";\n\n")+`
+      .join(";\n\n") +
+    `
       
 If the user asks to you show rows from a table, just run the query tool for that table. This will display the result to the user.
 You should not render the results again, that will cause them to be displayed twice. Only if the user asks for a summary
 or a calculation based on the query results should you show that requested summary or calculation.
-`
+`;
   //console.log("sysprompt", systemPrompt);
 
   if (tools.length === 0) tools = undefined;
@@ -698,6 +706,7 @@ const process_interaction = async (
         const table = Table.findOne({
           name: tool_call.function.name.replace("Query", ""),
         });
+        const tableCfg = config.tables.find((t) => t.table_name === table.name);
         const query = JSON.parse(tool_call.function.arguments);
 
         const is_sqlite = db.isSQLite;
@@ -732,6 +741,16 @@ const process_interaction = async (
             forUser: req.user,
             forPublic: !req.user,
           });
+          if (tableCfg.exclude_fields) {
+            const fields = tableCfg.exclude_fields
+              .split(",")
+              .map((s) => s.trim());
+            fields.forEach((f) => {
+              result.forEach((r) => {
+                delete r[f];
+              });
+            });
+          }
         }
         responses.push(
           wrapSegment(
