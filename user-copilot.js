@@ -441,71 +441,19 @@ const getCompletionArguments = async (config) => {
 
     const table = Table.findOne({ name: tableCfg.table_name });
 
-    table.fields
-      .filter((f) => !f.primary_key)
-      .forEach((field) => {
-        properties[field.name] = {
-          description: field.label + " " + field.description || "",
-        };
-        if (field.type.name === "String") {
-          properties[field.name].anyOf = [
-            { type: "string", description: "Match this value exactly" },
-            {
-              type: "object",
-              properties: {
-                ilike: {
-                  type: "string",
-                  description: "Case insensitive substring match.",
-                },
-                in: {
-                  type: "array",
-                  description: "Match any one of these values",
-                  items: {
-                    type: "string",
-                  },
-                },
-              },
-            },
-          ];
-        }
-        if (field.type.name === "Integer" || field.type.name === "Float") {
-          const basetype = field.type.name === "Integer" ? "integer" : "number";
-          properties[field.name].anyOf = [
-            { type: basetype, description: "Match this value exactly" },
-            {
-              type: "object",
-              properties: {
-                gt: {
-                  type: basetype,
-                  description: "Greater than this value",
-                },
-                lt: {
-                  type: basetype,
-                  description: "Less than this value",
-                },
-                in: {
-                  type: "array",
-                  description: "Match any one of these values",
-                  items: {
-                    type: basetype,
-                  },
-                },
-              },
-            },
-          ];
-        } else Object.assign(fieldProperties(field), properties[field.name]);
-      });
     properties.sql_id_query = {
       type: "string",
-      description: `An SQL query for this table's primary keys (${table.pk_name}). This must select only the primary keys, for example SELECT ${table.name[0]}."${table.pk_name}" from "${table.name}" ${table.name[0]} JOIN ... where... Use this to join other tables in the database. If you use sql_id_query, use it alone, do not combine with other field queries. Any other fields you want to filter on must be accessed in the WHERE clause`,
+      description: `An SQL query for this table's primary keys (${table.pk_name}). This must select only the primary keys (even if the user wants a count), for example SELECT ${table.name[0]}."${table.pk_name}" from "${table.name}" ${table.name[0]} JOIN ... where... Use this to join other tables in the database.`,
+    };
+    properties.is_count = {
+      type: "boolean",
+      description: `Is the only desired output a count? Make this true if the user wants a count of rows`,
     };
     tools.push({
       type: "function",
       function: {
         name: "Query" + table.name,
-        description: `Query the ${table.name} table. ${
-          table.description || ""
-        }`,
+        description: `Query the ${table.name} table and show the results to the user in a grid format`,
         parameters: {
           type: "object",
           //required: ["action_javascript_code", "action_name"],
@@ -574,7 +522,12 @@ ${t.fields
   .join(",\n")}
 )`
       )
-      .join(";\n\n");
+      .join(";\n\n")+`
+      
+If the user asks to you show rows from a table, just run the query tool for that table. This will display the result to the user.
+You should not render the results again, that will cause them to be displayed twice. Only if the user asks for a summary
+or a calculation based on the query results should you show that requested summary or calculation.
+`
   //console.log("sysprompt", systemPrompt);
 
   if (tools.length === 0) tools = undefined;
@@ -611,7 +564,24 @@ const interact = async (table_id, viewname, config, body, { req, res }) => {
 };
 
 const renderQueryInteraction = async (table, result, config, req) => {
-  if (result.length === 0) return "No rows found";
+  if (typeof result === "number")
+    return wrapSegment(
+      wrapCard(
+        "Query " + table.name,
+        //div("Query: ", code(JSON.stringify(query))),
+        `${result}`
+      ),
+      "Copilot"
+    );
+  if (result.length === 0)
+    return wrapSegment(
+      wrapCard(
+        "Query " + table.name,
+        //div("Query: ", code(JSON.stringify(query))),
+        "No rows found"
+      ),
+      "Copilot"
+    );
 
   const tableCfg = config.tables.find((t) => t.table_name === table.name);
   let viewRes = "";
@@ -729,46 +699,50 @@ const process_interaction = async (
           name: tool_call.function.name.replace("Query", ""),
         });
         const query = JSON.parse(tool_call.function.arguments);
+
+        const is_sqlite = db.isSQLite;
+
+        const client = is_sqlite ? db : await db.getClient();
+        await client.query(`BEGIN;`);
+        if (!is_sqlite) {
+          await client.query(
+            `SET LOCAL search_path TO "${db.getTenantSchema()}";`
+          );
+          await client.query(
+            `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;`
+          );
+        }
+
+        const { rows } = await client.query(query.sql_id_query);
+        await client.query(`ROLLBACK;`);
+
+        if (!is_sqlite) client.release(true);
         let result;
-        if (query.sql_id_query) {
-          const is_sqlite = db.isSQLite;
+        const id_query = {
+          [table.pk_name]: { in: rows.map((r) => r[table.pk_name]) },
+        };
 
-          const client = is_sqlite ? db : await db.getClient();
-          await client.query(`BEGIN;`);
-          if (!is_sqlite) {
-            await client.query(
-              `SET LOCAL search_path TO "${db.getTenantSchema()}";`
-            );
-            await client.query(
-              `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;`
-            );
-          }
-
-          const { rows } = await client.query(query.sql_id_query);
-          await client.query(`ROLLBACK;`);
-
-          if (!is_sqlite) client.release(true);
-          result = await table.getRows(
-            { [table.pk_name]: { in: rows.map((r) => r[table.pk_name]) } },
-            {
-              forUser: req.user,
-              forPublic: !req.user,
-            }
-          );
-          responses.push(
-            wrapSegment(
-              wrapCard(
-                "Query " + tool_call.function.name.replace("Query", ""),
-                pre(query.sql_id_query)
-              ),
-              "Copilot"
-            )
-          );
-        } else
-          result = await table.getRows(query, {
+        if (query.is_count) {
+          const role = req.user?.role_id || 100;
+          if (role <= table.min_role_read) {
+            result = await table.countRows(id_query);
+          } else result = "Not authorized";
+        } else {
+          result = await table.getRows(id_query, {
             forUser: req.user,
             forPublic: !req.user,
           });
+        }
+        responses.push(
+          wrapSegment(
+            wrapCard(
+              "Query " + tool_call.function.name.replace("Query", ""),
+              pre(query.sql_id_query)
+            ),
+            "Copilot"
+          )
+        );
+
         await addToContext(run, {
           interactions: [
             {
