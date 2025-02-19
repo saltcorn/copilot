@@ -212,17 +212,14 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
                       "Copilot"
                     )
                   );
-              } else if (tool_call.function.name.startsWith("Query")) {
+              } else if (tool_call.function.name === "TableQuery") {
                 const query = JSON.parse(tool_call.function.arguments);
                 const queryText = query.sql_id_query
                   ? query.sql_id_query
                   : JSON.stringify(query, null, 2);
                 interactMarkups.push(
                   wrapSegment(
-                    wrapCard(
-                      "Query " + tool_call.function.name.replace("Query", ""),
-                      pre(queryText)
-                    ),
+                    wrapCard("Query " + query.table_name, pre(queryText)),
                     "Copilot"
                   )
                 );
@@ -240,18 +237,16 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
             );
           break;
         case "tool":
-          if (interact.name.startsWith("Query")) {
-            const table = Table.findOne({
-              name: interact.name.replace("Query", ""),
-            });
-            interactMarkups.push(
+          if (interact.name === "TableQuery") {
+            console.log({ interact });
+            /*interactMarkups.push(
               await renderQueryInteraction(
-                table,
+                undefined,
                 JSON.parse(interact.content),
                 config,
                 req
               )
-            );
+            );*/
           } else if (interact.content !== "Action run") {
             let markupContent;
             try {
@@ -264,7 +259,10 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
               markupContent = interact.content;
             }
             interactMarkups.push(
-              wrapSegment(wrapCard(interact.name, pre(markupContent)), "Copilot")
+              wrapSegment(
+                wrapCard(interact.name, pre(markupContent)),
+                "Copilot"
+              )
             );
           }
           break;
@@ -447,32 +445,40 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
 const getCompletionArguments = async (config) => {
   let tools = [];
   const sysPrompts = [];
-  for (const tableCfg of config?.tables || []) {
-    let properties = {};
+  let properties = {};
 
-    const table = Table.findOne({ name: tableCfg.table_name });
+  const tableNames = (config?.tables || []).map((t) => t.table_name);
+  properties.table_name = {
+    type: "string",
+    enum: tableNames,
+    description: `Which table is this query from. Every query has to select rows from one table, even if it is based on joins from different tables`,
+  };
+  properties.sql_id_query = {
+    type: "string",
+    description: `An SQL query for this table's primary keys. This must select only the primary keys (even if the user wants a count), for example SELECT ${
+      tableNames[0][0]
+    }."${Table.findOne(tableNames[0]).pk_name}" from "${tableNames[0]}" ${
+      tableNames[0][0]
+    } JOIN ... where... Use this to join other tables in the database.`,
+  };
+  properties.is_count = {
+    type: "boolean",
+    description: `Is the only desired output a count? Make this true if the user wants a count of rows`,
+  };
 
-    properties.sql_id_query = {
-      type: "string",
-      description: `An SQL query for this table's primary keys (${table.pk_name}). This must select only the primary keys (even if the user wants a count), for example SELECT ${table.name[0]}."${table.pk_name}" from "${table.name}" ${table.name[0]} JOIN ... where... Use this to join other tables in the database.`,
-    };
-    properties.is_count = {
-      type: "boolean",
-      description: `Is the only desired output a count? Make this true if the user wants a count of rows`,
-    };
-    tools.push({
-      type: "function",
-      function: {
-        name: "Query" + table.name,
-        description: `Query the ${table.name} table and show the results to the user in a grid format`,
-        parameters: {
-          type: "object",
-          //required: ["action_javascript_code", "action_name"],
-          properties,
-        },
+  tools.push({
+    type: "function",
+    function: {
+      name: "TableQuery",
+      description: `Query a table and show the results to the user in a grid format`,
+      parameters: {
+        type: "object",
+        required: ["table_name", "sql_id_query", "is_count"],
+        properties,
       },
-    });
-  }
+    },
+  });
+
   for (const action of config?.actions || []) {
     let properties = {};
 
@@ -536,9 +542,10 @@ ${t.fields
       .join(";\n\n") +
     `
       
-If the user asks to you show rows from a table, just run the query tool for that table. This will display the result to the user.
-You should not render the results again, that will cause them to be displayed twice. Only if the user asks for a summary
-or a calculation based on the query results should you show that requested summary or calculation.
+Use the TableQuery tool if the user asks to see, find or count or otherwise access rows from a table that matches what the user is looking for, or if
+the user is asking for a summary or inference from such rows. The TableQuery query is parametrised by a SQL SELECT query which 
+selects primary key values from the specified table. You can join other tables or use complex logic in the WHERE clause, but you must 
+always return porimary key values from the specified table.
 `;
   //console.log("sysprompt", systemPrompt);
 
@@ -579,7 +586,7 @@ const renderQueryInteraction = async (table, result, config, req) => {
   if (typeof result === "number")
     return wrapSegment(
       wrapCard(
-        "Query " + table.name,
+        "Query " + table?.name || "",
         //div("Query: ", code(JSON.stringify(query))),
         `${result}`
       ),
@@ -588,7 +595,7 @@ const renderQueryInteraction = async (table, result, config, req) => {
   if (result.length === 0)
     return wrapSegment(
       wrapCard(
-        "Query " + table.name,
+        "Query " + table?.name || "",
         //div("Query: ", code(JSON.stringify(query))),
         "No rows found"
       ),
@@ -706,12 +713,12 @@ const process_interaction = async (
             },
           ],
         });
-      } else if (tool_call.function.name.startsWith("Query")) {
+      } else if (tool_call.function.name == "TableQuery") {
+        const query = JSON.parse(tool_call.function.arguments);
         const table = Table.findOne({
-          name: tool_call.function.name.replace("Query", ""),
+          name: query.table_name,
         });
         const tableCfg = config.tables.find((t) => t.table_name === table.name);
-        const query = JSON.parse(tool_call.function.arguments);
 
         const is_sqlite = db.isSQLite;
 
