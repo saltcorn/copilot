@@ -196,6 +196,17 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
         case "assistant":
         case "system":
           if (interact.tool_calls) {
+            if (interact.content) {
+              interactMarkups.push(
+                div(
+                  { class: "interaction-segment" },
+                  span({ class: "badge bg-secondary" }, "Copilot"),
+                  typeof interact.content === "string"
+                    ? md.render(interact.content)
+                    : interact.content
+                )
+              );
+            }
             for (const tool_call of interact.tool_calls) {
               const action = config.actions.find(
                 (a) => a.trigger_name === tool_call.function.name
@@ -651,6 +662,7 @@ const process_interaction = async (
 ) => {
   const complArgs = await getCompletionArguments(config);
   complArgs.chat = run.context.interactions;
+  //complArgs.debugResult = true;
   //console.log(complArgs);
   console.log("complArgs", JSON.stringify(complArgs, null, 2));
 
@@ -659,12 +671,20 @@ const process_interaction = async (
   await addToContext(run, {
     interactions:
       typeof answer === "object" && answer.tool_calls
-        ? [{ role: "assistant", tool_calls: answer.tool_calls }]
+        ? [
+            {
+              role: "assistant",
+              tool_calls: answer.tool_calls,
+              content: answer.content,
+            },
+          ]
         : [{ role: "assistant", content: answer }],
   });
   const responses = [];
 
   if (typeof answer === "object" && answer.tool_calls) {
+    if (answer.content)
+      responses.push(wrapSegment(md.render(answer.content), "Copilot"));
     //const actions = [];
     let hasResult = false;
     for (const tool_call of answer.tool_calls) {
