@@ -238,15 +238,25 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
           break;
         case "tool":
           if (interact.name === "TableQuery") {
-            console.log({ interact });
-            /*interactMarkups.push(
-              await renderQueryInteraction(
-                undefined,
-                JSON.parse(interact.content),
-                config,
-                req
+            const tool_call = run.context.interactions
+              .map(
+                (i) =>
+                  i.tool_calls &&
+                  i.tool_calls.find((tc) => tc.id === interact.tool_call_id)
               )
-            );*/
+              .filter(Boolean)[0];
+            if (tool_call) {
+              const args = JSON.parse(tool_call.function.arguments);
+              const table = Table.findOne(args.table_name);
+              interactMarkups.push(
+                await renderQueryInteraction(
+                  table,
+                  JSON.parse(interact.content),
+                  config,
+                  req
+                )
+              );
+            }
           } else if (interact.content !== "Action run") {
             let markupContent;
             try {
