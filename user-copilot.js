@@ -253,14 +253,18 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
               )
             );
           } else if (interact.content !== "Action run") {
+            let markupContent;
+            try {
+              markupContent = JSON.stringify(
+                JSON.parse(interact.content),
+                null,
+                2
+              );
+            } catch {
+              markupContent = interact.content;
+            }
             interactMarkups.push(
-              wrapSegment(
-                wrapCard(
-                  interact.name,
-                  pre(JSON.stringify(JSON.parse(interact.content), null, 2))
-                ),
-                "Copilot"
-              )
+              wrapSegment(wrapCard(interact.name, pre(markupContent)), "Copilot")
             );
           }
           break;
