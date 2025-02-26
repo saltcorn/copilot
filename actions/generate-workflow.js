@@ -16,7 +16,9 @@ const steps = async () => {
   );
 
   const stepTypeAndCfg = Object.keys(actionExplainers).map((actionName) => {
-    const properties = { step_type: { const: actionName } };
+    const properties = { 
+      step_type: { type: "string", enum: [actionName] }
+    };
     const myFields = actionFields.filter(
       (f) => f.showIf?.wf_action_name === actionName
     );
@@ -37,7 +39,9 @@ const steps = async () => {
   });
   for (const [actionName, action] of stateActionList) {
     try {
-      const properties = { step_type: { const: actionName } };
+      const properties = { 
+        step_type: { type: "string", enum: [actionName] }
+      };
       const cfgFields = await getActionConfigFields(action, null, {
         mode: "workflow",
         copilot: true,
@@ -69,7 +73,10 @@ const steps = async () => {
   //TODO workflows
   for (const trigger of triggers) {
     const properties = {
-      step_type: { const: trigger.name },
+      step_type: { 
+        type: "string",
+        enum: [trigger.name],  
+      },
     };
     if (trigger.table_id) {
       const table = Table.findOne({ id: trigger.table_id });
