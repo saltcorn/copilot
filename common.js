@@ -99,7 +99,19 @@ const fieldProperties = (field) => {
       if (field.options) props.enum = toArrayOfStrings(field.options);
       break;
   }
+  if (!props.type) {
+    switch (field.input_type) {
+      case "code":
+        props.type = "string";
+        break;
+    }
+  }
   return props;
 };
 
-module.exports = { getCompletion, getPromptFromTemplate, incompleteCfgMsg, fieldProperties };
+module.exports = {
+  getCompletion,
+  getPromptFromTemplate,
+  incompleteCfgMsg,
+  fieldProperties,
+};
