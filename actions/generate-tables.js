@@ -17,7 +17,7 @@ class GenerateTables {
     const types = Object.values(getState().types);
     const fieldTypeCfg = types.map((ty) => {
       const properties = {
-        data_type: { const: ty.name },
+        data_type: { type: "string", enum: [ty.name] },
       };
       const attrs = apply(ty.attributes, {}) || [];
       if (Array.isArray(attrs))
@@ -40,7 +40,7 @@ class GenerateTables {
       description:
         "A foreign key to a different table. This will reference the primary key on another table.",
       properties: {
-        data_type: { const: "ForeignKey" },
+        data_type: { type: "string", enum: ["ForeignKey"] },
         reference_table: {
           type: "string",
           description: "Name of the table being referenced",
@@ -52,7 +52,7 @@ class GenerateTables {
       description:
         "A reference (file path) to a file on disk. This can be used for example to hold images or documents",
       properties: {
-        data_type: { const: "File" },
+        data_type: { type: "string", enum: ["File"] },
       },
     });
     return {
