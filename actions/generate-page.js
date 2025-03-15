@@ -11,6 +11,71 @@ const { a, pre, script, div, code } = require("@saltcorn/markup/tags");
 const { fieldProperties, getPromptFromTemplate } = require("../common");
 const MarkdownIt = require("markdown-it"),
   md = new MarkdownIt();
+const parseCSS = require("style-to-object").default;
+
+const containerHandledStyles = new Set([
+  "margin",
+  "margin-top",
+  "margin-bottom",
+  "margin-right",
+  "margin-left",
+  "padding",
+  "padding-top",
+  "padding-bottom",
+  "padding-right",
+  "padding-left",
+  "opacity",
+  "position",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "line-height",
+  "flex-grow",
+  "flex-shrink",
+  "flex-direction",
+  "flex-wrap",
+  "justify-content",
+  "align-items",
+  "align-content",
+  "border-color",
+  "border-color",
+  "border-width",
+  "border-radius",
+  "height",
+  "min-height",
+  "max-height",
+  "width",
+  "min-width",
+  "max-width",
+  "display",
+  "overflow",
+]);
+
+const splitContainerStyle = (styleStr) => {
+  const style = parseCSS(styleStr);
+  const customStyles = [];
+  Object.keys(style).forEach((k) => {
+    if (containerHandledStyles.has(k)) {
+      customStyles.push(`${k}: ${style[k]}`);
+      delete style[k];
+    }
+  });
+  const ns = { style, customStyle: customStyles.join("; ") };
+  if (ns.style.display) {
+    ns.display = ns.style.display;
+    delete ns.style.display;
+  }
+  if (ns.style.overflow) {
+    ns.overflow = ns.style.overflow;
+    delete ns.style.overflow;
+  }
+
+  return ns;
+};
 
 class GeneratePage {
   static title = "Generate Page";
@@ -168,6 +233,43 @@ class GeneratePage {
                 },
               },
             },
+            {
+              type: "object",
+              required: ["type", "contents"],
+              description: "An container element that can set various styles",
+              properties: {
+                type: { const: "container" },
+                contents: {
+                  type: "object",
+                  $ref: "#",
+                },
+                style: {
+                  type: "string",
+                  description:
+                    "CSS properties to set on the container formatted as the html style attribute, with no CSS selector and separated by semi-colons. Example: color: #00ff00; margin-top: 5px",
+                },
+                customClass: {
+                  type: "string",
+                  description:
+                    "Custom class to set. You can use bootstrap 5 utility classes here as bootstrap 5 is loaded",
+                },
+                htmlElement: {
+                  type: "string",
+                  description: "The HTML element to use for the container",
+                  enum: [
+                    "div",
+                    "span",
+                    "article",
+                    "section",
+                    "header",
+                    "nav",
+                    "main",
+                    "aside",
+                    "footer",
+                  ],
+                },
+              },
+            },
           ],
         },
       },
@@ -185,6 +287,19 @@ class GeneratePage {
     }
     if (typeof segment.contents === "string" && segment.containsMarkdown) {
       return { ...segment, contents: md.render(segment.contents) };
+    }
+    if (segment.type === "container") {
+      const { customStyle, style, display, overflow } = splitContainerStyle(
+        segment.style
+      );
+      return {
+        ...segment,
+        customStyle,
+        display,
+        overflow,
+        style,
+        contents: go(segment.contents),
+      };
     }
     if (segment.contents) {
       return { ...segment, contents: go(segment.contents) };
