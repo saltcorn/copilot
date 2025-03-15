@@ -401,12 +401,21 @@ const interact = async (table_id, viewname, config, body, { req }) => {
               type: "json_schema",
               json_schema: {
                 name: "generate_page",
-                schema:  response_schema ,
+                schema: response_schema,
               },
             },
           }
         );
         console.log("follow on answer", follow_on_answer);
+        const markup = await renderToolcall(
+          tool_call,
+          viewname,
+          false,
+          run,
+          follow_on_answer
+        );
+
+        actions.push(markup);
       } else {
         const markup = await renderToolcall(tool_call, viewname, false, run);
 
@@ -430,12 +439,12 @@ const getFollowOnGeneration = async (tool_call) => {
   } else return null;
 };
 
-const renderToolcall = async (tool_call, viewname, implemented, run) => {
+const renderToolcall = async (tool_call, viewname, implemented, run, follow_on_answer) => {
   const fname = tool_call.function.name;
   const actionClass = actionClasses.find((ac) => ac.function_name === fname);
   const args = JSON.parse(tool_call.function.arguments);
 
-  const inner_markup = await actionClass.render_html(args);
+  const inner_markup = await actionClass.render_html(args, follow_on_answer);
   return wrapAction(
     inner_markup,
     viewname,

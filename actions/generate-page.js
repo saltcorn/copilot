@@ -118,20 +118,10 @@ class GeneratePage {
     return { response_schema, prompt };
   }
 
-  static render_html({
-    action_javascript_code,
-    action_name,
-    action_description,
-    when_trigger,
-    trigger_table,
-  }) {
+  static render_html(attrs, contents) {
     return (
-      div(
-        { class: "mb-3" },
-        `${action_name}${when_trigger ? `: ${when_trigger}` : ""}${
-          trigger_table ? ` on ${trigger_table}` : ""
-        }`
-      ) + pre(code(action_javascript_code))
+      pre(code(JSON.stringify(attrs, null, 2))) +
+      pre(code(JSON.stringify(JSON.parse(contents), null, 2)))
     );
   }
   static async execute(
