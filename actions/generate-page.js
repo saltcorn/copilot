@@ -168,10 +168,29 @@ class GeneratePage {
     return { response_schema, prompt };
   }
 
+  static walk_response(segment) {
+    let go = GeneratePage.walk_response;
+    if (!segment) return;
+    if (typeof segment === "string") return segment;
+    if (segment.element) return go(segment.element);
+    if (Array.isArray(segment)) {
+      return segment.map(go);
+    }
+    if (segment.contents) {
+      return { ...segment, contents: go(segment.contents) };
+    }
+    if (segment.above) {
+      return { ...segment, above: go(segment.above) };
+    }
+    if (segment.besides) {
+      return { ...segment, besides: go(segment.besides) };
+    }
+  }
+
   static render_html(attrs, contents) {
     return (
       pre(code(JSON.stringify(attrs, null, 2))) +
-      pre(code(JSON.stringify(JSON.parse(contents).element, null, 2)))
+      pre(code(JSON.stringify(GeneratePage.walk_response(contents), null, 2)))
     );
   }
   static async execute({ name, title, description, min_role }, req, contents) {
@@ -183,7 +202,7 @@ class GeneratePage {
       title,
       description,
       min_role: min_role_id,
-      layout: contents.element,
+      layout: GeneratePage.walk_response(contents),
     });
     return {
       postExec:

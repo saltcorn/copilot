@@ -474,7 +474,10 @@ const renderToolcall = async (
   const actionClass = actionClasses.find((ac) => ac.function_name === fname);
   const args = JSON.parse(tool_call.function.arguments);
 
-  const inner_markup = await actionClass.render_html(args, follow_on_answer);
+  const inner_markup = await actionClass.render_html(
+    args,
+    JSON.parse(follow_on_answer)
+  );
   return wrapAction(
     inner_markup,
     viewname,
