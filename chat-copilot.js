@@ -292,6 +292,7 @@ const actionClasses = [
   require("./actions/generate-workflow"),
   require("./actions/generate-tables"),
   require("./actions/generate-js-action"),
+  require("./actions/generate-page"),
 ];
 
 const getCompletionArguments = async () => {
@@ -387,15 +388,46 @@ const interact = async (table_id, viewname, config, body, { req }) => {
       await addToContext(run, {
         funcalls: { [tool_call.id]: tool_call.function },
       });
-      const markup = await renderToolcall(tool_call, viewname, false, run);
 
-      actions.push(markup);
+      const followOnGen = await getFollowOnGeneration(tool_call);
+      if (followOnGen) {
+        const { response_schema, prompt } = followOnGen;
+        const follow_on_answer = await getState().functions.llm_generate.run(
+          prompt,
+          {
+            debugResult: true,
+            chat: run.context.interactions,
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "generate_page",
+                schema:  response_schema ,
+              },
+            },
+          }
+        );
+        console.log("follow on answer", follow_on_answer);
+      } else {
+        const markup = await renderToolcall(tool_call, viewname, false, run);
+
+        actions.push(markup);
+      }
     }
     return { json: { success: "ok", actions, run_id: run.id } };
   } else
     return {
       json: { success: "ok", response: md.render(answer), run_id: run.id },
     };
+};
+
+const getFollowOnGeneration = async (tool_call) => {
+  const fname = tool_call.function.name;
+  const actionClass = actionClasses.find((ac) => ac.function_name === fname);
+  const args = JSON.parse(tool_call.function.arguments);
+
+  if (actionClass.follow_on_generate) {
+    return await actionClass.follow_on_generate(args);
+  } else return null;
 };
 
 const renderToolcall = async (tool_call, viewname, implemented, run) => {

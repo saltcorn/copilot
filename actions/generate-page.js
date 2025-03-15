@@ -53,62 +53,67 @@ class GeneratePage {
   static async system_prompt() {
     return `Use the generate_page to generate a page.`;
   }
-  static async follow_on_generate() {
-    const prompt = `Now generate the contents of the page`;
+  static async follow_on_generate({ name }) {
+    const prompt = `Now generate the contents of the ${name} page`;
     const response_schema = {
-      anyOf: [
-        {
-          type: "object",
-          description: "Position items next to each other in grid columns",
-          //required: ["name", "title", "min_role"],
-          properties: {
-            besides: {
-              type: "array",
-              items: {
-                type: "object",
-                $ref: "#",
+      type: "object",
+      properties: {
+        element: {
+          anyOf: [
+            {
+              type: "object",
+              description: "Position items next to each other in grid columns",
+              //required: ["name", "title", "min_role"],
+              properties: {
+                besides: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    $ref: "#",
+                  },
+                },
+                widths: {
+                  type: "array",
+                  items: {
+                    type: "integer",
+                    description:
+                      "The width of each column 1-12. The sum of all columns must equal 12",
+                  },
+                },
               },
             },
-            widths: {
-              type: "array",
-              items: {
-                type: "integer",
-                description:
-                  "The width of each column 1-12. The sum of all columns must equal 12",
+            {
+              type: "object",
+              //required: ["name", "title", "min_role"],
+              properties: {
+                above: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    $ref: "#",
+                  },
+                },
               },
             },
-          },
-        },
-        {
-          type: "object",
-          //required: ["name", "title", "min_role"],
-          properties: {
-            above: {
-              type: "array",
-              items: {
-                type: "object",
-                $ref: "#",
+            {
+              type: "object",
+              required: ["type", "isHTML", "contents"],
+              description: "An element containing text or HTML",
+              properties: {
+                type: { const: "blank" },
+                isHTML: {
+                  type: "boolean",
+                  description: "True if the contents contain HTML tags",
+                },
+                contents: {
+                  type: "string",
+                  description: "The text or HTML contents of this element",
+                },
               },
             },
-          },
+          ],
         },
-        {
-          type: "object",
-          required: ["type", "isHTML", "contents"],
-          description: "An element containing text or HTML",
-          properties: {
-            type: { const: "blank" },
-            isHTML: {
-              type: "boolean",
-              description: "True if the contents contain HTML tags",
-            },
-            contents: {
-              type: "string",
-              description: "The text or HTML contents of this element",
-            },
-          },
-        },
-      ],
+      },
     };
     return { response_schema, prompt };
   }
