@@ -178,7 +178,7 @@ class GeneratePage {
             },
             {
               type: "object",
-              required: ["type", "contents", "containsMarkdown"],
+              required: ["type", "contents"],
               description: "An element containing text",
               properties: {
                 type: { const: "blank" },
@@ -225,11 +225,6 @@ class GeneratePage {
                       "font-monospace",
                     ],
                   },
-                },
-                containsMarkdown: {
-                  type: "boolean",
-                  description:
-                    "set true if the text contents field contains markdown",
                 },
               },
             },
@@ -304,7 +299,7 @@ class GeneratePage {
     if (Array.isArray(segment)) {
       return segment.map(go);
     }
-    if (typeof segment.contents === "string" && segment.containsMarkdown) {
+    if (typeof segment.contents === "string") {
       return { ...segment, contents: md.render(segment.contents) };
     }
     if (segment.type === "image") {
