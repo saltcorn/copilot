@@ -26,7 +26,7 @@ class GeneratePage {
     const roles = await User.get_roles();
     return {
       type: "object",
-      //required: ["action_javascript_code", "action_name"],
+      required: ["name", "title", "min_role"],
       properties: {
         name: {
           description: namedescription,
@@ -55,7 +55,61 @@ class GeneratePage {
   }
   static async follow_on_generate() {
     const prompt = `Now generate the contents of the page`;
-    const response_schema = {};
+    const response_schema = {
+      anyOf: [
+        {
+          type: "object",
+          description: "Position items next to each other in grid columns",
+          //required: ["name", "title", "min_role"],
+          properties: {
+            besides: {
+              type: "array",
+              items: {
+                type: "object",
+                $ref: "#",
+              },
+            },
+            widths: {
+              type: "array",
+              items: {
+                type: "integer",
+                description:
+                  "The width of each column 1-12. The sum of all columns must equal 12",
+              },
+            },
+          },
+        },
+        {
+          type: "object",
+          //required: ["name", "title", "min_role"],
+          properties: {
+            above: {
+              type: "array",
+              items: {
+                type: "object",
+                $ref: "#",
+              },
+            },
+          },
+        },
+        {
+          type: "object",
+          required: ["type", "isHTML", "contents"],
+          description: "An element containing text or HTML",
+          properties: {
+            type: { const: "blank" },
+            isHTML: {
+              type: "boolean",
+              description: "True if the contents contain HTML tags",
+            },
+            contents: {
+              type: "string",
+              description: "The text or HTML contents of this element",
+            },
+          },
+        },
+      ],
+    };
     return { response_schema, prompt };
   }
 
