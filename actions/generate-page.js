@@ -9,6 +9,8 @@ const { apply, removeAllWhiteSpace } = require("@saltcorn/data/utils");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
 const { a, pre, script, div, code } = require("@saltcorn/markup/tags");
 const { fieldProperties, getPromptFromTemplate } = require("../common");
+const MarkdownIt = require("markdown-it"),
+  md = new MarkdownIt();
 
 class GeneratePage {
   static title = "Generate Page";
@@ -111,7 +113,7 @@ class GeneratePage {
             },
             {
               type: "object",
-              required: ["type", "contents"],
+              required: ["type", "contents", "containsMarkdown"],
               description: "An element containing text",
               properties: {
                 type: { const: "blank" },
@@ -159,6 +161,11 @@ class GeneratePage {
                     ],
                   },
                 },
+                containsMarkdown: {
+                  type: "boolean",
+                  description:
+                    "set true if the text contents field contains markdown",
+                },
               },
             },
           ],
@@ -170,11 +177,14 @@ class GeneratePage {
 
   static walk_response(segment) {
     let go = GeneratePage.walk_response;
-    if (!segment) return;
+    if (!segment) return segment;
     if (typeof segment === "string") return segment;
     if (segment.element) return go(segment.element);
     if (Array.isArray(segment)) {
       return segment.map(go);
+    }
+    if (typeof segment.contents === "string" && segment.containsMarkdown) {
+      return { ...segment, contents: md.render(segment.contents) };
     }
     if (segment.contents) {
       return { ...segment, contents: go(segment.contents) };
