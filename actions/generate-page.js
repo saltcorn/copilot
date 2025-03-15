@@ -99,16 +99,65 @@ class GeneratePage {
             {
               type: "object",
               required: ["type", "isHTML", "contents"],
-              description: "An element containing text or HTML",
+              description: "An element containing HTML",
               properties: {
                 type: { const: "blank" },
-                isHTML: {
-                  type: "boolean",
-                  description: "True if the contents contain HTML tags",
-                },
+                isHTML: { const: true },
                 contents: {
                   type: "string",
-                  description: "The text or HTML contents of this element",
+                  description: "The HTML contents of this element",
+                },
+              },
+            },
+            {
+              type: "object",
+              required: ["type", "contents"],
+              description: "An element containing text",
+              properties: {
+                type: { const: "blank" },
+                contents: {
+                  type: "string",
+                  description: "The plain text contents of this element",
+                },
+                style: {
+                  type: "object",
+                  description:
+                    "Some CSS properties that can be applied to the text element",
+                  properties: {
+                    "font-size": {
+                      type: "string",
+                      description:
+                        "CSS size identifier, for example 12px or 2rem",
+                    },
+                    color: {
+                      type: "string",
+                      description:
+                        "CSS color specifier, for example #15d48a or rgb(0, 255, 0)",
+                    },
+                  },
+                },
+                textStyle: {
+                  type: "array",
+                  description: "The style to apply to the text",
+                  items: {
+                    type: "string",
+                    description:
+                      "h1-h6 to put in a header element. fst-italic for italic, text-muted for muted color, fw-bold for bold, text-underline for underline, small for smaller size, font-monospace for monospace font",
+                    enum: [
+                      "h1",
+                      "h2",
+                      "h3",
+                      "h4",
+                      "h5",
+                      "h6",
+                      "fst-italic",
+                      "text-muted",
+                      "fw-bold",
+                      "text-underline",
+                      "small",
+                      "font-monospace",
+                    ],
+                  },
                 },
               },
             },
@@ -140,11 +189,12 @@ class GeneratePage {
       postExec:
         "Page created. " +
         a(
-          { target: "_blank", href: `/page/${name}`, class: "me-2" },
+          { target: "_blank", href: `/page/${name}`, class: "me-1" },
           "Go to page"
         ) +
+        " | " +
         a(
-          { target: "_blank", href: `/pageedit/edit/${name}` },
+          { target: "_blank", href: `/pageedit/edit/${name}`, class: "ms-1" },
           "Configure page"
         ),
     };
