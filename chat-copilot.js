@@ -289,9 +289,9 @@ const ellipsize = (s, nchars) => {
 };
 
 const actionClasses = [
- /* require("./actions/generate-workflow"),
+  require("./actions/generate-workflow"),
   require("./actions/generate-tables"),
-  require("./actions/generate-js-action"),*/
+  require("./actions/generate-js-action"),
   require("./actions/generate-page"),
 ];
 
