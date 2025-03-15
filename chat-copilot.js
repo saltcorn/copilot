@@ -330,7 +330,22 @@ const execute = async (table_id, viewname, config, body, { req }) => {
   const actionClass = actionClasses.find(
     (ac) => ac.function_name === fcall.name
   );
-  const result = await actionClass.execute(JSON.parse(fcall.arguments), req);
+  let result;
+  if (actionClass.follow_on_generate) {
+    const toolCallIndex = run.context.interactions.findIndex(
+      (i) => i.tool_call_id === fcall_id
+    );
+    const follow_on_gen = run.context.interactions.find(
+      (i, ix) => i.role === "assistant" && ix > toolCallIndex
+    );
+    result = await actionClass.execute(
+      JSON.parse(fcall.arguments),
+      req,
+      JSON.parse(follow_on_gen.content)
+    );
+  } else {
+    result = await actionClass.execute(JSON.parse(fcall.arguments), req);
+  }
   await addToContext(run, { implemented_fcall_ids: [fcall_id] });
   return { json: { success: "ok", fcall_id, ...(result || {}) } };
 };
@@ -406,7 +421,16 @@ const interact = async (table_id, viewname, config, body, { req }) => {
             },
           }
         );
+
         console.log("follow on answer", follow_on_answer);
+
+        await addToContext(run, {
+          interactions: [
+            { role: "user", content: prompt },
+            { role: "assistant", content: follow_on_answer },
+          ],
+        });
+
         const markup = await renderToolcall(
           tool_call,
           viewname,
@@ -439,7 +463,13 @@ const getFollowOnGeneration = async (tool_call) => {
   } else return null;
 };
 
-const renderToolcall = async (tool_call, viewname, implemented, run, follow_on_answer) => {
+const renderToolcall = async (
+  tool_call,
+  viewname,
+  implemented,
+  run,
+  follow_on_answer
+) => {
   const fname = tool_call.function.name;
   const actionClass = actionClasses.find((ac) => ac.function_name === fname);
   const args = JSON.parse(tool_call.function.arguments);

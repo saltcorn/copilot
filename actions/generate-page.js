@@ -85,6 +85,7 @@ class GeneratePage {
             {
               type: "object",
               //required: ["name", "title", "min_role"],
+              description: "Position items vertically, each above the next",
               properties: {
                 above: {
                   type: "array",
@@ -121,42 +122,30 @@ class GeneratePage {
   static render_html(attrs, contents) {
     return (
       pre(code(JSON.stringify(attrs, null, 2))) +
-      pre(code(JSON.stringify(JSON.parse(contents), null, 2)))
+      pre(code(JSON.stringify(JSON.parse(contents).element, null, 2)))
     );
   }
-  static async execute(
-    {
-      action_javascript_code,
-      action_name,
-      action_description,
-      when_trigger,
-      trigger_table,
-    },
-    req
-  ) {
-    let table_id;
-    if (trigger_table) {
-      const table = Table.findOne({ name: trigger_table });
-      if (!table) return { postExec: `Table not found: ${trigger_table}` };
-      table_id = table.id;
-    }
-    const trigger = await Trigger.create({
-      name: action_name,
-      when_trigger: when_trigger || "Never",
-      table_id,
-      action: "run_js_code",
-      configuration: { code: action_javascript_code },
-    });
-    Trigger.emitEvent("AppChange", `Trigger ${trigger.name}`, req?.user, {
-      entity_type: "Trigger",
-      entity_name: trigger.name,
+  static async execute({ name, title, description, min_role }, req, contents) {
+    console.log("execute", name, contents);
+    const roles = await User.get_roles();
+    const min_role_id = roles.find((r) => r.role === min_role).id;
+    await Page.create({
+      name,
+      title,
+      description,
+      min_role: min_role_id,
+      layout: contents.element,
     });
     return {
       postExec:
-        "Action created. " +
+        "Page created. " +
         a(
-          { target: "_blank", href: `/actions/configure/${trigger.id}` },
-          "Configure action."
+          { target: "_blank", href: `/page/${name}`, class: "me-2" },
+          "Go to page"
+        ) +
+        a(
+          { target: "_blank", href: `/pageedit/edit/${name}` },
+          "Configure page"
         ),
     };
   }
