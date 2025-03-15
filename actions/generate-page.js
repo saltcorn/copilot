@@ -58,7 +58,7 @@ const containerHandledStyles = new Set([
 const splitContainerStyle = (styleStr) => {
   const style = parseCSS(styleStr);
   const customStyles = [];
-  Object.keys(style).forEach((k) => {
+  Object.keys(style || {}).forEach((k) => {
     if (containerHandledStyles.has(k)) {
       customStyles.push(`${k}: ${style[k]}`);
       delete style[k];
@@ -270,6 +270,25 @@ class GeneratePage {
                 },
               },
             },
+            {
+              type: "object",
+              description: "An image",
+              properties: {
+                type: { const: "image" },
+                description: {
+                  type: "string",
+                  description: "A description of the contents of the image",
+                },
+                width: {
+                  type: "integer",
+                  description: "The width of the image in px",
+                },
+                height: {
+                  type: "integer",
+                  description: "The height of the image in px",
+                },
+              },
+            },
           ],
         },
       },
@@ -287,6 +306,21 @@ class GeneratePage {
     }
     if (typeof segment.contents === "string" && segment.containsMarkdown) {
       return { ...segment, contents: md.render(segment.contents) };
+    }
+    if (segment.type === "image") {
+      return {
+        type: "container",
+        style: {
+          height: `${segment.height}px`,
+          width: `${segment.width}px`,
+          "border-style": "solid",
+          "border-color": "#808080",
+          "border-width": "3px",
+          vAlign: "middle",
+          hAlign: "center",
+        },
+        contents: segment.description,
+      };
     }
     if (segment.type === "container") {
       const { customStyle, style, display, overflow } = splitContainerStyle(
