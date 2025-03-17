@@ -13,14 +13,13 @@ const {
   getPromptFromTemplate,
   splitContainerStyle,
   containerHandledStyles,
+  walk_response,
 } = require("../common");
-const MarkdownIt = require("markdown-it"),
-  md = new MarkdownIt();
 
-class GeneratePage {
-  static title = "Generate Page";
-  static function_name = "generate_page";
-  static description = "Generate Page";
+class GenerateView {
+  static title = "Generate View";
+  static function_name = "generate_view";
+  static description = "Generate view";
 
   static async json_schema() {
     const allPageNames = (await Page.find({})).map((p) => p.page);
@@ -231,60 +230,10 @@ class GeneratePage {
     return { response_schema, prompt };
   }
 
-  static walk_response(segment) {
-    let go = GeneratePage.walk_response;
-    if (!segment) return segment;
-    if (typeof segment === "string") return segment;
-    if (segment.element) return go(segment.element);
-    if (Array.isArray(segment)) {
-      return segment.map(go);
-    }
-    if (typeof segment.contents === "string") {
-      return { ...segment, contents: md.render(segment.contents) };
-    }
-    if (segment.type === "image") {
-      return {
-        type: "container",
-        style: {
-          height: `${segment.height}px`,
-          width: `${segment.width}px`,
-          "border-style": "solid",
-          "border-color": "#808080",
-          "border-width": "3px",
-          vAlign: "middle",
-          hAlign: "center",
-        },
-        contents: segment.description,
-      };
-    }
-    if (segment.type === "container") {
-      const { customStyle, style, display, overflow } = splitContainerStyle(
-        segment.style
-      );
-      return {
-        ...segment,
-        customStyle,
-        display,
-        overflow,
-        style,
-        contents: go(segment.contents),
-      };
-    }
-    if (segment.contents) {
-      return { ...segment, contents: go(segment.contents) };
-    }
-    if (segment.above) {
-      return { ...segment, above: go(segment.above) };
-    }
-    if (segment.besides) {
-      return { ...segment, besides: go(segment.besides) };
-    }
-  }
-
   static render_html(attrs, contents) {
     return (
       pre(code(JSON.stringify(attrs, null, 2))) +
-      pre(code(JSON.stringify(GeneratePage.walk_response(contents), null, 2)))
+      pre(code(JSON.stringify(walk_response(contents), null, 2)))
     );
   }
   static async execute({ name, title, description, min_role }, req, contents) {
@@ -296,7 +245,7 @@ class GeneratePage {
       title,
       description,
       min_role: min_role_id,
-      layout: GeneratePage.walk_response(contents),
+      layout: walk_response(contents),
     });
     return {
       postExec:
@@ -314,4 +263,4 @@ class GeneratePage {
   }
 }
 
-module.exports = GeneratePage;
+module.exports = GenerateView;
