@@ -412,13 +412,15 @@ const interact = async (table_id, viewname, config, body, { req }) => {
           {
             debugResult: true,
             chat: run.context.interactions,
-            response_format: {
-              type: "json_schema",
-              json_schema: {
-                name: "generate_page",
-                schema: response_schema,
-              },
-            },
+            response_format: response_schema
+              ? {
+                  type: "json_schema",
+                  json_schema: {
+                    name: "generate_page",
+                    schema: response_schema,
+                  },
+                }
+              : undefined,
           }
         );
 
@@ -474,10 +476,7 @@ const renderToolcall = async (
   const actionClass = actionClasses.find((ac) => ac.function_name === fname);
   const args = JSON.parse(tool_call.function.arguments);
 
-  const inner_markup = await actionClass.render_html(
-    args,
-    follow_on_answer ? JSON.parse(follow_on_answer) : undefined
-  );
+  const inner_markup = await actionClass.render_html(args, follow_on_answer);
   return wrapAction(
     inner_markup,
     viewname,

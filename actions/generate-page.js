@@ -33,7 +33,7 @@ class GeneratePage {
     const roles = await User.get_roles();
     return {
       type: "object",
-      required: ["name", "title", "min_role"],
+      required: ["name", "title", "min_role", "page_type"],
       properties: {
         name: {
           description: namedescription,
@@ -54,13 +54,25 @@ class GeneratePage {
           type: "string",
           enum: roles.map((r) => r.role),
         },
+        page_type: {
+          description:
+            "The type of page to generate: a Marketing page if for promotional purposes, such as a landing page or a brouchure, with an appealing design. An Application page is simpler and an integrated part of the application",
+          type: "string",
+          enum: ["Marketing page", "Application page"],
+        },
       },
     };
   }
   static async system_prompt() {
     return `Use the generate_page to generate a page.`;
   }
-  static async follow_on_generate({ name }) {
+  static async follow_on_generate({ name, page_type }) {
+    if (page_type === "Marketing page") {
+      return {
+        prompt:
+          "Generate the HTML for the web page using the Bootstrap 5 CSS framework.",
+      };
+    }
     const prompt = `Now generate the contents of the ${name} page`;
     const response_schema = {
       type: "object",
@@ -282,9 +294,26 @@ class GeneratePage {
   }
 
   static render_html(attrs, contents) {
+    if (attrs.page_type === "Marketing page") {
+      return (
+        pre(code(JSON.stringify(attrs, null, 2))) +
+        pre(code(escapeHtml(contents)))
+      );
+    }
+
     return (
       pre(code(JSON.stringify(attrs, null, 2))) +
-      pre(code(JSON.stringify(GeneratePage.walk_response(contents), null, 2)))
+      pre(
+        code(
+          escapeHtml(
+            JSON.stringify(
+              GeneratePage.walk_response(JSON.parse(contents)),
+              null,
+              2
+            )
+          )
+        )
+      )
     );
   }
   static async execute({ name, title, description, min_role }, req, contents) {
@@ -313,5 +342,12 @@ class GeneratePage {
     };
   }
 }
-
+function escapeHtml(unsafe) {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 module.exports = GeneratePage;
