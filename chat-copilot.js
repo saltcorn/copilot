@@ -476,7 +476,7 @@ const renderToolcall = async (
 
   const inner_markup = await actionClass.render_html(
     args,
-    JSON.parse(follow_on_answer)
+    follow_on_answer ? JSON.parse(follow_on_answer) : undefined
   );
   return wrapAction(
     inner_markup,
