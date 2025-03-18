@@ -13,6 +13,7 @@ const {
   getPromptFromTemplate,
   splitContainerStyle,
   containerHandledStyles,
+  parseHTML,
 } = require("../common");
 const MarkdownIt = require("markdown-it"),
   md = new MarkdownIt();
@@ -297,7 +298,7 @@ class GeneratePage {
     if (attrs.page_type === "Marketing page") {
       return (
         pre(code(JSON.stringify(attrs, null, 2))) +
-        pre(code(escapeHtml(contents)))
+        pre(code(escapeHtml(contents || "")))
       );
     }
 
@@ -349,10 +350,6 @@ class GeneratePage {
         ),
     };
   }
-}
-
-function parseHTML(str) {
-
 }
 
 function escapeHtml(unsafe) {

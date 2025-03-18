@@ -11,7 +11,8 @@ const { getState } = require("@saltcorn/data/db/state");
 const parseCSS = require("style-to-object").default;
 const MarkdownIt = require("markdown-it"),
   md = new MarkdownIt();
-  
+const HTMLParser = require("node-html-parser");
+
 const boxHandledStyles = new Set([
   "margin",
   "margin-top",
@@ -230,6 +231,54 @@ function walk_response(segment) {
     return { ...segment, besides: go(segment.besides) };
   }
 }
+
+function parseHTML(str) {
+  const strHtml = str.includes("```html")
+    ? str.split("```html")[1].split("```")[0]
+    : str;
+  const body = HTMLParser.parse(strHtml).querySelector("body");
+
+  const go = (node) => {
+    if (node.constructor.name === "HTMLElement") {
+      switch (node.rawTagName) {
+        case "body":
+          return { above: node.childNodes.map(go).filter(Boolean) };
+        case "p":
+          return {
+            type: "blank",
+            contents: node.childNodes.map((n) => n.toString()).join(""),
+          };
+        case "script":
+          return null;
+        case "h1":
+        case "h2":
+        case "h3":
+        case "h4":
+        case "h5":
+        case "h6":
+          return {
+            type: "blank",
+            contents: node.childNodes.map((n) => n.toString()).join(""),
+            textStyle: [node.rawTagName]
+          };
+        default:
+          return {
+            type: "container",
+            htmlElement: node.rawTagName,
+            customClass: (node.classList.value || []).join(" "),
+            contents: node.childNodes.map(go).filter(Boolean),
+          };
+      }
+    } else if (node.constructor.name === "TextNode") {
+      if (!node._rawText || !node._rawText.trim()) return null;
+      else return { type: "blank", contents: node._rawText };
+    }
+  };
+  console.log(body.constructor.name);
+
+  console.log(JSON.stringify(go(body.childNodes[1]), null, 2));
+}
+
 module.exports = {
   getCompletion,
   getPromptFromTemplate,
@@ -239,4 +288,5 @@ module.exports = {
   containerHandledStyles,
   splitContainerStyle,
   walk_response,
+  parseHTML,
 };
