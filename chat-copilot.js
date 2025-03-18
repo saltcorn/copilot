@@ -341,7 +341,7 @@ const execute = async (table_id, viewname, config, body, { req }) => {
     result = await actionClass.execute(
       JSON.parse(fcall.arguments),
       req,
-      JSON.parse(follow_on_gen.content)
+      follow_on_gen.content
     );
   } else {
     result = await actionClass.execute(JSON.parse(fcall.arguments), req);

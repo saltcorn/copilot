@@ -316,16 +316,24 @@ class GeneratePage {
       )
     );
   }
-  static async execute({ name, title, description, min_role }, req, contents) {
+  static async execute(
+    { name, title, description, min_role, page_type },
+    req,
+    contents
+  ) {
     console.log("execute", name, contents);
     const roles = await User.get_roles();
     const min_role_id = roles.find((r) => r.role === min_role).id;
+    let layout;
+    if (page_type === "Marketing page") {
+      layout = parseHTML(contents);
+    } else layout = GeneratePage.walk_response(JSON.parse(contents));
     await Page.create({
       name,
       title,
       description,
       min_role: min_role_id,
-      layout: GeneratePage.walk_response(contents),
+      layout,
     });
     return {
       postExec:
@@ -342,6 +350,11 @@ class GeneratePage {
     };
   }
 }
+
+function parseHTML(str) {
+
+}
+
 function escapeHtml(unsafe) {
   return unsafe
     .replace(/&/g, "&amp;")
