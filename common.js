@@ -250,6 +250,27 @@ function parseHTML(str) {
           };
         case "script":
           return null;
+        case "a":
+          return {
+            type: "link",
+            url: node.getAttribute("href"),
+            text: node.childNodes.map((n) => n.toString()).join(""),
+            link_src: "URL",
+          };
+        case "img":
+          return {
+            type: "container",
+            style: {
+              "border-color": "#808080",
+              "border-style": "solid",
+              "border-width": "2px",
+            },
+            contents: {
+              type: "blank",
+              contents: "Image: " + node.getAttribute("alt"),
+            },
+          };
+
         case "h1":
         case "h2":
         case "h3":
@@ -259,7 +280,7 @@ function parseHTML(str) {
           return {
             type: "blank",
             contents: node.childNodes.map((n) => n.toString()).join(""),
-            textStyle: [node.rawTagName]
+            textStyle: [node.rawTagName],
           };
         default:
           return {
@@ -276,7 +297,7 @@ function parseHTML(str) {
   };
   console.log(body.constructor.name);
 
-  console.log(JSON.stringify(go(body.childNodes[1]), null, 2));
+  console.log(JSON.stringify(go(body.childNodes[3]), null, 2));
 }
 
 module.exports = {
