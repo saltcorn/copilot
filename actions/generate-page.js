@@ -360,4 +360,91 @@ function escapeHtml(unsafe) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+parseHTML(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Popcorn Beer - Unleash the Flavor Explosion!</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+
+<header class="bg-warning text-dark py-5">
+    <div class="container text-center">
+        <h1 class="display-4">Popcorn Beer</h1>
+        <p class="lead">Unleash the Flavor Explosion!</p>
+    </div>
+</header>
+
+<section class="py-5">
+    <div class="container">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <img src="your-image-url.jpg" alt="Popcorn Beer" class="img-fluid rounded">
+            </div>
+            <div class="col-md-6">
+                <h2>Discover the Unique Taste</h2>
+                <p>Introducing our popcorn-flavored beer, a delightful fusion of classic beer with a twist of popcorn essence. Experience the taste sensation that will keep you coming back for more.</p>
+                <a href="#purchase" class="btn btn-warning btn-lg mt-3">Buy Now</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="bg-light py-5">
+    <div class="container">
+        <h2 class="text-center mb-4">Why Choose Popcorn Beer?</h2>
+        <div class="row">
+            <div class="col-lg-4">
+                <div class="card mb-4">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">Unique Flavor</h5>
+                        <p class="card-text">A perfect blend of beer and popcorn that tantalizes your taste buds.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card mb-4">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">Premium Ingredients</h5>
+                        <p class="card-text">Crafted with the finest ingredients for an unparalleled taste.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card mb-4">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">Perfect for Any Occasion</h5>
+                        <p class="card-text">Whether it's a movie night or a party, Popcorn Beer is your go-to drink.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="purchase" class="py-5">
+    <div class="container text-center">
+        <h2>Get Your Popcorn Beer Today!</h2>
+        <p class="mb-4">Available for purchase online and in select stores near you.</p>
+        <a href="shop.html" class="btn btn-warning btn-lg">Shop Now</a>
+    </div>
+</section>
+
+<footer class="bg-dark text-white py-4">
+    <div class="container text-center">
+        <p>&copy; 2023 Popcorn Beer. All rights reserved.</p>
+        <ul class="list-inline">
+            <li class="list-inline-item"><a href="#" class="text-white">Privacy Policy</a></li>
+            <li class="list-inline-item"><a href="#" class="text-white">Terms of Service</a></li>
+            <li class="list-inline-item"><a href="#" class="text-white">Contact Us</a></li>
+        </ul>
+    </div>
+</footer>
+
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+</body>`);
+
 module.exports = GeneratePage;

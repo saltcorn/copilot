@@ -247,6 +247,7 @@ function parseHTML(str) {
           return {
             type: "blank",
             contents: node.childNodes.map((n) => n.toString()).join(""),
+            customClass: (node.classList.value || []).join(" "),
           };
         case "script":
           return null;
@@ -255,6 +256,7 @@ function parseHTML(str) {
             type: "link",
             url: node.getAttribute("href"),
             text: node.childNodes.map((n) => n.toString()).join(""),
+            link_class: (node.classList.value || []).join(" "),
             link_src: "URL",
           };
         case "img":
@@ -280,6 +282,7 @@ function parseHTML(str) {
           return {
             type: "blank",
             contents: node.childNodes.map((n) => n.toString()).join(""),
+            customClass: (node.classList.value || []).join(" "),
             textStyle: [node.rawTagName],
           };
         default:
@@ -295,9 +298,10 @@ function parseHTML(str) {
       else return { type: "blank", contents: node._rawText };
     }
   };
-  console.log(body.constructor.name);
+  //console.log(body.constructor.name);
 
-  console.log(JSON.stringify(go(body.childNodes[3]), null, 2));
+  //console.log(JSON.stringify(go(body.childNodes[3]), null, 2));
+  return go(body);
 }
 
 module.exports = {
