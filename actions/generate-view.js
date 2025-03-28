@@ -2,6 +2,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");
 const Page = require("@saltcorn/data/models/page");
+const View = require("@saltcorn/data/models/view");
 const Table = require("@saltcorn/data/models/table");
 const User = require("@saltcorn/data/models/user");
 const Field = require("@saltcorn/data/models/field");
@@ -22,34 +23,33 @@ class GenerateView {
   static description = "Generate view";
 
   static async json_schema() {
-    const allPageNames = (await Page.find({})).map((p) => p.page);
-    let namedescription = `The name of the page, this should be a short name which is part of the url. `;
-    if (allPageNames.length) {
-      namedescription += `These are the names of the exising pages: ${allPageNames.join(
-        ", "
-      )}. Do not pick a name that is identical but follow the same naming convention.`;
-    }
+    const tables = Table.find({});
+    //const viewtypes = getState().
     const roles = await User.get_roles();
     return {
       type: "object",
-      required: ["name", "title", "min_role"],
+      required: ["name", "viewpattern", "table"],
       properties: {
         name: {
-          description: namedescription,
+          description: `The name of the view, this should be a short name which is part of the url. `,
           type: "string",
         },
-        title: {
-          description: "Page title, this is in the <title> tag.",
+        viewpattern: {
+          description: `The type of view to generate. Show for a read-only view of a single table row, 
+List for a tabular grid view of many rows, Edit for forms for editing a single row, Feed to repeatedly show 
+another view (typically a Show view), Filter for selecting a subset of rows based on field values
+to be shown in another view (typically List or Feed views) on the same page.`,
           type: "string",
+          enum: ["Show", "List", "Edit", "Filter", "Feed"],
         },
-        description: {
-          description:
-            "A longer description that is not visible but appears in the page header and is indexed by search engines",
+        table: {
+          description: "Which table is this a view on",
           type: "string",
+          enum: tables.map((t) => t.name),
         },
         min_role: {
           description:
-            "The minimum role needed to access the page. For pages accessible only by admin, use 'admin', pages with min_role 'public' is publicly accessible and also available to all users",
+            "The minimum role needed to access the view. For vies accessible only by admin, use 'admin', pages with min_role 'public' is publicly accessible and also available to all users",
           type: "string",
           enum: roles.map((r) => r.role),
         },
@@ -57,10 +57,127 @@ class GenerateView {
     };
   }
   static async system_prompt() {
-    return `Use the generate_page to generate a page.`;
+    return `Use the generate_view tool to generate a view.`;
   }
-  static async follow_on_generate({ name }) {
-    const prompt = `Now generate the contents of the ${name} page`;
+
+  static async follow_on_generate_list({ name, viewpattern, table }) {
+    const tbl = Table.findOne({ name: table });
+    const triggers = Trigger.find({
+      when_trigger: { or: ["API call", "Never"] },
+    }).filter(
+      (tr) =>
+        tr.description && tr.name && (!tr.table_id || tr.table_id === tbl.id)
+    );
+    const own_show_views = await View.find_table_views_where(
+      tbl.id,
+      ({ state_fields, viewtemplate, viewrow }) =>
+        state_fields.some((sf) => sf.name === "id")
+    );
+    const prompt = `Now generate the structure of the ${name} ${viewpattern} view on the ${table} table`;
+    const response_schema = {
+      type: "object",
+      properties: {
+        columns: {
+          type: "array",
+          items: {
+            anyOf: [
+              {
+                type: "object",
+                description: "Show a field value",
+                //required: ["name", "title", "min_role"],
+                properties: {
+                  coltype: { const: "Field" },
+                  fieldSpec: {
+                    anyOf: tbl.fields.map((f) => ({
+                      type: "object",
+                      properties: {
+                        fieldname: { const: f.name },
+                        fieldview: {
+                          type: "string",
+                          enum: Object.keys(f.type?.fieldviews || {}),
+                        },
+                      },
+                    })),
+                  },
+                },
+              },
+              {
+                type: "object",
+                description: "Action button",
+                //required: ["name", "title", "min_role"],
+                properties: {
+                  coltype: { const: "Action" },
+                  label: { type: "string", description: "The button label" },
+                  style: {
+                    type: "string",
+                    description: "The bootstrap button class",
+                    enum: [
+                      "btn-primary",
+                      "btn-secondary",
+                      "btn-outline-primary",
+                      "btn-outline-secondary",
+                    ],
+                  },
+                  action: {
+                    anyOf: [
+                      {
+                        type: "object",
+                        description: "Delete this row form the database table",
+                        properties: {
+                          action_name: { const: "Delete" },
+                        },
+                      },
+                      ...triggers.map((tr) => ({
+                        type: "object",
+                        description: tr.description,
+                        properties: {
+                          action_name: { const: tr.name },
+                        },
+                      })),
+                    ],
+                  },
+                },
+              },
+              {
+                type: "object",
+                description: "a link to a different view on the same table",
+                properties: {
+                  coltype: { const: "View link" },
+                  label: { type: "string", description: "The view label" },
+                  style: {
+                    type: "string",
+                    description:
+                      "Link for a normal link, or for a button, the bootstrap button class",
+                    enum: [
+                      "Link",
+                      "btn-primary",
+                      "btn-secondary",
+                      "btn-outline-primary",
+                      "btn-outline-secondary",
+                    ],
+                  },
+                  view: {
+                    type: "string",
+                    description: "the view to link to",
+                    enum: own_show_views.map((v) => v.name),
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+  }
+
+  static async follow_on_generate(properties) {
+    switch (properties.viewpattern) {
+      case "List":
+        return GenerateView.follow_on_generate(properties);
+
+      default:
+        break;
+    }
     const response_schema = {
       type: "object",
       properties: {
@@ -227,7 +344,7 @@ class GenerateView {
         },
       },
     };
-    return { response_schema, prompt };
+    return { response_schema, prompt: "foobar" };
   }
 
   static render_html(attrs, contents) {
