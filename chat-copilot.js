@@ -293,6 +293,7 @@ const actionClasses = [
   require("./actions/generate-tables"),
   require("./actions/generate-js-action"),
   require("./actions/generate-page"),
+  require("./actions/generate-view"),
 ];
 
 const getCompletionArguments = async () => {

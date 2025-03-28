@@ -17,13 +17,72 @@ const {
   walk_response,
 } = require("../common");
 
+const get_rndid = () => {
+  let characters = "0123456789abcdef";
+  let str = "";
+  for (let i = 0; i < 6; i++) {
+    str += characters[Math.floor(Math.random() * 16)];
+  }
+  return str;
+};
+
+const snakeToPascal = (str) => {
+  const snakeToCamel = (str) =>
+    str.replace(/([-_]\w)/g, (g) => g[1].toUpperCase());
+  let camelCase = snakeToCamel(str);
+  let pascalCase = camelCase[0].toUpperCase() + camelCase.substr(1);
+  return pascalCase;
+};
+
+const col2layoutSegment = (table, col) => {
+  switch (col.coltype) {
+    case "Field":
+      return {
+        type: "field",
+        field_name: col.fieldSpec.fieldname,
+        fieldview: col.fieldSpec.fieldview,
+      };
+    case "Action":
+      console.log("action col", col);
+      
+      return {
+        type: "action",
+        action_name: col.action.action_name,
+        action_style: col.style,
+        action_label: col.label,
+        rndid: get_rndid(),
+      };
+    case "View link":
+      return {
+        type: "view_link",
+        view: col.view,
+        relation: `.${table.name}`,
+        link_style: col.style === "Link" ? "" : col.style,
+        view_label: col.label,
+      };
+
+    default:
+      break;
+  }
+  return {
+    type: col.coltype.toLowerCase(),
+  };
+};
+
+const segment2column = (seg) => {
+  return {
+    ...seg,
+    type: snakeToPascal(seg.type),
+  };
+};
+
 class GenerateView {
   static title = "Generate View";
   static function_name = "generate_view";
   static description = "Generate view";
 
   static async json_schema() {
-    const tables = Table.find({});
+    const tables = await Table.find({});
     //const viewtypes = getState().
     const roles = await User.get_roles();
     return {
@@ -175,38 +234,63 @@ to be shown in another view (typically List or Feed views) on the same page.`,
     switch (properties.viewpattern) {
       case "List":
       default:
-        return GenerateView.follow_on_generate(properties);
+        return GenerateView.follow_on_generate_list(properties);
     }
   }
 
   static render_html(attrs, contents) {
+    console.log(contents);
+
     return (
       pre(code(JSON.stringify(attrs, null, 2))) +
-      pre(code(JSON.stringify(walk_response(contents), null, 2)))
+      (contents ? pre(code(JSON.stringify(JSON.parse(contents), null, 2))) : "")
     );
   }
-  static async execute({ name, title, description, min_role }, req, contents) {
+  static async execute({ name, table, viewpattern, min_role }, req, contents) {
     console.log("execute", name, contents);
     const roles = await User.get_roles();
     const min_role_id = roles.find((r) => r.role === min_role).id;
-    await Page.create({
+    const tbl = Table.findOne({ name: table });
+    const viewCfg = {
+      table_id: tbl.id,
       name,
-      title,
-      description,
+      viewtemplate: viewpattern,
       min_role: min_role_id,
-      layout: walk_response(contents),
-    });
+      configuration: {},
+    };
+    switch (viewpattern) {
+      case "List":
+        const conts = JSON.parse(contents);
+        const cols = conts.columns;
+        const segments = cols.map((c) => col2layoutSegment(tbl, c));
+        viewCfg.configuration.layout = {
+          besides: segments.map((s) => ({ contents: s })),
+        };
+        viewCfg.configuration.columns = segments.map(segment2column);
+
+        break;
+
+      default:
+        break;
+    }
+    console.log(viewCfg);
+
+    await View.create(viewCfg);
     return {
       postExec:
-        "Page created. " +
+        "View created. " +
         a(
-          { target: "_blank", href: `/page/${name}`, class: "me-1" },
-          "Go to page"
+          { target: "_blank", href: `/view/${name}`, class: "me-1" },
+          "Go to view"
         ) +
         " | " +
         a(
-          { target: "_blank", href: `/pageedit/edit/${name}`, class: "ms-1" },
-          "Configure page"
+          {
+            target: "_blank",
+            href: `/viewedit/config/${name}`,
+            class: "ms-1",
+          },
+          "Configure view"
         ),
     };
   }
