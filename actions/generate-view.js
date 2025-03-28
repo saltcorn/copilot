@@ -43,8 +43,6 @@ const col2layoutSegment = (table, col) => {
         fieldview: col.fieldSpec.fieldview,
       };
     case "Action":
-      console.log("action col", col);
-      
       return {
         type: "action",
         action_name: col.action.action_name,
@@ -99,7 +97,7 @@ List for a tabular grid view of many rows, Edit for forms for editing a single r
 another view (typically a Show view), Filter for selecting a subset of rows based on field values
 to be shown in another view (typically List or Feed views) on the same page.`,
           type: "string",
-          enum: ["Show", "List", "Edit", "Filter", "Feed"],
+          enum: ["List"], //, "Show", "Edit", "Filter", "Feed"],
         },
         table: {
           description: "Which table is this a view on",
