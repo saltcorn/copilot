@@ -142,7 +142,9 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
     i(
       small(
         "Skills you can request: " +
-          actionClasses.map((ac) => ac.title).join(", ")
+          classesWithSkills()
+            .map((ac) => ac.title)
+            .join(", ")
       )
     )
   );
@@ -296,10 +298,16 @@ const actionClasses = [
   require("./actions/generate-view"),
 ];
 
+const classesWithSkills = () => {
+  const state = getState();
+  const skills = state.copilot_skills || [];
+  return [...actionClasses, ...skills];
+};
+
 const getCompletionArguments = async () => {
   const tools = [];
   const sysPrompts = [];
-  for (const actionClass of actionClasses) {
+  for (const actionClass of classesWithSkills()) {
     tools.push({
       type: "function",
       function: {
@@ -328,7 +336,7 @@ const execute = async (table_id, viewname, config, body, { req }) => {
   const run = await WorkflowRun.findOne({ id: +run_id });
 
   const fcall = run.context.funcalls[fcall_id];
-  const actionClass = actionClasses.find(
+  const actionClass = classesWithSkills().find(
     (ac) => ac.function_name === fcall.name
   );
   let result;
@@ -458,7 +466,9 @@ const interact = async (table_id, viewname, config, body, { req }) => {
 
 const getFollowOnGeneration = async (tool_call) => {
   const fname = tool_call.function.name;
-  const actionClass = actionClasses.find((ac) => ac.function_name === fname);
+  const actionClass = classesWithSkills().find(
+    (ac) => ac.function_name === fname
+  );
   const args = JSON.parse(tool_call.function.arguments);
 
   if (actionClass.follow_on_generate) {
@@ -474,7 +484,9 @@ const renderToolcall = async (
   follow_on_answer
 ) => {
   const fname = tool_call.function.name;
-  const actionClass = actionClasses.find((ac) => ac.function_name === fname);
+  const actionClass = classesWithSkills().find(
+    (ac) => ac.function_name === fname
+  );
   const args = JSON.parse(tool_call.function.arguments);
 
   const inner_markup = await actionClass.render_html(args, follow_on_answer);
