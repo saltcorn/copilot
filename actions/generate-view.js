@@ -247,7 +247,9 @@ to be shown in another view (typically List or Feed views) on the same page.`,
   static async execute({ name, table, viewpattern, min_role }, req, contents) {
     console.log("execute", name, contents);
     const roles = await User.get_roles();
-    const min_role_id = roles.find((r) => r.role === min_role).id;
+    const min_role_id = min_role
+      ? roles.find((r) => r.role === min_role).id
+      : 100;
     const tbl = Table.findOne({ name: table });
     const viewCfg = {
       table_id: tbl.id,
