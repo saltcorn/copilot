@@ -466,39 +466,42 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
 const getCompletionArguments = async (config) => {
   let tools = [];
   const sysPrompts = [];
-  let properties = {};
 
-  const tableNames = (config?.tables || []).map((t) => t.table_name);
-  properties.table_name = {
-    type: "string",
-    enum: tableNames,
-    description: `Which table is this query from. Every query has to select rows from one table, even if it is based on joins from different tables`,
-  };
-  properties.sql_id_query = {
-    type: "string",
-    description: `An SQL query for this table's primary keys. This must select only the primary keys (even if the user wants a count), for example SELECT ${
-      tableNames[0][0]
-    }."${Table.findOne(tableNames[0]).pk_name}" from "${tableNames[0]}" ${
-      tableNames[0][0]
-    } JOIN ... where... Use this to join other tables in the database.`,
-  };
-  properties.is_count = {
-    type: "boolean",
-    description: `Is the only desired output a count? Make this true if the user wants a count of rows`,
-  };
+  if (config.tables.length) {
+    let properties = {};
 
-  tools.push({
-    type: "function",
-    function: {
-      name: "TableQuery",
-      description: `Query a table and show the results to the user in a grid format`,
-      parameters: {
-        type: "object",
-        required: ["table_name", "sql_id_query", "is_count"],
-        properties,
+    const tableNames = (config?.tables || []).map((t) => t.table_name);
+    properties.table_name = {
+      type: "string",
+      enum: tableNames,
+      description: `Which table is this query from. Every query has to select rows from one table, even if it is based on joins from different tables`,
+    };
+    properties.sql_id_query = {
+      type: "string",
+      description: `An SQL query for this table's primary keys. This must select only the primary keys (even if the user wants a count), for example SELECT ${
+        tableNames[0][0]
+      }."${Table.findOne(tableNames[0]).pk_name}" from "${tableNames[0]}" ${
+        tableNames[0][0]
+      } JOIN ... where... Use this to join other tables in the database.`,
+    };
+    properties.is_count = {
+      type: "boolean",
+      description: `Is the only desired output a count? Make this true if the user wants a count of rows`,
+    };
+
+    tools.push({
+      type: "function",
+      function: {
+        name: "TableQuery",
+        description: `Query a table and show the results to the user in a grid format`,
+        parameters: {
+          type: "object",
+          required: ["table_name", "sql_id_query", "is_count"],
+          properties,
+        },
       },
-    },
-  });
+    });
+  }
 
   for (const action of config?.actions || []) {
     let properties = {};
@@ -536,18 +539,19 @@ const getCompletionArguments = async (config) => {
   const systemPrompt =
     "You are helping users retrieve information and perform actions on a relational database" +
     config.sys_prompt +
-    `
-    If you are generating SQL, Your database the following tables in PostgreSQL: 
+    (config.tables.length
+      ? `
+    If you are generating SQL, Your database has the following tables in PostgreSQL: 
 
 ` +
-    tables
-      .map(
-        (t) => `CREATE TABLE "${t.name}" (${
-          t.description
-            ? `
+        tables
+          .map(
+            (t) => `CREATE TABLE "${t.name}" (${
+              t.description
+                ? `
   /* ${t.description} */`
-            : ""
-        }
+                : ""
+            }
 ${t.fields
   .map(
     (f) =>
@@ -559,15 +563,16 @@ ${t.fields
   )
   .join(",\n")}
 )`
-      )
-      .join(";\n\n") +
-    `
+          )
+          .join(";\n\n") +
+        `
       
 Use the TableQuery tool if the user asks to see, find or count or otherwise access rows from a table that matches what the user is looking for, or if
 the user is asking for a summary or inference from such rows. The TableQuery query is parametrised by a SQL SELECT query which 
 selects primary key values from the specified table. You can join other tables or use complex logic in the WHERE clause, but you must 
 always return porimary key values from the specified table.
-`;
+`
+      : "");
   //console.log("sysprompt", systemPrompt);
 
   if (tools.length === 0) tools = undefined;
