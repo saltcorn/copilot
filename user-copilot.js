@@ -662,8 +662,7 @@ const process_interaction = async (run, config, req, prevResponses = []) => {
   const complArgs = await getCompletionArguments(config);
   complArgs.chat = run.context.interactions;
   //complArgs.debugResult = true;
-  //console.log(complArgs);
-  console.log("complArgs", JSON.stringify(complArgs, null, 2));
+  //console.log("complArgs", JSON.stringify(complArgs, null, 2));
 
   const answer = await getState().functions.llm_generate.run("", complArgs);
   console.log("answer", answer);
