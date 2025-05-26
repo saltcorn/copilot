@@ -600,7 +600,7 @@ const interact = async (table_id, viewname, config, body, { req, res }) => {
       interactions: [{ role: "user", content: userinput }],
     });
   }
-  return await process_interaction(run, userinput, config, req);
+  return await process_interaction(run, config, req);
 };
 
 const renderQueryInteraction = async (table, result, config, req) => {
@@ -653,20 +653,14 @@ const renderQueryInteraction = async (table, result, config, req) => {
   );
 };
 
-const process_interaction = async (
-  run,
-  input,
-  config,
-  req,
-  prevResponses = []
-) => {
+const process_interaction = async (run, config, req, prevResponses = []) => {
   const complArgs = await getCompletionArguments(config);
   complArgs.chat = run.context.interactions;
   //complArgs.debugResult = true;
   //console.log(complArgs);
   console.log("complArgs", JSON.stringify(complArgs, null, 2));
 
-  const answer = await getState().functions.llm_generate.run(input, complArgs);
+  const answer = await getState().functions.llm_generate.run("", complArgs);
   console.log("answer", answer);
   await addToContext(run, {
     interactions:
@@ -820,7 +814,7 @@ const process_interaction = async (
       }
     }
     if (hasResult)
-      return await process_interaction(run, "", config, req, [
+      return await process_interaction(run, config, req, [
         ...prevResponses,
         ...responses,
       ]);
