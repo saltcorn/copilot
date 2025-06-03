@@ -362,7 +362,14 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
                 onclick: `set_state_field('run_id',${run.id})`,
                 class: "prevcopilotrun border p-2",
               },
-              localeDateTime(run.started_at),
+              div(
+                { class: "d-flex justify-content-between" },
+                localeDateTime(run.started_at),
+                i({
+                  class: "far fa-trash-alt",
+                  onclick: `delprevrun(event, ${run.id})`,
+                })
+              ),
 
               p(
                 { class: "prevrun_content" },
@@ -397,6 +404,8 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
               div.interaction-segment p {margin-bottom: 0px;}
               div.interaction-segment div.card {margin-top: 0.5rem;}            
             div.prevcopilotrun:hover {cursor: pointer; background-color: var(--tblr-secondary-bg-subtle, var(--bs-secondary-bg-subtle, gray));}
+            div.prevcopilotrun i.fa-trash-alt {display: none;}
+            div.prevcopilotrun:hover i.fa-trash-alt {display: block;}
             .copilot-entry .submit-button:hover { cursor: pointer}
 
             .copilot-entry .submit-button {
@@ -429,6 +438,13 @@ const run = async (table_id, viewname, config, state, { res, req }) => {
         btn.html(oldText);
         btn.css({ width: "" }).prop("disabled", false);
         btn.removeData("old-text");
+    }
+    function delprevrun(e, runid) {
+        e.preventDefault();
+        e.stopPropagation();
+        view_post('${viewname}', 'delprevrun', {run_id:runid})
+        $(e.target).closest(".prevcopilotrun").remove()
+        return false;
     }
     function processExecuteResponse(res) {
         const btn = $("#exec-"+res.fcall_id)
@@ -606,6 +622,16 @@ const interact = async (table_id, viewname, config, body, { req, res }) => {
     });
   }
   return await process_interaction(run, config, req);
+};
+
+const delprevrun = async (table_id, viewname, config, body, { req, res }) => {
+  const { run_id } = body;
+  let run;
+  
+  run = await WorkflowRun.findOne({ id: +run_id });
+  await run.delete();
+
+  return;
 };
 
 const renderQueryInteraction = async (table, result, config, req) => {
@@ -907,5 +933,5 @@ module.exports = {
   get_state_fields,
   tableless: true,
   run,
-  routes: { interact },
+  routes: { interact, delprevrun },
 };
