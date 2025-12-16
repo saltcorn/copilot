@@ -337,9 +337,11 @@ const execute = async (table_id, viewname, config, body, { req }) => {
 
   const fcall = run.context.funcalls[fcall_id];
   const actionClass = classesWithSkills().find(
-    (ac) => ac.function_name === fcall.name
+    (ac) => ac.function_name === (fcall.name || fcall.toolName)
   );
   let result;
+  const args = fcall.arguments ? JSON.parse(fcall.arguments) : fcall.input;
+
   if (actionClass.follow_on_generate) {
     const toolCallIndex = run.context.interactions.findIndex(
       (i) => i.tool_call_id === fcall_id
@@ -347,13 +349,9 @@ const execute = async (table_id, viewname, config, body, { req }) => {
     const follow_on_gen = run.context.interactions.find(
       (i, ix) => i.role === "assistant" && ix > toolCallIndex
     );
-    result = await actionClass.execute(
-      JSON.parse(fcall.arguments),
-      req,
-      follow_on_gen.content
-    );
+    result = await actionClass.execute(args, req, follow_on_gen.content);
   } else {
-    result = await actionClass.execute(JSON.parse(fcall.arguments), req);
+    result = await actionClass.execute(args, req);
   }
   await addToContext(run, { implemented_fcall_ids: [fcall_id] });
   return { json: { success: "ok", fcall_id, ...(result || {}) } };
