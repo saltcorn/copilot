@@ -344,7 +344,10 @@ const execute = async (table_id, viewname, config, body, { req }) => {
 
   if (actionClass.follow_on_generate) {
     const toolCallIndex = run.context.interactions.findIndex(
-      (i) => i.tool_call_id === fcall_id
+      (i) =>
+        i.tool_call_id === fcall_id ||
+        (Array.isArray(i.content) &&
+          i.content.some((c) => c.toolCallId === fcall_id))
     );
     const follow_on_gen = run.context.interactions.find(
       (i, ix) => i.role === "assistant" && ix > toolCallIndex
