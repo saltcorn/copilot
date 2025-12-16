@@ -431,7 +431,8 @@ const interact = async (table_id, viewname, config, body, { req }) => {
     for (const tool_call of answer.tool_calls) {
       await addToContext(run, {
         funcalls: {
-          [tool_call.id || tool_call.toolCallId]: tool_call.function,
+          [tool_call.id || tool_call.toolCallId]:
+            tool_call.function || tool_call,
         },
       });
 
@@ -554,7 +555,9 @@ const wrapAction = (
               type: "button",
               id: "exec-" + tool_call.id,
               class: "btn btn-primary d-block mt-3 float-end",
-              onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${tool_call.id}', run_id: ${run.id}}, processExecuteResponse)`,
+              onclick: `press_store_button(this, true);view_post('${viewname}', 'execute', {fcall_id: '${
+                tool_call.id || tool_call.toolCallId
+              }', run_id: ${run.id}}, processExecuteResponse)`,
             },
             "Apply"
           ),
