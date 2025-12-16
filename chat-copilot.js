@@ -510,7 +510,9 @@ const renderToolcall = async (
   const actionClass = classesWithSkills().find(
     (ac) => ac.function_name === fname
   );
-  const args = JSON.parse(tool_call.function.arguments);
+  const args = tool_call.function?.arguments
+    ? JSON.parse(tool_call.function.arguments)
+    : tool_call.input;
 
   const inner_markup = await actionClass.render_html(args, follow_on_answer);
   return wrapAction(
