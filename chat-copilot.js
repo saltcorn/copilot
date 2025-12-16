@@ -390,27 +390,49 @@ const interact = async (table_id, viewname, config, body, { req }) => {
     userinput,
     complArgs
   );
-  await addToContext(run, {
-    interactions:
-      typeof answer === "object" && answer.tool_calls
-        ? [
-            { role: "assistant", tool_calls: answer.tool_calls },
-            ...answer.tool_calls.map((tc) => ({
-              role: "tool",
-              tool_call_id: tc.id,
-              name: tc.function.name,
-              content: "Action suggested to user.",
-            })),
-          ]
-        : [{ role: "assistant", content: answer }],
-  });
-  console.log("answer", answer);
-
+  if (answer.ai_sdk)
+    for (const tool_call of answer.tool_calls)
+      await addToContext(run, {
+        interactions: [
+          ...answer.messages,
+          {
+            role: "tool",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: tool_call.toolCallId,
+                toolName: tool_call.toolName,
+                output: {
+                  type: "text",
+                  value: "Action suggested to user.",
+                },
+              },
+            ],
+          },
+        ],
+      });
+  else
+    await addToContext(run, {
+      interactions:
+        typeof answer === "object" && answer.tool_calls
+          ? [
+              { role: "assistant", tool_calls: answer.tool_calls },
+              ...answer.tool_calls.map((tc) => ({
+                role: "tool",
+                tool_call_id: tc.id || tc.toolCallId,
+                name: tc.function?.name || tc.toolName,
+                content: "Action suggested to user.",
+              })),
+            ]
+          : [{ role: "assistant", content: answer }],
+    });
   if (typeof answer === "object" && answer.tool_calls) {
     const actions = [];
     for (const tool_call of answer.tool_calls) {
       await addToContext(run, {
-        funcalls: { [tool_call.id]: tool_call.function },
+        funcalls: {
+          [tool_call.id || tool_call.toolCallId]: tool_call.function,
+        },
       });
 
       const followOnGen = await getFollowOnGeneration(tool_call);
@@ -433,7 +455,6 @@ const interact = async (table_id, viewname, config, body, { req }) => {
           }
         );
 
-        console.log("follow on answer", follow_on_answer);
 
         await addToContext(run, {
           interactions: [
@@ -465,11 +486,13 @@ const interact = async (table_id, viewname, config, body, { req }) => {
 };
 
 const getFollowOnGeneration = async (tool_call) => {
-  const fname = tool_call.function.name;
+  const fname = tool_call.function?.name || tool_call.toolName;
   const actionClass = classesWithSkills().find(
     (ac) => ac.function_name === fname
   );
-  const args = JSON.parse(tool_call.function.arguments);
+  const args = tool_call.function?.arguments
+    ? JSON.parse(tool_call.function?.arguments)
+    : tool_call.input;
 
   if (actionClass.follow_on_generate) {
     return await actionClass.follow_on_generate(args);
@@ -483,7 +506,7 @@ const renderToolcall = async (
   run,
   follow_on_answer
 ) => {
-  const fname = tool_call.function.name;
+  const fname = tool_call.function?.name || tool_call.toolName;
   const actionClass = classesWithSkills().find(
     (ac) => ac.function_name === fname
   );
