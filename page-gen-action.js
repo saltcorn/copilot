@@ -134,8 +134,8 @@ module.exports = {
       chat = [];
       for (const image of Array.isArray(from_ctx) ? from_ctx : [from_ctx]) {
         const file = await File.findOne({ name: image });
-        const imageurl = await file.get_contents("base64url");
-
+        const imageurl = await file.get_contents("base64");
+        
         chat.push({
           role: "user",
           content: [
