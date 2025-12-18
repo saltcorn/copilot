@@ -28,11 +28,19 @@ module.exports = {
           required: true,
         },
         {
+          name: "image_prompt",
+          label: "Prompt image files",
+          sublabel:
+            "Optional. An expression, based on the context, for file path or array of file paths for prompting",
+          class: "validate-expression",
+          type: "String",
+        },
+        {
           name: "answer_field",
           label: "Answer variable",
           sublabel: "Optional. Set the generated HTML to this context variable",
+          class: "validate-identifier",
           type: "String",
-          required: true,
         },
         //   ...override_fields,
         {
@@ -85,6 +93,7 @@ module.exports = {
       prompt_formula,
       prompt_template,
       answer_field,
+      image_prompt,
       chat_history_field,
       model,
     },
@@ -96,7 +105,7 @@ module.exports = {
         prompt_formula,
         row,
         user,
-        "llm_generate prompt formula"
+        "copilot_generate_page prompt formula"
       );
     else prompt = row[prompt_field];
     const opts = {};
@@ -113,9 +122,34 @@ module.exports = {
       },
     });
     const { llm_generate } = getState().functions;
+    let chat;
+    if (image_prompt) {
+      const from_ctx = eval_expression(
+        image_prompt,
+        row,
+        user,
+        "copilot_generate_page image prompt"
+      );
 
+      chat = [];
+      for (const image of Array.isArray(from_ctx) ? from_ctx : [from_ctx]) {
+        const file = await File.findOne({ name: image });
+        const imageurl = await file.get_contents("base64url");
+
+        chat.push({
+          role: "user",
+          content: [
+            {
+              type: "image",
+              image: `data:${file.mimetype};base64,${imageurl}`,
+            },
+          ],
+        });
+      }
+    }
     const initial_ans = await llm_generate.run(prompt, {
       tools,
+      chat,
       systemPrompt,
     });
     const initial_info = initial_ans.tool_calls[0].input;
@@ -139,6 +173,7 @@ module.exports = {
       Just generate HTML code, do not wrap in markdown code tags`,
       {
         debugResult: true,
+        chat,
         response_format: full.response_schema
           ? {
               type: "json_schema",
@@ -170,7 +205,7 @@ module.exports = {
         min_role: 100,
         layout: { html_file: file.path_to_serve },
       });
-      getState().refresh_pages()
+      getState().refresh_pages();
     }
     const upd = answer_field ? { [answer_field]: page_html } : {};
     if (mode === "workflow") return upd;
