@@ -110,12 +110,30 @@ module.exports = {
     });
     const { llm_generate } = getState().functions;
 
-    const ans = await llm_generate(prompt, {
+    const initial_ans = await llm_generate.run(prompt, {
       tools,
       systemPrompt,
     });
-    const upd = { [answer_field]: ans };
+    const initial_info = initial_ans.tool_calls[0].input;
+    const full = await GeneratePage.follow_on_generate(initial_info);
+
+    const page_html = await getState().functions.llm_generate.run(
+      `${prompt}. The page title is: ${initial_info.title}. Further page description: ${initial_info.description}. Generate the HTML for the web page using the Bootstrap 5 CSS framework. Just generate HTML code, do not wrap in markdown code tags`,
+      {
+        debugResult: true,
+        response_format: full.response_schema
+          ? {
+              type: "json_schema",
+              json_schema: {
+                name: "generate_page",
+                schema: full.response_schema,
+              },
+            }
+          : undefined,
+      }
+    );
+    const upd = answer_field ? { [answer_field]: page_html } : {};
     if (mode === "workflow") return upd;
-    else await table.updateRow(upd, row[table.pk_name]);
+    else if (answer_field) await table.updateRow(upd, row[table.pk_name]);
   },
 };
