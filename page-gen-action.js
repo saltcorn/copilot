@@ -1,6 +1,9 @@
 const { eval_expression } = require("@saltcorn/data/models/expression");
 const { interpolate } = require("@saltcorn/data/utils");
 const { getState } = require("@saltcorn/data/db/state");
+const File = require("@saltcorn/data/models/file");
+const Page = require("@saltcorn/data/models/page");
+
 const GeneratePage = require("./actions/generate-page");
 
 module.exports = {
@@ -77,6 +80,7 @@ module.exports = {
     user,
     mode,
     configuration: {
+      page_name,
       prompt_field,
       prompt_formula,
       prompt_template,
@@ -132,6 +136,28 @@ module.exports = {
           : undefined,
       }
     );
+
+    const use_page_name = page_name ? interpolate(page_name, row, user) : "";
+    if (use_page_name) {
+      //save to a file
+      const file = await File.from_contents(
+        `${use_page_name}.html`,
+        "text/html",
+        page_html,
+        user.id,
+        100
+      );
+
+      //create page
+      await Page.create({
+        name: use_page_name,
+        title: initial_info.title,
+        description: initial_info.description,
+        min_role: 100,
+        layout: { html_file: file.path_to_serve },
+      });
+      getState().refresh_pages()
+    }
     const upd = answer_field ? { [answer_field]: page_html } : {};
     if (mode === "workflow") return upd;
     else if (answer_field) await table.updateRow(upd, row[table.pk_name]);
