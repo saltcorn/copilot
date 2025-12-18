@@ -122,7 +122,21 @@ module.exports = {
     const full = await GeneratePage.follow_on_generate(initial_info);
 
     const page_html = await getState().functions.llm_generate.run(
-      `${prompt}. The page title is: ${initial_info.title}. Further page description: ${initial_info.description}. Generate the HTML for the web page using the Bootstrap 5 CSS framework. Just generate HTML code, do not wrap in markdown code tags`,
+      `${prompt}. 
+      
+      The page title is: ${initial_info.title}. 
+      Further page description: ${initial_info.description}. 
+
+      Generate the HTML for the web page using the Bootstrap 5 CSS framework. 
+      If you need to include the standard bootstrap CSS and javascript files, they are available as:
+
+      <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+
+      and 
+
+      <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+      
+      Just generate HTML code, do not wrap in markdown code tags`,
       {
         debugResult: true,
         response_format: full.response_schema
