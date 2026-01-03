@@ -239,20 +239,15 @@ function parseHTML(str, processAll) {
   const body = processAll
     ? HTMLParser.parse(strHtml)
     : HTMLParser.parse(strHtml).querySelector("body");
-
+  console.log("body", body);
+  
   const go = (node) => {
     //console.log("go node", node.toString());
 
     if (node.constructor.name === "HTMLElement") {
       switch (node.rawTagName) {
         case "body":
-          return { above: node.childNodes.map(go).filter(Boolean) };
-        case "p":
-          return {
-            type: "blank",
-            contents: node.childNodes.map((n) => n.toString()).join(""),
-            customClass: (node.classList.value || []).join(" "),
-          };
+          return { above: node.childNodes.map(go).filter(Boolean) };     
         case "script":
           return null;
         case "a":
@@ -292,7 +287,10 @@ function parseHTML(str, processAll) {
         default:
           return {
             type: "container",
-            htmlElement: node.rawTagName,
+            ...(node.rawTagName !== "div"
+              ? { htmlElement: node.rawTagName }
+              : {}),
+            ...(node.id ? { customId: node.id } : {}),
             customClass: (node.classList.value || []).join(" "),
             contents: node.childNodes.map(go).filter(Boolean),
           };
