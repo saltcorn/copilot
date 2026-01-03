@@ -239,7 +239,7 @@ function parseHTML(str, processAll) {
   const body = processAll
     ? HTMLParser.parse(strHtml)
     : HTMLParser.parse(strHtml).querySelector("body");
-  console.log("body", body);
+  const btnSizeClasses = new Set(["btn-sm", "btn-xs", "btn-lg"]);
 
   const go = (node) => {
     //console.log("go node", node.toString());
@@ -269,6 +269,31 @@ function parseHTML(str, processAll) {
             contents: {
               type: "blank",
               contents: "Image: " + node.getAttribute("alt"),
+            },
+          };
+        case "button":
+          return {
+            type: "action",
+            block: false,
+            rndid: Math.floor(Math.random() * 16777215).toString(16),
+            nsteps: 1,
+            confirm: false,
+            minRole: 100,
+            spinner: true,
+            isFormula: {},
+            action_icon: "",
+            action_name: "run_js_code",
+            action_label: node.childNodes.map((n) => n.toString()).join(""),
+            action_style:
+              (node.classList?.value || []).find(
+                (c) => c.startsWith("btn-") && !btnSizeClasses.has(c)
+              ) || "btn-primary",
+            action_size: (node.classList?.value || []).find((c) =>
+              btnSizeClasses.has(c)
+            ),
+            configuration: {
+              run_where: "Server",
+              code: "return {notify: 'Press button'}",
             },
           };
 
