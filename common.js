@@ -240,14 +240,14 @@ function parseHTML(str, processAll) {
     ? HTMLParser.parse(strHtml)
     : HTMLParser.parse(strHtml).querySelector("body");
   console.log("body", body);
-  
+
   const go = (node) => {
     //console.log("go node", node.toString());
 
     if (node.constructor.name === "HTMLElement") {
       switch (node.rawTagName) {
         case "body":
-          return { above: node.childNodes.map(go).filter(Boolean) };     
+          return { above: node.childNodes.map(go).filter(Boolean) };
         case "script":
           return null;
         case "a":
@@ -285,14 +285,19 @@ function parseHTML(str, processAll) {
             textStyle: [node.rawTagName],
           };
         default:
+          const containerContents = !node.childNodes.length
+            ? ""
+            : node.childNodes.length === 1
+            ? go(node.childNodes[0]) || ""
+            : { above: node.childNodes.map(go).filter(Boolean) };
           return {
             type: "container",
-            ...(node.rawTagName !== "div"
+            ...(node.rawTagName && node.rawTagName !== "div"
               ? { htmlElement: node.rawTagName }
               : {}),
             ...(node.id ? { customId: node.id } : {}),
             customClass: (node.classList.value || []).join(" "),
-            contents: node.childNodes.map(go).filter(Boolean),
+            contents: containerContents,
           };
       }
     } else if (node.constructor.name === "TextNode") {
