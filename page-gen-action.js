@@ -5,6 +5,7 @@ const File = require("@saltcorn/data/models/file");
 const Page = require("@saltcorn/data/models/page");
 
 const GeneratePage = require("./actions/generate-page");
+const { parseHTML } = require("./common");
 
 module.exports = {
   description: "Generate page with AI copilot",
@@ -41,6 +42,12 @@ module.exports = {
           sublabel: "Optional. Set the generated HTML to this context variable",
           class: "validate-identifier",
           type: "String",
+        },
+        {
+          name: "convert_to_saltcorn",
+          label: "Editable format",
+          sublabel: "Convert to Saltcorn editable pages",
+          type: "Bool",
         },
         //   ...override_fields,
         {
@@ -95,6 +102,7 @@ module.exports = {
       answer_field,
       image_prompt,
       chat_history_field,
+      convert_to_saltcorn,
       model,
     },
   }) => {
@@ -135,7 +143,7 @@ module.exports = {
       for (const image of Array.isArray(from_ctx) ? from_ctx : [from_ctx]) {
         const file = await File.findOne({ name: image });
         const imageurl = await file.get_contents("base64");
-        
+
         chat.push({
           role: "user",
           content: [
@@ -154,7 +162,17 @@ module.exports = {
     });
     const initial_info = initial_ans.tool_calls[0].input;
     const full = await GeneratePage.follow_on_generate(initial_info);
+    const prompt_part_2 = convert_to_saltcorn
+      ? `Only generate the inner part of the body. 
+      Do not include the top menu. The outer tag of the generated HTML should be a <div class="container"> or a simlar container element.
+      if you want to change the overall styling of the page, include a <style> element where you can change styles with CSS rules or CSS variables.`
+      : `If you need to include the standard bootstrap CSS and javascript files, they are available as:
 
+      <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+
+      and 
+
+      <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>`;
     const page_html = await getState().functions.llm_generate.run(
       `${prompt}. 
       
@@ -162,13 +180,8 @@ module.exports = {
       Further page description: ${initial_info.description}. 
 
       Generate the HTML for the web page using the Bootstrap 5 CSS framework. 
-      If you need to include the standard bootstrap CSS and javascript files, they are available as:
-
-      <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
-
-      and 
-
-      <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+      
+      ${prompt_part_2}
       
       Just generate HTML code, do not wrap in markdown code tags`,
       {
@@ -188,14 +201,21 @@ module.exports = {
 
     const use_page_name = page_name ? interpolate(page_name, row, user) : "";
     if (use_page_name) {
+      let layout;
+      if (convert_to_saltcorn) {
+        layout = parseHTML(page_html, true);
+        //console.log("got layout", JSON.stringify(layout, null, 2));
+      } else {
+        const file = await File.from_contents(
+          `${use_page_name}.html`,
+          "text/html",
+          page_html,
+          user.id,
+          100
+        );
+        layout = { html_file: file.path_to_serve };
+      }
       //save to a file
-      const file = await File.from_contents(
-        `${use_page_name}.html`,
-        "text/html",
-        page_html,
-        user.id,
-        100
-      );
 
       //create page
       await Page.create({
@@ -203,7 +223,7 @@ module.exports = {
         title: initial_info.title,
         description: initial_info.description,
         min_role: 100,
-        layout: { html_file: file.path_to_serve },
+        layout,
       });
       getState().refresh_pages();
     }

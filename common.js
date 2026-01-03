@@ -232,13 +232,17 @@ function walk_response(segment) {
   }
 }
 
-function parseHTML(str) {
+function parseHTML(str, processAll) {
   const strHtml = str.includes("```html")
     ? str.split("```html")[1].split("```")[0]
     : str;
-  const body = HTMLParser.parse(strHtml).querySelector("body");
+  const body = processAll
+    ? HTMLParser.parse(strHtml)
+    : HTMLParser.parse(strHtml).querySelector("body");
 
   const go = (node) => {
+    //console.log("go node", node.toString());
+
     if (node.constructor.name === "HTMLElement") {
       switch (node.rawTagName) {
         case "body":
