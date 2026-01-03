@@ -164,7 +164,7 @@ module.exports = {
     const full = await GeneratePage.follow_on_generate(initial_info);
     const prompt_part_2 = convert_to_saltcorn
       ? `Only generate the inner part of the body. 
-      Do not include the top menu. The outer tag of the generated HTML should be a <div class="container"> or a simlar container element.
+      Do not include the top menu. Generate the HTML that comes below the navbar menu.
       if you want to change the overall styling of the page, include a <style> element where you can change styles with CSS rules or CSS variables.`
       : `If you need to include the standard bootstrap CSS and javascript files, they are available as:
 
@@ -205,6 +205,20 @@ module.exports = {
       if (convert_to_saltcorn) {
         layout = parseHTML(page_html, true);
         //console.log("got layout", JSON.stringify(layout, null, 2));
+        const file = await File.from_contents(
+          `${use_page_name}.html`,
+          "text/html",
+          wrapExample(page_html),
+          user.id,
+          100
+        );
+        await Page.create({
+          name: use_page_name + "_html",
+          title: initial_info.title,
+          description: initial_info.description,
+          min_role: 100,
+          layout: { html_file: file.path_to_serve },
+        });
       } else {
         const file = await File.from_contents(
           `${use_page_name}.html`,
@@ -225,10 +239,79 @@ module.exports = {
         min_role: 100,
         layout,
       });
-      getState().refresh_pages();
+      setTimeout(() => getState().refresh_pages(), 200);
     }
     const upd = answer_field ? { [answer_field]: page_html } : {};
     if (mode === "workflow") return upd;
     else if (answer_field) await table.updateRow(upd, row[table.pk_name]);
   },
 };
+
+const wrapExample = (inner) => `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Artisan Goat Cheese.</title>
+  <meta name="description" content="Handcrafted, small-batch goat cheese made from ethically sourced milk. Farm-to-table flavors with aged, tangy, and creamy varieties. Available online and at select markets, with subscription options and artisan pairings." />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+  <style>
+    :root {
+      --brand: #7a7a4a;
+    }
+    body {
+      background-color: #fff;
+    }
+    /* Hero styling */
+    #home {
+      padding-top: 2rem;
+      padding-bottom: 2rem;
+    }
+    .hero {
+      background: linear-gradient(135deg, #f7f4ef 0%, #ffffff 60%);
+      border-bottom: 1px solid #eee;
+    }
+    .hero-img {
+      max-height: 420px;
+      object-fit: cover;
+      width: 100%;
+      border-radius: 0.5rem;
+      border: 1px solid #eee;
+    }
+    /* Card image sizing for consistency */
+    .card-img-top {
+      height: 180px;
+      object-fit: cover;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top shadow-sm" aria-label="Main navigation">
+    <div class="container">
+      <a class="navbar-brand fw-semibold" href="#home">Artisan Goat Cheese</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu" aria-controls="navMenu" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navMenu">
+        <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link active" aria-current="page" href="#home">Home</a></li>
+          <li class="nav-item"><a class="nav-link" href="#products">Cheeses</a></li>
+          <li class="nav-item"><a class="nav-link" href="#subscription">Subscriptions</a></li>
+          <li class="nav-item"><a class="nav-link" href="#markets">Markets</a></li>
+          <li class="nav-item"><a class="nav-link" href="#pairings">Pairings</a></li>
+          <li class="nav-item"><a class="nav-link" href="#about">About</a></li>
+        </ul>
+      </div>
+    </div>
+     </nav>
+
+    ${inner}
+    
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+</body>
+</html>
+    `;
