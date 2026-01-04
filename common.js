@@ -250,6 +250,15 @@ function parseHTML(str, processAll) {
           return { above: node.childNodes.map(go).filter(Boolean) };
         case "script":
           return null;
+        case "style":
+          return {
+            type: "blank",
+            isHTML: true,
+            contents: `<style>${node.childNodes
+              .map((n) => n.toString())
+              .join("")}</style>`,
+            text_strings: [node.childNodes.map((n) => n.toString()).join("")],
+          };
         case "a":
           return {
             type: "link",
