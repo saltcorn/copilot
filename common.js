@@ -276,16 +276,16 @@ function parseHTML(str, processAll) {
           };
         case "img":
           return {
-            type: "container",
+            alt: node.getAttribute("alt") || "",
+            url: node.getAttribute("src") || "",
+            type: "image",
+            block: false,
             style: {
-              "border-color": "#808080",
-              "border-style": "solid",
-              "border-width": "2px",
+              "object-fit": "none",
             },
-            contents: {
-              type: "blank",
-              contents: "Image: " + node.getAttribute("alt"),
-            },
+            srctype: "URL",
+            isFormula: {},
+            customClass: (node.classList.value || []).join(" "),
           };
         case "button":
           return {
