@@ -259,6 +259,13 @@ function parseHTML(str, processAll) {
               .join("")}</style>`,
             text_strings: [node.childNodes.map((n) => n.toString()).join("")],
           };
+        case "input":
+          return {
+            type: "blank",
+            isHTML: true,
+            contents: node.toString(),
+            text_strings: [],
+          };
         case "a":
           return {
             type: "link",
