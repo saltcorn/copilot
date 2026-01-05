@@ -7,6 +7,7 @@ const Form = require("@saltcorn/data/models/form");
 const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
 const { getState } = require("@saltcorn/data/db/state");
+const voidHtmlTags = new Set(require("html-tags/void"));
 
 const parseCSS = require("style-to-object").default;
 const MarkdownIt = require("markdown-it"),
@@ -259,13 +260,6 @@ function parseHTML(str, processAll) {
               .join("")}</style>`,
             text_strings: [node.childNodes.map((n) => n.toString()).join("")],
           };
-        case "input":
-          return {
-            type: "blank",
-            isHTML: true,
-            contents: node.toString(),
-            text_strings: [],
-          };
         case "a":
           return {
             type: "link",
@@ -331,15 +325,23 @@ function parseHTML(str, processAll) {
             : node.childNodes.length === 1
             ? go(node.childNodes[0]) || ""
             : { above: node.childNodes.map(go).filter(Boolean) };
-          return {
-            type: "container",
-            ...(node.rawTagName && node.rawTagName !== "div"
-              ? { htmlElement: node.rawTagName }
-              : {}),
-            ...(node.id ? { customId: node.id } : {}),
-            customClass: (node.classList.value || []).join(" "),
-            contents: containerContents,
-          };
+          if (voidHtmlTags.has(node.rawTagName))
+            return {
+              type: "blank",
+              isHTML: true,
+              contents: node.toString(),
+              text_strings: [],
+            };
+          else
+            return {
+              type: "container",
+              ...(node.rawTagName && node.rawTagName !== "div"
+                ? { htmlElement: node.rawTagName }
+                : {}),
+              ...(node.id ? { customId: node.id } : {}),
+              customClass: (node.classList.value || []).join(" "),
+              contents: containerContents,
+            };
       }
     } else if (node.constructor.name === "TextNode") {
       if (!node._rawText || !node._rawText.trim()) return null;
