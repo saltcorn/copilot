@@ -12,6 +12,13 @@
     "node-html-parser": "7.0.1",
     "html-tags": "3.3.1"
   },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "@saltcorn/large-language-model": "0.9.12"
+  },
+  "scripts": {
+    "test": "jest tests --runInBand"
+  },
   "author": "Tom Nielsen",
   "license": "MIT",
   "repository": "github:saltcorn/copilot",
@@ -22,7 +29,8 @@
     },
     "env": {
       "node": true,
-      "es6": true
+      "es6": true,
+      "jest/globals": true
     },
     "rules": {
       "no-unused-vars": "off",
