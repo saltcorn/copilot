@@ -1,7 +1,7 @@
 module.exports = [
   {
     name: "OpenAI completions",
-    model: "gpt-5.1",
+    model: "gpt-4.1-mini",
     api_key: process.env.OPENAI_API_KEY,
     backend: "OpenAI",
     embed_model: "text-embedding-3-small",
@@ -12,7 +12,7 @@ module.exports = [
   },
   {
     name: "OpenAI responses",
-    model: "gpt-5.1",
+    model: "gpt-4.1-mini",
     api_key: process.env.OPENAI_API_KEY,
     backend: "OpenAI",
     embed_model: "text-embedding-3-small",
@@ -23,7 +23,7 @@ module.exports = [
   },
   {
     name: "AI SDK OpenAI",
-    model: "gpt-5.1",
+    model: "gpt-4.1-mini",
     api_key: process.env.OPENAI_API_KEY,
     backend: "AI SDK",
     embed_model: "text-embedding-3-small",
