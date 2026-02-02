@@ -27,7 +27,7 @@ for (const nameconfig of configs) {
     beforeAll(async () => {
       getState().registerPlugin(
         "@saltcorn/large-language-model",
-        require("../../../large-language-model/unknownversion"),
+        require("@saltcorn/large-language-model"),
         config,
       );
       getState().registerPlugin("@saltcorn/copilot", require(".."));
