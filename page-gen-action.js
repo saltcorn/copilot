@@ -113,7 +113,7 @@ module.exports = {
         prompt_formula,
         row,
         user,
-        "copilot_generate_page prompt formula"
+        "copilot_generate_page prompt formula",
       );
     else prompt = row[prompt_field];
     const opts = {};
@@ -136,7 +136,7 @@ module.exports = {
         image_prompt,
         row,
         user,
-        "copilot_generate_page image prompt"
+        "copilot_generate_page image prompt",
       );
 
       chat = [];
@@ -159,8 +159,10 @@ module.exports = {
       tools,
       chat,
       systemPrompt,
-    });
-    const initial_info = initial_ans.tool_calls[0].input;
+    });    
+    const initial_info =
+      initial_ans.tool_calls[0].input ||
+      JSON.parse(initial_ans.tool_calls[0].function.arguments);
     const full = await GeneratePage.follow_on_generate(initial_info);
     const prompt_part_2 = convert_to_saltcorn
       ? `Only generate the inner part of the body. 
@@ -196,7 +198,7 @@ module.exports = {
               },
             }
           : undefined,
-      }
+      },
     );
 
     const use_page_name = page_name ? interpolate(page_name, row, user) : "";
@@ -210,7 +212,7 @@ module.exports = {
           "text/html",
           wrapExample(page_html),
           user.id,
-          100
+          100,
         );
         await Page.create({
           name: use_page_name + "_html",
@@ -225,7 +227,7 @@ module.exports = {
           "text/html",
           page_html,
           user.id,
-          100
+          100,
         );
         layout = { html_file: file.path_to_serve };
       }
