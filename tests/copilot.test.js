@@ -17,6 +17,13 @@ beforeAll(async () => {
   getState().registerPlugin("base", require("@saltcorn/data/base-plugin"));
 });
 
+ /* 
+ 
+ RUN WITH:
+  saltcorn dev:plugin-test -d ~/copilot -o ~/large-language-model/
+ 
+ */
+
 jest.setTimeout(60000);
 
 const configs = require("./configs.js");
