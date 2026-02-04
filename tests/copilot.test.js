@@ -30,7 +30,7 @@ const configs = require("./configs.js");
 
 for (const nameconfig of configs) {
   const { name, ...config } = nameconfig;
-  describe("llm_generate function with " + name, () => {
+  describe("copilot_generate_page action with " + name, () => {
     beforeAll(async () => {
       getState().registerPlugin(
         "@saltcorn/large-language-model",
