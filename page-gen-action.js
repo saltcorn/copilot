@@ -37,6 +37,14 @@ module.exports = {
           type: "String",
         },
         {
+          name: "existing_page_html",
+          label: "Existing page HTML",
+          sublabel:
+            "Optional. An expression, based on the context, for the existing page HTML to be edited",
+          class: "validate-expression",
+          type: "String",
+        },
+        {
           name: "answer_field",
           label: "Answer variable",
           sublabel: "Optional. Set the generated HTML to this context variable",
@@ -101,6 +109,7 @@ module.exports = {
       prompt_template,
       answer_field,
       image_prompt,
+      existing_page_html,
       chat_history_field,
       convert_to_saltcorn,
       model,
@@ -116,6 +125,17 @@ module.exports = {
         "copilot_generate_page prompt formula",
       );
     else prompt = row[prompt_field];
+    
+    if(existing_page_html) {
+      exist_html = eval_expression(
+        existing_page_html,
+        row,
+        user,
+        "copilot_generate_page existing page html",
+      );
+      prompt = "This is the HTML code for the existing pages you should edit:\n\n```html\n"+exist_html+"\n```\n\n"+prompt
+    }
+    
     const opts = {};
 
     if (model) opts.model = model;
