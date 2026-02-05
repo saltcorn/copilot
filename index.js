@@ -12,4 +12,7 @@ module.exports = {
     ? { copilot_generate_workflow: require("./workflow-gen") }
     : {},
   actions: { copilot_generate_page: require("./page-gen-action") },
+  exchange: {
+    agent_skills: [require("./agent-skills/pagegen.js")],
+  },
 };
