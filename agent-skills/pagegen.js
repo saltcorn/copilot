@@ -58,6 +58,7 @@ class GeneratePageSkill {
         const html = await generate(
           `Now generate the contents of the ${name} page with HTML`,
         );
+        return html
       },
       /*renderToolCall({ phrase }, { req }) {
         return div({ class: "border border-primary p-2 m-2" }, phrase);
