@@ -69,7 +69,9 @@ class GeneratePageSkill {
           layout: { html_file: file.path_to_serve },
         });
         setTimeout(() => getState().refresh_pages(), 200);
-        return { notify: `Page saved: <a target="_blank" href="/page/${name}">${name}</a>` };
+        return {
+          notify: `Page saved: <a target="_blank" href="/page/${name}">${name}</a>`,
+        };
       },
     };
   }
@@ -122,7 +124,7 @@ class GeneratePageSkill {
         return div({ class: "border border-primary p-2 m-2" }, phrase);
       },*/
       renderToolResponse: async (response, { req }) => {
-        return div({ class: "border border-success p-2 m-2" }, response);
+        return null;
       },
       function: {
         name: "generate_page",
