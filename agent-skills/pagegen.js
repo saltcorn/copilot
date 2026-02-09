@@ -1,8 +1,19 @@
-const { div, pre, code, a, text, escape } = require("@saltcorn/markup/tags");
+const {
+  div,
+  pre,
+  code,
+  a,
+  text,
+  escape,
+  iframe,
+  text_attr,
+} = require("@saltcorn/markup/tags");
 const Workflow = require("@saltcorn/data/models/workflow");
 const Form = require("@saltcorn/data/models/form");
+const File = require("@saltcorn/data/models/file");
 const Table = require("@saltcorn/data/models/table");
 const View = require("@saltcorn/data/models/view");
+const Page = require("@saltcorn/data/models/page");
 const Trigger = require("@saltcorn/data/models/trigger");
 const FieldRepeat = require("@saltcorn/data/models/fieldrepeat");
 const { getState } = require("@saltcorn/data/db/state");
@@ -39,7 +50,29 @@ class GeneratePageSkill {
       },
     ];
   }
+  get userActions() {
+    return {
+      async build_copilot_page_gen({ user, name, title, description, html }) {
+        const file = await File.from_contents(
+          `${name}.html`,
+          "text/html",
+          html,
+          user.id,
+          100,
+        );
 
+        await Page.create({
+          name,
+          title,
+          description,
+          min_role: 100,
+          layout: { html_file: file.path_to_serve },
+        });
+        setTimeout(() => getState().refresh_pages(), 200);
+        return { notify: `Page saved: <a target="_blank" href="/page/${name}">${name}</a>` };
+      },
+    };
+  }
   provideTools = () => {
     let properties = {};
     (this.toolargs || []).forEach((arg) => {
@@ -56,15 +89,33 @@ class GeneratePageSkill {
       process: async ({ name }) => {
         return "Metadata recieved";
       },
-      postProcess: async ({ result, generate }) => {
-        const html = await generate(
-          `Now generate the contents of the ${result.name} page with HTML`,
+      postProcess: async ({ tool_call, generate }) => {
+        const str = await generate(
+          `Now generate the contents of the ${tool_call.input.name} page with HTML`,
         );
+        const html = str.includes("```html")
+          ? str.split("```html")[1].split("```")[0]
+          : str;
 
-        return { stop: true, add_response: div(pre(code(escape(html)))) };
-      },
-      userActions: {
-        buildIt: {},
+        return {
+          stop: true,
+          add_response: iframe({
+            srcdoc: text_attr(html),
+            width: 500,
+            height: 800,
+          }),
+          add_system_prompt: `If the user asks you to regenerate the page, 
+          you must run the generate_page tool again. After running this tool 
+          you will be prompted to generate the html again. You should repeat 
+          the html from the previous answer except for the changes the user 
+          is requesting.`,
+          add_user_action: {
+            name: "build_copilot_page_gen",
+            type: "button",
+            label: "Save page",
+            input: { html },
+          },
+        };
       },
 
       /*renderToolCall({ phrase }, { req }) {
