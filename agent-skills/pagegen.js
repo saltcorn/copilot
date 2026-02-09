@@ -1,4 +1,4 @@
-const { div, pre, a } = require("@saltcorn/markup/tags");
+const { div, pre, code, a, text, escape } = require("@saltcorn/markup/tags");
 const Workflow = require("@saltcorn/data/models/workflow");
 const Form = require("@saltcorn/data/models/form");
 const Table = require("@saltcorn/data/models/table");
@@ -50,16 +50,23 @@ class GeneratePageSkill {
       if (arg.options && arg.argtype === "string")
         properties[arg.name].enum = arg.options.split(",").map((s) => s.trim());
     });
-    
 
     return {
       type: "function",
-      process: async ({ name }, { req, generate }) => {
-        const html = await generate(
-          `Now generate the contents of the ${name} page with HTML`,
-        );
-        return html
+      process: async ({ name }) => {
+        return "Metadata recieved";
       },
+      postProcess: async ({ result, generate }) => {
+        const html = await generate(
+          `Now generate the contents of the ${result.name} page with HTML`,
+        );
+
+        return { stop: true, add_response: div(pre(code(escape(html)))) };
+      },
+      userActions: {
+        buildIt: {},
+      },
+
       /*renderToolCall({ phrase }, { req }) {
         return div({ class: "border border-primary p-2 m-2" }, phrase);
       },*/
@@ -85,7 +92,7 @@ class GeneratePageSkill {
               description:
                 "A longer description that is not visible but appears in the page header and is indexed by search engines",
               type: "string",
-            },            
+            },
             page_type: {
               description:
                 "The type of page to generate: a Marketing page if for promotional purposes, such as a landing page or a brouchure, with an appealing design. An Application page is simpler and an integrated part of the application",
