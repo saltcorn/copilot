@@ -88,8 +88,23 @@ class GeneratePageSkill {
 
     return {
       type: "function",
-      process: async ({ name }) => {
-        return "Metadata recieved";
+      process: async ({ name, existing_page_name }) => {
+        if (existing_page_name) {
+          const page = Page.findOne({ name: existing_page_name });
+
+          if (!page)
+            return `Existing page ${existing_page_name} not found. Unable to provide HTML for this page`;
+          if (!page.layout.html_file)
+            return `Existing page ${existing_page_name} is not HTML-based. Unable to provide HTML for this page`;
+          const file = await File.findOne(page.layout.html_file);
+          const html = await file.get_contents("utf8");
+          return (
+            `The HTML code for the ${existing_page_name} page is:` +
+            "\n```html\n" +
+            html +
+            "\n```\n"
+          );
+        } else return "Metadata recieved";
       },
       postProcess: async ({ tool_call, generate }) => {
         const str = await generate(
@@ -124,6 +139,16 @@ class GeneratePageSkill {
         return div({ class: "border border-primary p-2 m-2" }, phrase);
       },*/
       renderToolResponse: async (response, { req }) => {
+        if (
+          typeof response === "string" &&
+          response.includes("Unable to provide HTML for this page")
+        )
+          return response;
+           if (
+          typeof response === "string" &&
+          response.includes("The HTML code for the ")
+        )
+          return `Existing page retrieved...`;
         return null;
       },
       function: {
@@ -133,8 +158,12 @@ class GeneratePageSkill {
           type: "object",
           required: ["name", "title", "min_role", "page_type"],
           properties: {
+            existing_page_name: {
+              description: `If the user asks to modify or change a page, or create a new page based on an existing page, set this to retrieve the contents of the existing page.`,
+              type: "string",
+            },
             name: {
-              description: `The name of the page, this should be a short name which is part of the url. `,
+              description: `The name of the new page to generate, this should be a short name which is part of the url. If an existing page name if given, set this to the same name to modify the existing page, and a different name to create a new page based on the existing page`,
               type: "string",
             },
             title: {
