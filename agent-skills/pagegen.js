@@ -108,7 +108,23 @@ class GeneratePageSkill {
       },
       postProcess: async ({ tool_call, generate }) => {
         const str = await generate(
-          `Now generate the contents of the ${tool_call.input.name} page with HTML`,
+          `Now generate the contents of the ${tool_call.input.name} HTML page. If I asked you to embed a view, 
+ use the <embed-view> self-closing tag to do so, setting the view name in the viewname attribute. For example, 
+ to embed the view LeadForm inside a div, write: <div><embed-view viewname="LeadForm"></div>
+ 
+ If you need to include the standard bootstrap CSS and javascript files, they are available as:
+
+   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+
+ and 
+  <script src="/static_assets/js/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+
+ If you are embedding views with <embed-view>, you should also embed the following script sources at the end of the <body> tag to make sure the content inside those views works:
+
+ <script src="/static_assets/js/saltcorn-common.js"></script>
+ <script src="/static_assets/js/saltcorn.js">
+`,
         );
         const html = str.includes("```html")
           ? str.split("```html")[1].split("```")[0]
