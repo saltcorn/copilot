@@ -129,7 +129,7 @@ class GeneratePageSkill {
           add_user_action: {
             name: "build_copilot_page_gen",
             type: "button",
-            label: "Save page",
+            label: "Save page "+tool_call.input.name,
             input: { html },
           },
         };
