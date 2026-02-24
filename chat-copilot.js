@@ -36,9 +36,81 @@ const {
 const MarkdownIt = require("markdown-it"),
   md = new MarkdownIt();
 
+const AGENT_VIEWTEMPLATE_NAME = "Agent Chat";
+const COPILOT_AGENT_TRIGGER_NAME = "Saltcorn Copilot";
+
+const getAgentViewtemplate = () => {
+  const state = getState();
+  return state?.viewtemplates?.[AGENT_VIEWTEMPLATE_NAME];
+};
+
+const agentActionRegistered = () => {
+  const state = getState();
+  return !!(state?.actions && (state.actions.Agent || state.actions["Agent"]));
+};
+
+let copilotAgentTriggerCreateFailed = false;
+let copilotAgentTriggerCreateLogged = false;
+
+const ensureCopilotAgentTrigger = async () => {
+  if (!agentActionRegistered()) return null;
+  let trigger = await Trigger.findOne({
+    name: COPILOT_AGENT_TRIGGER_NAME,
+    action: "Agent",
+  });
+  if (trigger) return trigger;
+
+  if (copilotAgentTriggerCreateFailed) return null;
+  try {
+    return await Trigger.create({
+      action: "Agent",
+      when_trigger: "Never",
+      name: COPILOT_AGENT_TRIGGER_NAME,
+      configuration: {
+        prompt: "",
+        sys_prompt:
+          "You are Saltcorn Copilot. Help users build Saltcorn applications by proposing database schema, pages, views, workflows and actions.",
+        skills: [
+          { skill_type: "Database design" },
+          { skill_type: "Generate Page" },
+        ],
+      },
+    });
+  } catch (e) {
+    copilotAgentTriggerCreateFailed = true;
+    const state = getState();
+    const msg =
+      e && e.message
+        ? e.message
+        : "Unknown error while auto-creating Copilot Agent trigger";
+    if (!copilotAgentTriggerCreateLogged) {
+      copilotAgentTriggerCreateLogged = true;
+      if (state?.log) state.log(2, `Copilot: ${msg}`);
+      else console.error("Copilot:", msg);
+    }
+    return null;
+  }
+};
+
+const getAgentChatCfg = async () => {
+  const trigger = await ensureCopilotAgentTrigger();
+  if (!trigger) return null;
+  return {
+    action_id: trigger.id,
+    show_prev_runs: true,
+    prev_runs_closed: false,
+    placeholder: "How can I help you?",
+    explainer: "",
+    image_upload: false,
+    stream: true,
+    audio_recorder: false,
+    layout: "Vertical",
+  };
+};
+
 const get_state_fields = () => [];
 
-const run = async (table_id, viewname, cfg, state, { res, req }) => {
+const runLegacy = async (table_id, viewname, cfg, state, { res, req }) => {
   const prevRuns = (
     await WorkflowRun.find(
       { trigger_id: null /*started_by: req.user?.id*/ }, //todo uncomment
@@ -49,6 +121,7 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
       r.context.interactions &&
       (r.context.copilot === "_system" || !r.context.copilot)
   );
+  console.log({prevRuns})
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
   let runInteractions = "";
@@ -284,6 +357,23 @@ const run = async (table_id, viewname, cfg, state, { res, req }) => {
   };
 };
 
+const run = async (table_id, viewname, cfg, state, extra) => {
+  const agentVt = getAgentViewtemplate();
+  if (!agentVt) return await runLegacy(table_id, viewname, cfg, state, extra);
+
+  const agentCfg = await getAgentChatCfg();
+  if (!agentCfg) return await runLegacy(table_id, viewname, cfg, state, extra);
+
+  const agentView = new View({
+    name: viewname,
+    viewtemplate: AGENT_VIEWTEMPLATE_NAME,
+    configuration: agentCfg,
+    min_role: 100,
+  });
+  console.log({agentView})
+  return await agentView.run(state, extra);
+};
+
 const ellipsize = (s, nchars) => {
   if (!s || !s.length) return "";
   if (s.length <= (nchars || 20)) return text_attr(s);
@@ -330,7 +420,7 @@ build a workflow that asks the user for their name and age
 
 */
 
-const execute = async (table_id, viewname, config, body, { req }) => {
+const executeLegacy = async (table_id, viewname, config, body, { req }) => {
   const { fcall_id, run_id } = body;
 
   const run = await WorkflowRun.findOne({ id: +run_id });
@@ -360,7 +450,7 @@ const execute = async (table_id, viewname, config, body, { req }) => {
   return { json: { success: "ok", fcall_id, ...(result || {}) } };
 };
 
-const interact = async (table_id, viewname, config, body, { req }) => {
+const interactLegacy = async (table_id, viewname, config, body, { req }) => {
   const { userinput, run_id } = body;
   let run;
   if (!run_id || run_id === "undefined")
@@ -487,6 +577,81 @@ const interact = async (table_id, viewname, config, body, { req }) => {
     };
 };
 
+const runAgentRoute = async (routeName, table_id, viewname, body, extra) => {
+  const agentVt = getAgentViewtemplate();
+  if (!agentVt?.routes?.[routeName]) return null;
+  const agentCfg = await getAgentChatCfg();
+  if (!agentCfg) return null;
+  return await agentVt.routes[routeName](table_id, viewname, agentCfg, body, extra);
+};
+
+const interact = async (table_id, viewname, config, body, extra) => {
+  const agentResp = await runAgentRoute(
+    "interact",
+    table_id,
+    viewname,
+    body,
+    extra,
+  );
+  if (agentResp) return agentResp;
+  return await interactLegacy(table_id, viewname, config, body, extra);
+};
+
+// Legacy route used only by the legacy UI. The Agent Chat UI uses `execute_user_action`.
+const execute = async (table_id, viewname, config, body, extra) => {
+  return await executeLegacy(table_id, viewname, config, body, extra);
+};
+
+const delprevrun = async (table_id, viewname, config, body, extra) => {
+  const agentResp = await runAgentRoute(
+    "delprevrun",
+    table_id,
+    viewname,
+    body,
+    extra,
+  );
+  if (agentResp) return agentResp;
+  return { json: { error: "delprevrun is only available in Agent Chat mode" } };
+};
+
+const debug_info = async (table_id, viewname, config, body, extra) => {
+  const agentResp = await runAgentRoute(
+    "debug_info",
+    table_id,
+    viewname,
+    body,
+    extra,
+  );
+  if (agentResp) return agentResp;
+  return { json: { error: "debug_info is only available in Agent Chat mode" } };
+};
+
+const skillroute = async (table_id, viewname, config, body, extra) => {
+  const agentResp = await runAgentRoute(
+    "skillroute",
+    table_id,
+    viewname,
+    body,
+    extra,
+  );
+  if (agentResp) return agentResp;
+  return { json: { error: "skillroute is only available in Agent Chat mode" } };
+};
+
+const execute_user_action = async (table_id, viewname, config, body, extra) => {
+  const agentResp = await runAgentRoute(
+    "execute_user_action",
+    table_id,
+    viewname,
+    body,
+    extra,
+  );
+  if (agentResp) return agentResp;
+  return {
+    json: { error: "execute_user_action is only available in Agent Chat mode" },
+  };
+};
+
 const getFollowOnGeneration = async (tool_call) => {
   const fname = tool_call.function?.name || tool_call.toolName;
   const actionClass = classesWithSkills().find(
@@ -595,5 +760,12 @@ module.exports = {
   tableless: true,
   singleton: true,
   run,
-  routes: { interact, execute },
+  routes: {
+    interact,
+    execute,
+    delprevrun,
+    debug_info,
+    skillroute,
+    execute_user_action,
+  },
 };
