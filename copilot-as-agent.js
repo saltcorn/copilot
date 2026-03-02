@@ -44,6 +44,8 @@ const run = async (table_id, viewname, cfg, state, reqres) => {
   });
   const view = new View({
     viewtemplate: "Agent Chat",
+    name: "Copilot",
+    min_role: 1,
     configuration: {
       agent_action,
     },
@@ -52,11 +54,11 @@ const run = async (table_id, viewname, cfg, state, reqres) => {
 };
 
 module.exports = {
-  name: "Saltcorn Agen-copilot",
+  name: "Saltcorn Agent copilot",
   display_state_form: false,
   get_state_fields,
   tableless: true,
   singleton: true,
   run,
-  routes: { interact, execute },
+  //routes: { interact, execute },
 };
