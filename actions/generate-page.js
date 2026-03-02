@@ -28,7 +28,7 @@ class GeneratePage {
     let namedescription = `The name of the page, this should be a short name which is part of the url. `;
     if (allPageNames.length) {
       namedescription += `These are the names of the exising pages: ${allPageNames.join(
-        ", "
+        ", ",
       )}. Do not pick a name that is identical but follow the same naming convention.`;
     }
     const roles = await User.get_roles();
@@ -65,7 +65,7 @@ class GeneratePage {
     };
   }
   static async system_prompt() {
-    return `Use the generate_page to generate a page.`;
+    return `If the user asks to generate a page, a web page or a landing page, use the generate_page to generate a page.`;
   }
   static async follow_on_generate({ name, page_type }) {
     if (page_type === "Marketing page") {
@@ -272,7 +272,7 @@ class GeneratePage {
     }
     if (segment.type === "container") {
       const { customStyle, style, display, overflow } = splitContainerStyle(
-        segment.style
+        segment.style,
       );
       return {
         ...segment,
@@ -310,17 +310,17 @@ class GeneratePage {
             JSON.stringify(
               GeneratePage.walk_response(JSON.parse(contents)),
               null,
-              2
-            )
-          )
-        )
+              2,
+            ),
+          ),
+        ),
       )
     );
   }
   static async execute(
     { name, title, description, min_role, page_type },
     req,
-    contents
+    contents,
   ) {
     console.log("execute", name, contents);
     const roles = await User.get_roles();
@@ -341,12 +341,12 @@ class GeneratePage {
         "Page created. " +
         a(
           { target: "_blank", href: `/page/${name}`, class: "me-1" },
-          "Go to page"
+          "Go to page",
         ) +
         " | " +
         a(
           { target: "_blank", href: `/pageedit/edit/${name}`, class: "ms-1" },
-          "Configure page"
+          "Configure page",
         ),
     };
   }
