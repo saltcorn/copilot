@@ -4,7 +4,7 @@ const { features } = require("@saltcorn/data/db/state");
 
 module.exports = {
   sc_plugin_api_version: 1,
-  dependencies: ["@saltcorn/large-language-model"],
+  dependencies: ["@saltcorn/large-language-model", "@saltcorn/agents"],
   viewtemplates: features.workflows
     ? [
         require("./chat-copilot"),
