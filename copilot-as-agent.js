@@ -39,7 +39,10 @@ const get_agent_view = () => {
     when_trigger: "Never",
     configuration: {
       sys_prompt,
-      skills: [{ skill_type: "Generate Page" }],
+      skills: [
+        { skill_type: "Generate Page" },
+        { skill_type: "Database design" },
+      ],
     },
   });
   return new View({
