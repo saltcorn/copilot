@@ -33,7 +33,7 @@ const get_state_fields = () => [];
 
 const sys_prompt = ``;
 
-const run = async (table_id, viewname, cfg, state, reqres) => {
+const get_agent_view = () => {
   const agent_action = new Trigger({
     action: "Agent",
     when_trigger: "Never",
@@ -42,15 +42,23 @@ const run = async (table_id, viewname, cfg, state, reqres) => {
       skills: [{ skill_type: "Generate Page" }],
     },
   });
-  const view = new View({
+  return new View({
     viewtemplate: "Agent Chat",
-    name: "Copilot",
+    name: "Saltcorn Agent copilot",
     min_role: 1,
     configuration: {
       agent_action,
     },
   });
-  return await view.run(state, reqres);
+};
+const run = async (table_id, viewname, cfg, state, reqres) => {
+  return await get_agent_view().run(state, reqres);
+};
+
+const interact = async (table_id, viewname, config, body, reqres) => {
+  console.log("copilot interact with body", body);
+  const view = get_agent_view();
+  return await view.runRoute("interact", body, reqres.res, reqres);
 };
 
 module.exports = {
@@ -60,5 +68,5 @@ module.exports = {
   tableless: true,
   singleton: true,
   run,
-  //routes: { interact, execute },
+  routes: { interact },
 };
