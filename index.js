@@ -13,7 +13,10 @@ module.exports = {
       ]
     : [require("./action-builder"), require("./database-designer")],
   functions: features.workflows
-    ? { copilot_generate_workflow: require("./workflow-gen") }
+    ? {
+        copilot_generate_builder: require("./builder-gen.js"),
+        copilot_generate_workflow: require("./workflow-gen"),
+      }
     : {},
   actions: { copilot_generate_page: require("./page-gen-action") },
   exchange: {
