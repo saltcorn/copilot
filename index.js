@@ -20,6 +20,9 @@ module.exports = {
     : {},
   actions: { copilot_generate_page: require("./page-gen-action") },
   exchange: {
-    agent_skills: [require("./agent-skills/pagegen.js")],
+    agent_skills: [
+      require("./agent-skills/pagegen.js"),
+      require("./agent-skills/database-design.js"),
+    ],
   },
 };

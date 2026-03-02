@@ -33,6 +33,7 @@ class GeneratePageSkill {
   }
 
   constructor(cfg) {
+    console.log("GeneratePageSkill.constructor called", { cfg });
     Object.assign(this, cfg);
   }
 

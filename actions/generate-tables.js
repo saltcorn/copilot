@@ -13,7 +13,7 @@ class GenerateTables {
   static function_name = "generate_tables";
   static description = "Generate database tables";
 
-  static async json_schema() {
+  static json_schema() {
     const types = Object.values(getState().types);
     const fieldTypeCfg = types.map((ty) => {
       const properties = {
@@ -175,9 +175,14 @@ class GenerateTables {
 
   static process_tables(tables) {
     return tables.map((table) => {
+      const sanitizedFields = Array.isArray(table.fields)
+        ? table.fields.filter(
+            (f) => (f?.name || "").toLowerCase() !== "id"
+          )
+        : [];
       return new Table({
         name: table.table_name,
-        fields: table.fields.map((f) => {
+        fields: sanitizedFields.map((f) => {
           const { data_type, reference_table, ...attributes } =
             f.type_and_configuration;
           let type = data_type;
