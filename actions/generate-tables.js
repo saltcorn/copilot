@@ -143,6 +143,10 @@ class GenerateTables {
     need to specify a primary key, a primary key called id with autoincrementing integers is
     autmatically generated. 
 
+    Only include brand-new tables in the generate_tables arguments. If the user references a table
+    that already exists, explain that generate_tables can only add new tables (not modify existing
+    ones) and omit those tables from the tool call.
+
     The database already contains the following tables: 
 
     ${tableLines.join("\n\n")}
