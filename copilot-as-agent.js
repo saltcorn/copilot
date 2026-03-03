@@ -32,12 +32,14 @@ const { getState } = require("@saltcorn/data/db/state");
 const get_state_fields = () => [];
 
 const sys_prompt = ``;
+const viewname = "Saltcorn Agent copilot";
 
 const get_agent_view = () => {
   const agent_action = new Trigger({
     action: "Agent",
     when_trigger: "Never",
     configuration: {
+      viewname,
       sys_prompt,
       skills: [
         { skill_type: "Generate Page" },
@@ -47,10 +49,11 @@ const get_agent_view = () => {
   });
   return new View({
     viewtemplate: "Agent Chat",
-    name: "Saltcorn Agent copilot",
+    name: viewname,
     min_role: 1,
     configuration: {
       agent_action,
+      viewname
     },
   });
 };
@@ -65,7 +68,7 @@ const interact = async (table_id, viewname, config, body, reqres) => {
 };
 
 module.exports = {
-  name: "Saltcorn Agent copilot",
+  name: viewname,
   display_state_form: false,
   get_state_fields,
   tableless: true,
