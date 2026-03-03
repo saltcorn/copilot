@@ -33,7 +33,6 @@ class GeneratePageSkill {
   }
 
   constructor(cfg) {
-    console.log("GeneratePageSkill.constructor called", { cfg });
     Object.assign(this, cfg);
   }
 
@@ -77,16 +76,7 @@ class GeneratePageSkill {
     };
   }
   provideTools = () => {
-    let properties = {};
-    (this.toolargs || []).forEach((arg) => {
-      properties[arg.name] = {
-        description: arg.description,
-        type: arg.argtype,
-      };
-      if (arg.options && arg.argtype === "string")
-        properties[arg.name].enum = arg.options.split(",").map((s) => s.trim());
-    });
-
+   
     return {
       type: "function",
       process: async ({ name, existing_page_name }) => {
@@ -105,7 +95,7 @@ class GeneratePageSkill {
             html +
             "\n```\n"
           );
-        } else return "Metadata recieved";
+        } else return "Metadata received";
       },
       postProcess: async ({ tool_call, generate }) => {
         const str = await generate(
