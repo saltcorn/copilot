@@ -202,7 +202,6 @@ class GenerateTablesSkill {
                 : "Nothing to create.",
           };
         }
-        console.log("Did we or did we not get here?", { validTables });
         await GenerateTables.execute({ tables: validTables }, { user });
         const createdNames = validTables.map((t) => t.table_name).join(", ");
         const skippedMessages = [];

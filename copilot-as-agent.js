@@ -67,6 +67,20 @@ const interact = async (table_id, viewname, config, body, reqres) => {
   return await view.runRoute("interact", body, reqres.res, reqres);
 };
 
+const execute_user_action = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  reqres
+) => {
+  console.log({ table_id, viewname, config, body, reqres })
+  const view = get_agent_view();
+  return await view.runRoute("execute_user_action", body, reqres.res, reqres);
+};
+
+
+
 module.exports = {
   name: viewname,
   display_state_form: false,
@@ -74,5 +88,5 @@ module.exports = {
   tableless: true,
   singleton: true,
   run,
-  routes: { interact },
+  routes: { interact, execute_user_action },
 };
