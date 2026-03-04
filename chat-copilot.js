@@ -121,7 +121,6 @@ const runLegacy = async (table_id, viewname, cfg, state, { res, req }) => {
       r.context.interactions &&
       (r.context.copilot === "_system" || !r.context.copilot)
   );
-  console.log({prevRuns})
   const cfgMsg = incompleteCfgMsg();
   if (cfgMsg) return cfgMsg;
   let runInteractions = "";
@@ -370,7 +369,6 @@ const run = async (table_id, viewname, cfg, state, extra) => {
     configuration: agentCfg,
     min_role: 100,
   });
-  console.log({agentView})
   return await agentView.run(state, extra);
 };
 

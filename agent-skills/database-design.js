@@ -1,4 +1,5 @@
 const GenerateTables = require("../actions/generate-tables");
+const Table = require("@saltcorn/data/models/table");
 
 const normalizeTablesPayload = (rawPayload) => {
   if (!rawPayload) return { tables: [] };
@@ -68,16 +69,71 @@ const collectTableWarnings = (tables) => {
 
       if (!field?.type_and_configuration?.data_type)
         warnings.push(
-          `${tableLabel}.${fieldLabel} must include type_and_configuration.data_type.`
+          `${tableLabel}.${fieldLabel} must include type_and_configuration.data_type.`,
         );
 
       if ((field?.name || "").toLowerCase() === "id")
         warnings.push(
-          `${tableLabel}.${fieldLabel} should be omitted because every table already has an auto-increment id.`
+          `${tableLabel}.${fieldLabel} should be omitted because every table already has an auto-increment id.`,
         );
     });
   });
   return warnings;
+};
+
+const fetchExistingTableNameSet = async () => {
+  const existingTables = await Table.find({});
+  const names = new Set();
+  existingTables.forEach((table) => {
+    if (table?.name) names.add(table.name.toLowerCase());
+  });
+  return names;
+};
+
+const partitionTablesByExistence = async (tables = []) => {
+  const existingNames = await fetchExistingTableNameSet();
+  const seenNewNames = new Set();
+  const newTables = [];
+  const skippedExisting = [];
+  const skippedDuplicates = [];
+  tables.forEach((table) => {
+    const tableName =
+      typeof table?.table_name === "string" ? table.table_name.trim() : "";
+    const normalized = tableName.toLowerCase();
+    if (tableName && existingNames.has(normalized)) {
+      skippedExisting.push(tableName);
+      return;
+    }
+    if (tableName && seenNewNames.has(normalized)) {
+      skippedDuplicates.push(tableName);
+      return;
+    }
+    if (tableName) seenNewNames.add(normalized);
+    newTables.push(table);
+  });
+  return { newTables, skippedExisting, skippedDuplicates };
+};
+
+const partitionTablesByValidity = (tables = []) => {
+  const validTables = [];
+  const skippedMissingNames = [];
+  const skippedMissingFields = [];
+  tables.forEach((table, idx) => {
+    const rawName =
+      typeof table?.table_name === "string" ? table.table_name.trim() : "";
+    const fallbackLabel = rawName || `Table #${idx + 1}`;
+    if (!rawName) {
+      skippedMissingNames.push(fallbackLabel);
+      return;
+    }
+    const fields = Array.isArray(table?.fields) ? table.fields : [];
+    if (!fields.length) {
+      skippedMissingFields.push(rawName);
+      return;
+    }
+    validTables.push({ ...table, table_name: rawName, fields });
+  });
+  return { validTables, skippedMissingNames, skippedMissingFields };
 };
 
 const payloadFromToolCall = (tool_call) => {
@@ -96,79 +152,183 @@ class GenerateTablesSkill {
   }
 
   constructor(cfg) {
-    console.log("GenerateTablesSkill.constructor called", { cfg });
     Object.assign(this, cfg);
   }
 
   async systemPrompt() {
-    console.log("GenerateTablesSkill.systemPrompt called");
     return await GenerateTables.system_prompt();
   }
 
   get userActions() {
-    console.log("GenerateTablesSkill.userActions getter accessed");
     return {
       async apply_copilot_tables({ user, tables }) {
-        console.log("GenerateTablesSkill.userActions.apply_copilot_tables called", {
-          user_id: user?.id,
-          table_count: tables?.length,
-        });
         if (!tables?.length) return { notify: "Nothing to create." };
-        await GenerateTables.execute({ tables }, { user });
+        const { newTables, skippedExisting, skippedDuplicates } =
+          await partitionTablesByExistence(tables);
+        const { validTables, skippedMissingNames, skippedMissingFields } =
+          partitionTablesByValidity(newTables);
+        if (!validTables.length) {
+          const skippedMessages = [];
+          if (skippedExisting.length)
+            skippedMessages.push(
+              `Existing tables: ${skippedExisting.join(", ")}`,
+            );
+          if (skippedDuplicates.length)
+            skippedMessages.push(
+              `Duplicate definitions: ${skippedDuplicates.join(", ")}`,
+            );
+          if (skippedMissingNames.length)
+            skippedMessages.push(
+              `Missing table_name: ${skippedMissingNames.join(", ")}`,
+            );
+          if (skippedMissingFields.length)
+            skippedMessages.push(
+              `Tables without fields: ${skippedMissingFields.join(", ")}`,
+            );
+          return {
+            notify:
+              skippedMessages.length > 0
+                ? `Nothing to create. Skipped ${skippedMessages.join("; ")}.`
+                : "Nothing to create.",
+          };
+        }
+        await GenerateTables.execute({ tables: validTables }, { user });
+        const createdNames = validTables.map((t) => t.table_name).join(", ");
+        const skippedMessages = [];
+        if (skippedExisting.length)
+          skippedMessages.push(
+            `Skipped existing tables: ${skippedExisting.join(", ")}`,
+          );
+        if (skippedDuplicates.length)
+          skippedMessages.push(
+            `Ignored duplicate definitions: ${skippedDuplicates.join(", ")}`,
+          );
+        if (skippedMissingNames.length)
+          skippedMessages.push(
+            `Missing table_name: ${skippedMissingNames.join(", ")}`,
+          );
+        if (skippedMissingFields.length)
+          skippedMessages.push(
+            `Tables without fields: ${skippedMissingFields.join(", ")}`,
+          );
         return {
-          notify: `Created tables: ${tables.map((t) => t.table_name).join(", ")}`,
+          notify: [`Created tables: ${createdNames}`, ...skippedMessages].join(
+            ". ",
+          ),
         };
       },
     };
   }
 
   provideTools = () => {
-    console.log("GenerateTablesSkill.provideTools called");
     const parameters = GenerateTables.json_schema();
     return {
       type: "function",
       process: async (input) => {
         const payload = normalizeTablesPayload(input);
         const tables = payload.tables || [];
-        console.log("GenerateTablesSkill.provideTools.process called", {
-          table_count: tables.length,
-        });
-        if (!tables.length) return "No tables were provided for generate_tables.";
-        const summaryLines = summarizeTables(tables).map((line) => `- ${line}`);
+        if (!tables.length) {
+          return "No tables were provided for generate_tables.";
+        }
+        const { newTables, skippedExisting, skippedDuplicates } =
+          await partitionTablesByExistence(tables);
+        const { validTables, skippedMissingNames, skippedMissingFields } =
+          partitionTablesByValidity(newTables);
+        const summaryLines = validTables.length
+          ? summarizeTables(validTables).map((line) => `- ${line}`)
+          : [];
         const warnings = collectTableWarnings(tables);
+        if (skippedExisting.length)
+          skippedExisting.forEach((name) =>
+            warnings.push(
+              `Table "${name}" already exists and will not be recreated by generate_tables.`,
+            ),
+          );
+        if (skippedDuplicates.length)
+          skippedDuplicates.forEach((name) =>
+            warnings.push(
+              `Table "${name}" was defined multiple times in this request; only the first definition will be used.`,
+            ),
+          );
+        skippedMissingNames.forEach((label) =>
+          warnings.push(
+            `${label} is skipped because it does not include a table_name.`,
+          ),
+        );
+        skippedMissingFields.forEach((label) =>
+          warnings.push(
+            `Table "${label}" is skipped because it does not define any fields.`,
+          ),
+        );
         const warningLines = warnings.length
           ? ["Warnings:", ...warnings.map((w) => `- ${w}`)]
           : [];
+        const summarySection = summaryLines.length
+          ? [
+              `Ready to create ${validTables.length} new table${
+                validTables.length === 1 ? "" : "s"
+              }:`,
+              ...summaryLines,
+            ]
+          : [
+              "No new tables remain after removing existing, duplicate, or invalid table definitions.",
+            ];
         return [
-          `Received ${tables.length} table definition${tables.length === 1 ? "" : "s"}:`,
-          ...summaryLines,
+          `Received ${tables.length} table definition${tables.length === 1 ? "" : "s"}.`,
+          ...summarySection,
           ...warningLines,
         ].join("\n");
       },
       postProcess: async ({ tool_call }) => {
-        console.log("GenerateTablesSkill.provideTools.postProcess called", {
-          has_input: !!tool_call?.input,
-        });
         const payload = payloadFromToolCall(tool_call);
         const tables = payload.tables || [];
+        const { newTables, skippedExisting, skippedDuplicates } =
+          await partitionTablesByExistence(tables);
+        const { validTables, skippedMissingNames, skippedMissingFields } =
+          partitionTablesByValidity(newTables);
         let preview = "";
         try {
-          preview = GenerateTables.render_html({ tables });
+          if (validTables.length) {
+            preview = GenerateTables.render_html({ tables: validTables });
+          } else {
+            preview =
+              '<div class="alert alert-info">No new tables to preview because every provided table already exists or was invalid.</div>';
+          }
         } catch (e) {
           preview = `<pre>${JSON.stringify(payload, null, 2)}</pre>`;
         }
+        const warningChunks = [];
+        if (skippedExisting.length)
+          warningChunks.push(
+            `Skipped existing tables: ${skippedExisting.join(", ")}`,
+          );
+        if (skippedDuplicates.length)
+          warningChunks.push(
+            `Ignored duplicate definitions: ${skippedDuplicates.join(", ")}`,
+          );
+        if (skippedMissingNames.length)
+          warningChunks.push(
+            `Missing table_name: ${skippedMissingNames.join(", ")}`,
+          );
+        if (skippedMissingFields.length)
+          warningChunks.push(
+            `Tables without fields: ${skippedMissingFields.join(", ")}`,
+          );
+        const warningHtml = warningChunks.length
+          ? `<div class="alert alert-warning">${warningChunks.join("<br/>")}</div>`
+          : "";
         return {
           stop: true,
-          add_response: preview,
+          add_response: `${warningHtml}${preview}`,
           add_user_action:
-            tables.length > 0
+            validTables.length > 0
               ? {
                   name: "apply_copilot_tables",
                   type: "button",
-                  label: `Create tables (${tables
+                  label: `Create tables (${validTables
                     .map((t) => t.table_name)
                     .join(", ")})`,
-                  input: { tables },
+                  input: { tables: validTables },
                 }
               : undefined,
         };

@@ -126,10 +126,6 @@ const upsertHtmlPreviewPage = async (name, html, title, description, user) => {
 module.exports = {
   description: "Generate page with AI copilot",
   configFields: ({ table, mode }) => {
-    console.log({
-      table,
-      mode,
-    }, "OOOOOOOOOO");
     if (mode === "workflow") {
       return [
         {
@@ -210,7 +206,6 @@ module.exports = {
         },
       ];
     } else if (table) {
-      console.log(JSON.stringify(table, null, 2), "TABLE");
       const textFields = table.fields
         .filter((f) => f.type?.sql_name === "text")
         .map((f) => f.name);
