@@ -152,26 +152,16 @@ class GenerateTablesSkill {
   }
 
   constructor(cfg) {
-    console.log("GenerateTablesSkill.constructor called", { cfg });
     Object.assign(this, cfg);
   }
 
   async systemPrompt() {
-    console.log("GenerateTablesSkill.systemPrompt called");
     return await GenerateTables.system_prompt();
   }
 
   get userActions() {
-    console.log("GenerateTablesSkill.userActions getter accessed");
     return {
       async apply_copilot_tables({ user, tables }) {
-        console.log(
-          "GenerateTablesSkill.userActions.apply_copilot_tables called",
-          {
-            user_id: user?.id,
-            table_count: tables?.length,
-          },
-        );
         if (!tables?.length) return { notify: "Nothing to create." };
         const { newTables, skippedExisting, skippedDuplicates } =
           await partitionTablesByExistence(tables);
@@ -231,33 +221,19 @@ class GenerateTablesSkill {
   }
 
   provideTools = () => {
-    console.log("GenerateTablesSkill.provideTools called");
     const parameters = GenerateTables.json_schema();
-    console.log({ parameters });
     return {
       type: "function",
       process: async (input) => {
         const payload = normalizeTablesPayload(input);
         const tables = payload.tables || [];
         if (!tables.length) {
-          console.log("GenerateTablesSkill.provideTools.process called", {
-            table_count: 0,
-          });
           return "No tables were provided for generate_tables.";
         }
         const { newTables, skippedExisting, skippedDuplicates } =
           await partitionTablesByExistence(tables);
         const { validTables, skippedMissingNames, skippedMissingFields } =
           partitionTablesByValidity(newTables);
-        console.log("GenerateTablesSkill.provideTools.process called", {
-          table_count: tables.length,
-          new_table_count: newTables.length,
-          valid_table_count: validTables.length,
-          skipped_existing_count: skippedExisting.length,
-          skipped_duplicate_count: skippedDuplicates.length,
-          skipped_missing_name_count: skippedMissingNames.length,
-          skipped_missing_fields_count: skippedMissingFields.length,
-        });
         const summaryLines = validTables.length
           ? summarizeTables(validTables).map((line) => `- ${line}`)
           : [];
@@ -304,9 +280,6 @@ class GenerateTablesSkill {
         ].join("\n");
       },
       postProcess: async ({ tool_call }) => {
-        console.log("GenerateTablesSkill.provideTools.postProcess called", {
-          has_input: !!tool_call?.input,
-        });
         const payload = payloadFromToolCall(tool_call);
         const tables = payload.tables || [];
         const { newTables, skippedExisting, skippedDuplicates } =

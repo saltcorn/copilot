@@ -74,7 +74,6 @@ const execute_user_action = async (
   body,
   reqres
 ) => {
-  console.log({ table_id, viewname, config, body, reqres })
   const view = get_agent_view();
   return await view.runRoute("execute_user_action", body, reqres.res, reqres);
 };
