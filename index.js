@@ -23,6 +23,7 @@ module.exports = {
     agent_skills: [
       require("./agent-skills/pagegen.js"),
       require("./agent-skills/database-design.js"),
+      require("./agent-skills/workflow.js"),
     ],
   },
 };

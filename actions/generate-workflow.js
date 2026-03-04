@@ -3,8 +3,73 @@ const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");
 const Table = require("@saltcorn/data/models/table");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
-const { a, pre, script, div } = require("@saltcorn/markup/tags");
+const { a, pre, script, div, domReady } = require("@saltcorn/markup/tags");
 const { fieldProperties } = require("../common");
+
+const table_triggers = ["Insert", "Update", "Delete", "Validate"];
+const additional_triggers_with_onlyif = ["Login", "PageLoad"];
+
+const optionNames = (options = []) =>
+  options
+    .map((opt) =>
+      typeof opt === "string"
+        ? opt
+        : opt?.name || opt?.label || opt?.value || "",
+    )
+    .filter(Boolean);
+
+const joinOptionNames = (options = [], limit = 10) => {
+  const names = optionNames(options);
+  if (!names.length) return "none";
+  const shown = names.slice(0, limit).join(", ");
+  return names.length > limit ? `${shown}, ...` : shown;
+};
+
+const summarizeTriggerActionMatrix = () => {
+  try {
+    const allActions = Trigger.action_options({
+      notRequireRow: false,
+      workflow: true,
+    });
+    const noRowActions = Trigger.action_options({
+      notRequireRow: true,
+      workflow: true,
+    });
+    const lines = Trigger.when_options.map((when) => {
+      const pool = table_triggers.includes(when) ? allActions : noRowActions;
+      return `* ${when}: ${joinOptionNames(pool)}`;
+    });
+    const notes = `Triggers requiring a table context: ${table_triggers.join(", ")}.
+Additional triggers that commonly use contextual only_if checks: ${additional_triggers_with_onlyif.join(", ")}.`;
+    return `${notes}
+${lines.join("\n")}`;
+  } catch (e) {
+    console.error("GenerateWorkflow: action matrix failed", e);
+    return "";
+  }
+};
+
+const summarizeTables = async () => {
+  try {
+    const tables = await Table.find({});
+    if (!tables?.length) return "";
+    const fieldType = (f = {}) =>
+      f.pretty_type || f.type?.name || f.type || f.input_type || "unknown";
+    const rows = tables.map((table) => {
+      const description = table.description ? ` – ${table.description}` : "";
+      const fields = (table.fields || [])
+        .slice(0, 8)
+        .map((f) => `${f.name}:${fieldType(f)}`)
+        .join(", ");
+      const fieldText = fields ? ` fields: ${fields}` : "";
+      return `* ${table.name}${description}${fieldText}`;
+    });
+    return rows.join("\n");
+  } catch (e) {
+    console.error("GenerateWorkflow: table summary failed", e);
+    return "";
+  }
+};
 
 const steps = async () => {
   const actionExplainers = WorkflowStep.builtInActionExplainers();
@@ -12,15 +77,15 @@ const steps = async () => {
 
   let stateActions = getState().actions;
   const stateActionList = Object.entries(stateActions).filter(
-    ([k, v]) => !v.disableInWorkflow
+    ([k, v]) => !v.disableInWorkflow,
   );
 
   const stepTypeAndCfg = Object.keys(actionExplainers).map((actionName) => {
-    const properties = { 
-      step_type: { type: "string", enum: [actionName] }
+    const properties = {
+      step_type: { type: "string", enum: [actionName] },
     };
     const myFields = actionFields.filter(
-      (f) => f.showIf?.wf_action_name === actionName
+      (f) => f.showIf?.wf_action_name === actionName,
     );
     const required = ["step_type"];
     myFields.forEach((f) => {
@@ -39,8 +104,8 @@ const steps = async () => {
   });
   for (const [actionName, action] of stateActionList) {
     try {
-      const properties = { 
-        step_type: { type: "string", enum: [actionName] }
+      const properties = {
+        step_type: { type: "string", enum: [actionName] },
       };
       const cfgFields = await getActionConfigFields(action, null, {
         mode: "workflow",
@@ -73,9 +138,9 @@ const steps = async () => {
   //TODO workflows
   for (const trigger of triggers) {
     const properties = {
-      step_type: { 
+      step_type: {
         type: "string",
-        enum: [trigger.name],  
+        enum: [trigger.name],
       },
     };
     if (trigger.table_id) {
@@ -88,7 +153,7 @@ const steps = async () => {
       properties.row_expr = {
         type: "string",
         description: `JavaScript expression for the input to the action. This should be an expression for an object, with the following field name and types: ${fieldSpecs.join(
-          "; "
+          "; ",
         )}.`,
       };
     }
@@ -150,11 +215,10 @@ class GenerateWorkflow {
           description:
             "When the workflow should trigger. Optional, leave blank if unspecified or workflow will be run on button click",
           type: "string",
-          enum: ["Insert", "Delete", "Update", "Daily", "Hourly", "Weekly"],
+          enum: Trigger.when_options,
         },
         trigger_table: {
-          description:
-            "If the workflow trigger is Insert, Delete or Update, the name of the table that triggers the workflow",
+          description: `If the workflow trigger is ${table_triggers.join(", ")}, the name of the table that triggers the workflow`,
           type: "string",
         },
       },
@@ -165,15 +229,29 @@ class GenerateWorkflow {
     const actionExplainers = WorkflowStep.builtInActionExplainers();
     let stateActions = getState().actions;
     const stateActionList = Object.entries(stateActions).filter(
-      ([k, v]) => !v.disableInWorkflow
+      ([k, v]) => !v.disableInWorkflow,
     );
+    const [tableSummary, triggerMatrix] = await Promise.all([
+      summarizeTables(),
+      Promise.resolve(summarizeTriggerActionMatrix()),
+    ]);
+    const contextBlocks = [
+      tableSummary && `Current tables and key fields:\n${tableSummary}`,
+      triggerMatrix && `Workflow trigger compatibility:\n${triggerMatrix}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
     return `Use the generate_workflow tool to construct computational workflows according to specifications. You must create 
   the workflow by calling the generate_workflow tool, with the step required to implement the specification.
   
+  ${contextBlocks}
+  
   The steps are specified as JSON objects. Each step has a name, specified in the step_name key in the JSON object. 
   The step name should be a valid JavaScript identifier.
   
+  When the user explicitly names an action/step type (for example "ForLoop" or "Toast"), ensure the generated workflow contains at least one step whose step_configuration.step_type exactly matches every requested action. Only skip this if the action genuinely does not exist; in that case, clearly explain the omission in the workflow description.
+
   Each run of the workflow is executed in the presence of a context, which is a JavaScript object that individual
   steps can read values from and write values to. This context is a state that is persisted on disk for each workflow 
   run. 
@@ -239,7 +317,7 @@ class GenerateWorkflow {
 
   static async execute(
     { workflow_steps, workflow_name, when_trigger, trigger_table },
-    req
+    req,
   ) {
     const steps = this.process_all_steps(workflow_steps);
     let table_id;
@@ -268,7 +346,7 @@ class GenerateWorkflow {
         "Workflow created. " +
         a(
           { target: "_blank", href: `/actions/configure/${trigger.id}` },
-          "Configure workflow."
+          "Configure workflow.",
         ),
     };
   }
@@ -286,21 +364,26 @@ class GenerateWorkflow {
         step.id = ix + 1;
       });
       const mmdia = WorkflowStep.generate_diagram(
-        steps.map((s) => new WorkflowStep(s))
+        steps.map((s) => new WorkflowStep(s)),
       );
       return (
         div(
           `${workflow_name}${when_trigger ? `: ${when_trigger}` : ""}${
             trigger_table ? ` on ${trigger_table}` : ""
-          }`
+          }`,
         ) +
         pre({ class: "mermaid" }, mmdia) +
-        script(`mermaid.run({querySelector: 'pre.mermaid'});`)
+        script(
+          domReady(
+            'ensure_script_loaded("/static_assets/"+_sc_version_tag+"/mermaid.min.js")',
+          ),
+        )
+        // script(`mermaid.run({querySelector: 'pre.mermaid'});`)
       );
     }
 
     return `A workflow! Step names: ${workflow_steps.map(
-      (s) => s.step_name
+      (s) => s.step_name,
     )}. Upgrade Saltcorn to see diagrams in copilot`;
   }
 
