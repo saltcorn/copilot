@@ -5,7 +5,7 @@ const Table = require("@saltcorn/data/models/table");
 const Field = require("@saltcorn/data/models/field");
 const { apply, removeAllWhiteSpace } = require("@saltcorn/data/utils");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
-const { a, pre, script, div } = require("@saltcorn/markup/tags");
+const { a, pre, script, div, domReady } = require("@saltcorn/markup/tags");
 const { fieldProperties } = require("../common");
 
 class GenerateTables {
@@ -158,7 +158,14 @@ class GenerateTables {
     const mmdia = buildMermaidMarkup(sctables);
     return (
       pre({ class: "mermaid" }, mmdia) +
-      script(`mermaid.run({querySelector: 'pre.mermaid'});`)
+      script(
+        domReady(`
+        ensure_script_loaded("/static_assets/"+_sc_version_tag+"/mermaid.min.js", () => {
+          mermaid.initialize({ startOnLoad: false });
+          mermaid.run({ querySelector: ".mermaid" });
+        });
+      `),
+      ) 
     );
   }
 

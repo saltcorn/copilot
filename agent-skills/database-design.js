@@ -295,6 +295,10 @@ class GenerateTablesSkill {
               '<div class="alert alert-info">No new tables to preview because every provided table already exists or was invalid.</div>';
           }
         } catch (e) {
+          console.log("We are in postProcess but rendering failed", {
+            e,
+            time: new Date(),
+          });
           preview = `<pre>${JSON.stringify(payload, null, 2)}</pre>`;
         }
         const warningChunks = [];

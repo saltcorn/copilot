@@ -298,29 +298,6 @@ const escapeHtml = (str) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
-const buildActionPaletteHtml = () => {
-  const catalog = ensureActionCatalog();
-  if (!catalog.namespaces.length) return "";
-  const sections = catalog.namespaces
-    .map(({ label, actions }) => {
-      const listed = actions.slice(0, ACTION_HTML_LIMIT);
-      const items = listed
-        .map((action) => {
-          const description = action.descriptionz
-            ? ` – ${escapeHtml(action.description)}`
-            : "";
-          return `<li><strong>${escapeHtml(action.name)}</strong>${description}</li>`;
-        })
-        .join("");
-      const extraCount = actions.length - listed.length;
-      const extra =
-        extraCount > 0 ? `<li class="text-muted">+${extraCount} more</li>` : "";
-      return `<section><h5>${escapeHtml(label)}</h5><ul>${items}${extra}</ul></section>`;
-    })
-    .join("");
-  return `<div class="workflow-action-palette"><details><summary>Available actions</summary>${sections}</details></div>`;
-};
-
 const buildIssuesHtml = ({ warnings, blocking }) => {
   const chunks = [];
   if (blocking.length) {
@@ -628,13 +605,12 @@ class GenerateWorkflowSkill {
         const analysis = analyzeWorkflowPayload(preparedPayload);
         const issuesHtml = buildIssuesHtml(analysis);
         const previewHtml = renderWorkflowPreview(preparedPayload);
-        const actionPaletteHtml = buildActionPaletteHtml();
         const canCreate =
           analysis.blocking.length === 0 &&
           preparedPayload.workflow_steps.length > 0;
         return {
           stop: true,
-          add_response: `${issuesHtml}${previewHtml}${actionPaletteHtml}`,
+          add_response: `${issuesHtml}${previewHtml}`,
           add_user_action: canCreate
             ? {
                 name: "apply_copilot_workflow",

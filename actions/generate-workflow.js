@@ -366,6 +366,7 @@ class GenerateWorkflow {
       const mmdia = WorkflowStep.generate_diagram(
         steps.map((s) => new WorkflowStep(s)),
       );
+      console.log({ mmdia });
       return (
         div(
           `${workflow_name}${when_trigger ? `: ${when_trigger}` : ""}${
@@ -374,11 +375,13 @@ class GenerateWorkflow {
         ) +
         pre({ class: "mermaid" }, mmdia) +
         script(
-          domReady(
-            'ensure_script_loaded("/static_assets/"+_sc_version_tag+"/mermaid.min.js")',
-          ),
-        )
-        // script(`mermaid.run({querySelector: 'pre.mermaid'});`)
+          domReady(`
+          ensure_script_loaded("/static_assets/"+_sc_version_tag+"/mermaid.min.js", () => {
+            mermaid.initialize({ startOnLoad: false });
+            mermaid.run({ querySelector: ".mermaid" });
+          });
+        `),
+        ) 
       );
     }
 
