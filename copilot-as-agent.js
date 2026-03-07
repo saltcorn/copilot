@@ -44,6 +44,7 @@ const get_agent_view = () => {
       skills: [
         { skill_type: "Generate Page" },
         { skill_type: "Database design" },
+        { skill_type: "Generate Workflow" },
       ],
     },
   });
@@ -53,7 +54,7 @@ const get_agent_view = () => {
     min_role: 1,
     configuration: {
       agent_action,
-      viewname
+      viewname,
     },
   });
 };
@@ -72,13 +73,11 @@ const execute_user_action = async (
   viewname,
   config,
   body,
-  reqres
+  reqres,
 ) => {
   const view = get_agent_view();
   return await view.runRoute("execute_user_action", body, reqres.res, reqres);
 };
-
-
 
 module.exports = {
   name: viewname,
