@@ -76,16 +76,6 @@ class GeneratePageSkill {
     };
   }
   provideTools = () => {
-    let properties = {};
-    (this.toolargs || []).forEach((arg) => {
-      properties[arg.name] = {
-        description: arg.description,
-        type: arg.argtype,
-      };
-      if (arg.options && arg.argtype === "string")
-        properties[arg.name].enum = arg.options.split(",").map((s) => s.trim());
-    });
-
     return {
       type: "function",
       process: async ({ name, existing_page_name }) => {
