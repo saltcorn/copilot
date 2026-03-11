@@ -1,3 +1,7 @@
+const Table = require("@saltcorn/data/models/table");
+const View = require("@saltcorn/data/models/view");
+const { fieldProperties } = require("../common");
+
 class GenerateViewSkill {
   static skill_name = "Generate View";
 
@@ -57,9 +61,54 @@ a view generation mode. The tool call only requires high-level details to start 
       process: async (input) => {
         return "Metadata received";
       },
-      postProcess: async ({ tool_call, generate }) => {
-        
+      postProcess: async ({ tool_call, req, generate }) => {
+        const state = getState();
+        const table = Table.findOne({ name: tool_call.input.table });
+        const vt = state.viewtemplates[tool_call.input.viewpattern];
+        const flow = vt.configuration_workflow(req);
+        const wfctx = { viewname: tool_call.input.name, table_id: table?.id };
+        for (const step of flow.steps) {
+          const form = await step.form(wfctx);
+          const properties = {};
+          for (const field of form.fields) {
+            properties[field.name] = {
+              description:
+                field.copilot_description ||
+                `${field.label}.${field.sublabel ? ` ${field.sublabel}` : ""}`,
+              ...fieldProperties(field),
+            };
+          }
+          const answer = await generate(
+            `Now generate the ${step.name} details of the view by calling the generate_view_details tool`,
+            {
+              tools: [
+                {
+                  type: "function",
+                  function: {
+                    name: "generate_view_details",
+                    description: "Provide view details",
+                    parameters: {
+                      type: "object",
+                      properties,
+                    },
+                  },
+                },
+              ],
+              tool_choice: {
+                type: "function",
+                function: {
+                  name: "generate_view_details",
+                },
+              },
+            },
+          );
+          const tc = answer.getToolCalls()[0];
+          console.log("step tool call result", tc.input);
+          Object.assign(wfctx, tc.input);
+        }
       },
     };
   };
 }
+
+module.exports = GenerateViewSkill;
