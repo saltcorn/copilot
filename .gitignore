@@ -129,7 +129,4 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-example-modules
-details.md
-.gitignore
-main-saltcorn
+.vscode/
