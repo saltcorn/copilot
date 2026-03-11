@@ -47,7 +47,7 @@ a view generation mode. The tool call only requires high-level details to start 
         });
         setTimeout(() => getState().refresh_views(), 200);
         return {
-          notify: `Page saved: <a target="_blank" href="/view/${name}">${name}</a>`,
+          notify: `View saved: <a target="_blank" href="/view/${name}">${name}</a>`,
         };
       },
     };
@@ -64,9 +64,12 @@ a view generation mode. The tool call only requires high-level details to start 
         vts[vtnm].copilot_generate_view_prompt,
     );
     //const roles = await User.get_roles();
+    const tableless = enabled_vt_names.filter(
+      (vtnm) => vts[vtnm].tableless === true,
+    );
     const parameters = {
       type: "object",
-      required: ["name", "viewpattern", "table"],
+      required: ["name", "viewpattern"],
       properties: {
         name: {
           description: `The name of the view, this should be a short name which is part of the url. `,
@@ -78,7 +81,9 @@ a view generation mode. The tool call only requires high-level details to start 
           enum: enabled_vt_names,
         },
         table: {
-          description: "Which table is this a view on",
+          description:
+            "Which table is this a view on. These viewpatterns are tablesless, do not supply a tablename: " +
+            tableless.join(", "),
           type: "string",
           enum: tables.map((t) => t.name),
         },
@@ -90,6 +95,7 @@ a view generation mode. The tool call only requires high-level details to start 
         },
       },
     };
+
     return {
       type: "function",
       function: {
@@ -103,8 +109,11 @@ a view generation mode. The tool call only requires high-level details to start 
       },
       postProcess: async ({ tool_call, req, generate }) => {
         const state = getState();
-        const table = Table.findOne({ name: tool_call.input.table });
         const vt = state.viewtemplates[tool_call.input.viewpattern];
+        const table =
+          vt.tableless === true
+            ? null
+            : Table.findOne({ name: tool_call.input.table });
         const flow = vt.configuration_workflow(req);
         const wfctx = { viewname: tool_call.input.name, table_id: table?.id };
         let vt_prompt = "";
@@ -114,10 +123,13 @@ a view generation mode. The tool call only requires high-level details to start 
           else if (typeof vt.copilot_generate_view_prompt === "function")
             vt_prompt = await vt.copilot_generate_view_prompt(tool_call.input);
         }
+
         for (const step of flow.steps) {
           const form = await step.form(wfctx);
           const properties = {};
+          //TODO onlyWhen
           for (const field of form.fields) {
+            //TODO showIf
             properties[field.name] = {
               description:
                 field.copilot_description ||
@@ -125,7 +137,6 @@ a view generation mode. The tool call only requires high-level details to start 
               ...fieldProperties(field),
             };
           }
-          console.log("proerties", JSON.stringify(properties, null, 2));
 
           const answer = await generate(
             `${vt_prompt ? vt_prompt + "\n\n" : ""}Now generate the ${step.name} details of the view by calling the generate_view_details tool`,
@@ -152,12 +163,26 @@ a view generation mode. The tool call only requires high-level details to start 
             },
           );
           const tc = answer.getToolCalls()[0];
-          console.log("step tool call result", tc.input);
           Object.assign(wfctx, tc.input);
         }
+        const view = new View({
+          name: tool_call.input.name,
+          viewtemplate: tool_call.input.viewpattern,
+          table,
+          min_role: { admin: 1, public: 100, user: 80 }[
+            tool_call.input.min_role
+          ],
+          configuration: wfctx,
+        });
+        const runres = await view.run({}, { req });
         return {
           stop: true,
-          add_response: pre(JSON.stringify(wfctx, null, 2)),
+          add_response:
+            pre(JSON.stringify(wfctx, null, 2)) +
+            div(
+              { style: { maxHeight: 800, maxWidth: 500, overflow: "scroll" } },
+              runres,
+            ),
           add_user_action: {
             name: "build_copilot_view_gen",
             type: "button",
