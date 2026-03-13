@@ -47,6 +47,28 @@ const textFallback = (contents) => ({
   contents: String(contents || "").trim(),
 });
 
+const looksLikeSchemaText = (text) => {
+  if (!text || typeof text !== "string") return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const hasBraces = /[\[{].*[\]}]/s.test(trimmed);
+  const hasColon = trimmed.includes(":");
+  const hasKeywords = /\b(layout|above|besides|field|action|view)\b/i.test(
+    trimmed,
+  );
+  return (hasBraces && hasColon) || hasKeywords;
+};
+
+const isSchemaTextLayout = (layout) => {
+  if (!layout || typeof layout !== "object") return false;
+  const items = Array.isArray(layout.above)
+    ? layout.above.filter(Boolean)
+    : [];
+  if (items.length !== 1) return false;
+  const seg = items[0];
+  return seg?.type === "blank" && looksLikeSchemaText(seg.contents);
+};
+
 const stripCodeFences = (text) => text.replace(/```(?:json)?/gi, "").trim();
 
 const stripHtmlTags = (text) =>
@@ -116,6 +138,7 @@ const extractJsonStructure = (text) => {
       return null;
     }
   };
+
   const trimmed = cleaned.trim();
   let parsed = attempt(trimmed);
   if (parsed) return parsed;
@@ -165,10 +188,50 @@ const pickSaveActionName = (actions) => {
   return actions[0];
 };
 
+// Extracts all action mentions from the prompt, including duplicates for repeated mentions
+// Also handles common action phrases like "button with X action"
 const extractRequestedActions = (prompt, availableActions) => {
   if (!prompt || !availableActions?.length) return [];
   const src = prompt.toLowerCase();
-  const requested = [];
+  const requestedEntries = []; // { action, idx } for ordering
+
+  // Common action phrase patterns to detect action requests
+  const actionPhrasePatterns = [
+    /button\s+(?:with|for)\s+["']?([^"']+?)["']?\s*action/gi,
+    /action\s*["']([^"']+)["']/gi,
+    /(\w+)\s+button/gi,
+    /button.*?["']([^"']+)["']/gi,
+  ];
+
+  // First, try to extract actions from phrase patterns
+  for (const pattern of actionPhrasePatterns) {
+    let match;
+    const re = new RegExp(pattern.source, pattern.flags);
+    while ((match = re.exec(src))) {
+      const actionMention = (match[1] || "").trim().toLowerCase();
+      if (!actionMention) continue;
+
+      // Find matching available action
+      const matchedAction = availableActions.find((a) => {
+        const actionLower = String(a).toLowerCase();
+        const aliases = [
+          actionLower,
+          actionLower.replace(/_/g, " "),
+          actionLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase(),
+        ];
+        return aliases.some(
+          (alias) =>
+            actionMention.includes(alias) || alias.includes(actionMention),
+        );
+      });
+
+      if (matchedAction) {
+        requestedEntries.push({ action: matchedAction, idx: match.index });
+      }
+    }
+  }
+
+  // Also check for direct action name mentions
   for (const action of availableActions) {
     const actionLower = String(action).toLowerCase();
     const aliasPatterns = [
@@ -176,20 +239,64 @@ const extractRequestedActions = (prompt, availableActions) => {
       actionLower.replace(/_/g, " "),
       actionLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase(),
     ];
+
     for (const alias of aliasPatterns) {
-      const re = new RegExp(`(^|[^a-z0-9_])${escapeRegex(alias)}([^a-z0-9_]|$)`, "i");
-      if (re.test(src)) {
-        requested.push(action);
-        break;
+      const escaped = escapeRegex(alias);
+      const re = new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`, "gi");
+      let match;
+      while ((match = re.exec(src))) {
+        const idx = match.index + (match[1] ? match[1].length : 0);
+        // Check if this position is already captured
+        const alreadyCaptured = requestedEntries.some(
+          (e) =>
+            Math.abs(e.idx - idx) < alias.length + 5 && e.action === action,
+        );
+        if (!alreadyCaptured) {
+          requestedEntries.push({ action, idx });
+        }
+        if (re.lastIndex === match.index) re.lastIndex++;
       }
     }
   }
-  return requested;
+
+  // Sort by position and return actions in order (preserving order of first occurrence)
+  requestedEntries.sort((a, b) => a.idx - b.idx);
+
+  // Deduplicate while preserving order
+  const seen = new Set();
+  const result = [];
+  for (const entry of requestedEntries) {
+    if (!seen.has(entry.action)) {
+      seen.add(entry.action);
+      result.push(entry.action);
+    }
+  }
+
+  return result;
 };
 
 const isSingleColumnLayout = (prompt) => {
   if (!prompt) return false;
-  return /\b(single[- ]?column|one[- ]?column|1[- ]?column|vertical|stacked|no[- ]?columns?)\b/i.test(prompt);
+  return /\b(single[- ]?column|one[- ]?column|1[- ]?column|vertical|stacked|no[- ]?columns?)\b/i.test(
+    prompt,
+  );
+};
+
+// Detects requested column count from prompt (1, 2, 3, 4, etc.)
+const getRequestedColumnCount = (prompt) => {
+  if (!prompt) return null;
+  const src = prompt.toLowerCase();
+
+  // Check for specific column counts
+  if (/\b(two|2|double)[- ]?column/i.test(src)) return 2;
+  if (/\b(three|3|triple)[- ]?column/i.test(src)) return 3;
+  if (/\b(four|4)[- ]?column/i.test(src)) return 4;
+  if (/\b(single|1|one)[- ]?column/i.test(src)) return 1;
+
+  // Check for multi-column without specific count - default to 2
+  if (/\b(multi[- ]?column|grid|columns)\b/i.test(src)) return 2;
+
+  return null; // No column preference detected
 };
 
 const preferEditableFields = (fields) => {
@@ -294,135 +401,169 @@ const mentionedEditableFields = (prompt, ctx) => {
     .map((m) => m.field);
 };
 
-// Find best matching fieldview from override preferences
+// Find best matching fieldview from user's request, strictly validating against field's available views
 const findOverrideFieldview = (field, override) => {
-  if (!override?.preferredFieldviews?.length || !field?.fieldviews?.length) return null;
-  for (const preferred of override.preferredFieldviews) {
-    const match = field.fieldviews.find(
-      (fv) => String(fv).toLowerCase().includes(preferred.toLowerCase())
+  if (!override?.keywords?.length || !field?.fieldviews?.length) return null;
+
+  // Search for a matching fieldview from the field's actual available views
+  // based on the user's requested keywords
+  for (const keyword of override.keywords) {
+    const lowerKeyword = String(keyword).toLowerCase();
+    // Try exact match first
+    const exact = field.fieldviews.find(
+      (fv) => String(fv).toLowerCase() === lowerKeyword,
     );
-    if (match) return match;
+    if (exact) return exact;
+    // Try contains match
+    const fuzzy = field.fieldviews.find((fv) =>
+      String(fv).toLowerCase().includes(lowerKeyword),
+    );
+    if (fuzzy) return fuzzy;
   }
-  return override.preferredFieldviews[0]; // Hint for pickFieldview
+  // No valid fieldview found for the requested keywords
+  return null;
 };
+
+// Semantic keyword mappings - these are user-facing terms that map to fieldview search keywords
+// The actual fieldview matching happens dynamically against the field's available fieldviews
+const FIELDVIEW_KEYWORDS = [
+  // Edit mode keywords
+  {
+    aliases: ["markdown", "markdown editor", "md editor", "rich text"],
+    keywords: ["markdown", "toastui", "richtext", "textarea"],
+  },
+  {
+    aliases: ["text area", "textarea", "multi-line", "multiline"],
+    keywords: ["textarea", "text_area", "multiline"],
+  },
+  { aliases: ["email", "email input"], keywords: ["email"] },
+  { aliases: ["url", "link input"], keywords: ["url", "link"] },
+  {
+    aliases: ["number", "numeric", "integer"],
+    keywords: ["number", "integer", "numeric"],
+  },
+  { aliases: ["date", "date picker"], keywords: ["date"] },
+  { aliases: ["time", "time picker"], keywords: ["time"] },
+  {
+    aliases: ["datetime", "date time", "timestamp"],
+    keywords: ["datetime", "timestamp"],
+  },
+  {
+    aliases: ["checkbox", "toggle", "boolean"],
+    keywords: ["checkbox", "toggle", "bool"],
+  },
+  {
+    aliases: ["color", "colour", "color picker"],
+    keywords: ["color", "colour"],
+  },
+  {
+    aliases: ["file", "upload", "attachment"],
+    keywords: ["file", "upload", "attachment"],
+  },
+  { aliases: ["password", "secret"], keywords: ["password", "secret"] },
+  { aliases: ["phone", "telephone", "tel"], keywords: ["phone", "tel"] },
+  // Show mode keywords
+  {
+    aliases: [
+      "render as markdown",
+      "render markdown",
+      "as markdown",
+      "show as markdown",
+      "display as markdown",
+      "markdown format",
+    ],
+    keywords: ["markdown", "show_markdown"],
+  },
+  {
+    aliases: [
+      "render as html",
+      "as html",
+      "show as html",
+      "display as html",
+      "html format",
+      "render html",
+    ],
+    keywords: ["html", "unsafe_html", "show_with_html"],
+  },
+  {
+    aliases: ["as code", "code block", "show as code", "code format"],
+    keywords: ["code", "pre"],
+  },
+  {
+    aliases: ["as link", "as a link", "show as link", "clickable link"],
+    keywords: ["link", "as_link"],
+  },
+];
 
 const requestedFieldOverrides = (prompt, ctx) => {
   const src = (prompt || "").toLowerCase();
   const overrides = {};
 
-  // Fieldview specs for both edit and show modes
-  const requestedInputTypes = [
-    // Edit mode input types
-    {
-      inputType: "markdown",
-      aliases: ["markdown", "markdown editor", "md editor", "rich text"],
-      preferredFieldviews: ["toastui_markdown_edit", "markdown", "textarea"],
-    },
-    {
-      inputType: "textarea",
-      aliases: ["text area", "textarea", "multi-line", "multiline"],
-      preferredFieldviews: ["textarea"],
-    },
-    { inputType: "email", aliases: ["email", "email input"] },
-    { inputType: "url", aliases: ["url", "link input"] },
-    { inputType: "number", aliases: ["number", "numeric", "integer"] },
-    { inputType: "date", aliases: ["date", "date picker"] },
-    { inputType: "time", aliases: ["time", "time picker"] },
-    {
-      inputType: "datetime",
-      aliases: ["datetime", "date time", "timestamp"],
-    },
-    { inputType: "checkbox", aliases: ["checkbox", "toggle", "boolean"] },
-    { inputType: "color", aliases: ["color", "colour", "color picker"] },
-    { inputType: "file", aliases: ["file", "upload", "attachment"] },
-    { inputType: "password", aliases: ["password", "secret"] },
-    { inputType: "phone", aliases: ["phone", "telephone", "tel"] },
-    // Show mode fieldview types
-    {
-      inputType: "markdown_show",
-      aliases: [
-        "render as markdown",
-        "render markdown",
-        "as markdown",
-        "show as markdown",
-        "display as markdown",
-        "markdown format",
-      ],
-      preferredFieldviews: ["markdown", "show_markdown", "showMarkdown"],
-    },
-    {
-      inputType: "html_show",
-      aliases: [
-        "render as html",
-        "as html",
-        "show as html",
-        "display as html",
-        "html format",
-        "render html",
-      ],
-      preferredFieldviews: ["show_with_html", "html", "showHtml", "unsafe_html"],
-    },
-    {
-      inputType: "code_show",
-      aliases: ["as code", "code block", "show as code", "code format"],
-      preferredFieldviews: ["code", "show_code", "showCode", "pre"],
-    },
-    {
-      inputType: "link_show",
-      aliases: ["as link", "as a link", "show as link", "clickable link"],
-      preferredFieldviews: ["as_link", "link", "showLink"],
-    },
-  ];
-
-  const hasAnyInputTypeCue = requestedInputTypes.some(({ aliases }) =>
+  // Check if any fieldview keyword is mentioned
+  const hasAnyInputTypeCue = FIELDVIEW_KEYWORDS.some(({ aliases }) =>
     aliases.some((alias) => src.includes(alias.toLowerCase())),
   );
   if (!hasAnyInputTypeCue) return overrides;
 
+  // Build field mentions with their positions in the prompt
   const fieldMentions = [];
-  for (const field of preferEditableFields(ctx.fields)) {
+  for (const field of ctx.fields || []) {
     const idxs = allAliasIndexes(field, src);
-    for (const idx of idxs) fieldMentions.push({ fieldName: field.name, idx });
+    for (const idx of idxs)
+      fieldMentions.push({ fieldName: field.name, field, idx });
   }
   fieldMentions.sort((a, b) => a.idx - b.idx);
   if (!fieldMentions.length) return overrides;
 
-  const typeMentions = [];
-  for (const spec of requestedInputTypes) {
+  // Build keyword mentions with their positions
+  const keywordMentions = [];
+  for (const spec of FIELDVIEW_KEYWORDS) {
     for (const alias of spec.aliases) {
       const escaped = escapeRegex(alias.toLowerCase());
       const re = new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`, "gi");
       let match;
       while ((match = re.exec(src))) {
-        typeMentions.push({
+        keywordMentions.push({
           idx: match.index + (match[1] ? match[1].length : 0),
-          spec,
+          keywords: spec.keywords,
         });
         if (re.lastIndex === match.index) re.lastIndex++;
       }
     }
   }
-  typeMentions.sort((a, b) => a.idx - b.idx);
+  keywordMentions.sort((a, b) => a.idx - b.idx);
 
-  for (const t of typeMentions) {
+  // Associate keywords with fields based on proximity
+  for (const k of keywordMentions) {
+    // Find the closest field mention before this keyword (within 80 chars)
     const candidates = fieldMentions.filter(
-      (fm) => fm.idx <= t.idx && t.idx - fm.idx <= 80,
+      (fm) => fm.idx <= k.idx && k.idx - fm.idx <= 80,
     );
     if (!candidates.length) continue;
     const chosen = candidates[candidates.length - 1];
-    overrides[chosen.fieldName] = {
-      inputType: t.spec.inputType,
-      preferredFieldviews: t.spec.preferredFieldviews || [],
-    };
+
+    // Only add override if the field actually supports one of the requested fieldviews
+    const fieldviews = chosen.field?.fieldviews || [];
+    const validKeywords = k.keywords.filter((kw) =>
+      fieldviews.some((fv) =>
+        String(fv).toLowerCase().includes(kw.toLowerCase()),
+      ),
+    );
+
+    if (validKeywords.length) {
+      overrides[chosen.fieldName] = {
+        keywords: validKeywords,
+      };
+    }
   }
 
   return overrides;
 };
 
 const fieldsFromPrompt = (prompt, ctx) => {
+  // Respect only explicitly mentioned fields; if none are mentioned, return none
   const preferred = mentionedEditableFields(prompt, ctx);
-  if (preferred.length) return preferred;
-  return preferEditableFields(ctx.fields).slice(0, 6);
+  return preferred;
 };
 
 const isExplicitSubsetPrompt = (prompt, ctx) => {
@@ -438,69 +579,74 @@ const isExplicitSubsetPrompt = (prompt, ctx) => {
   return mentioned.length > 0 && mentioned.length < editable.length;
 };
 
+// Picks a valid fieldview from the field's available fieldviews only.
+// Never returns a fieldview that doesn't exist in field.fieldviews
 const pickFieldview = (field, mode, requestedFieldview = null) => {
-  if (!field?.fieldviews?.length)
-    return mode === "edit" || mode === "filter" ? "edit" : "show";
+  const availableViews = field?.fieldviews || [];
 
-  // If a specific fieldview was requested by the user, try to honor it
-  if (requestedFieldview) {
-    const lowerRequested = String(requestedFieldview).toLowerCase();
+  // If no available fieldviews, return the first one or a safe default
+  if (!availableViews.length) {
+    // Return the first available or fall back based on mode
+    return mode === "edit" || mode === "filter" ? "edit" : "show";
+  }
+
+  // Helper to validate and return a fieldview only if it exists
+  const validateAndReturn = (candidate) => {
+    if (!candidate) return null;
+    const lower = String(candidate).toLowerCase();
     // Exact match
-    const exact = field.fieldviews.find(
-      (fv) => String(fv).toLowerCase() === lowerRequested
+    const exact = availableViews.find(
+      (fv) => String(fv).toLowerCase() === lower,
     );
     if (exact) return exact;
     // Fuzzy match (contains)
-    const fuzzy = field.fieldviews.find(
-      (fv) => String(fv).toLowerCase().includes(lowerRequested)
+    const fuzzy = availableViews.find((fv) =>
+      String(fv).toLowerCase().includes(lower),
     );
     if (fuzzy) return fuzzy;
+    return null;
+  };
+
+  // If a specific fieldview was requested by the user, try to honor it
+  // but ONLY if it actually exists in available views
+  if (requestedFieldview) {
+    const validated = validateAndReturn(requestedFieldview);
+    if (validated) return validated;
+    // Requested fieldview not available for this field - fall through to defaults
   }
 
   // Get the field's configured default fieldview
   const defaultFieldview =
-    field?.default_fieldview ||
-    field?.defaultFieldview ||
-    field?.fieldview;
-    
-  // Case-insensitive check for default fieldview in available views
+    field?.default_fieldview || field?.defaultFieldview || field?.fieldview;
+
   if (defaultFieldview) {
-    const lowerDefault = String(defaultFieldview).toLowerCase();
-    const match = field.fieldviews.find(
-      (fv) => String(fv).toLowerCase() === lowerDefault
-    );
-    if (match) return match;
+    const validated = validateAndReturn(defaultFieldview);
+    if (validated) return validated;
   }
 
-  // For show mode, prefer the first available fieldview (usually "as_text" or similar simple display)
-  // This avoids defaulting to complex views like "show_with_html" when not requested
+  // Mode-based selection from available fieldviews
   if (mode === "show" || mode === "list") {
-    // Prefer simple text-based views first
-    const simpleViews = ["as_text", "show", "as_string", "text"];
-    for (const simple of simpleViews) {
-      const match = field.fieldviews.find(
-        (fv) => String(fv).toLowerCase() === simple
+    // For show mode, prefer simple text-based views, but only from available views
+    const showPreferences = ["as_text", "show", "as_string", "text", "showas"];
+    for (const pref of showPreferences) {
+      const match = availableViews.find((fv) =>
+        String(fv).toLowerCase().includes(pref),
       );
       if (match) return match;
     }
-    // Fall back to first available fieldview
-    return field.fieldviews[0];
+  } else if (mode === "edit" || mode === "filter") {
+    // For edit mode, prefer edit-capable fieldviews from available views
+    const editPreferences = ["edit", "input", "select", "textarea"];
+    for (const pref of editPreferences) {
+      const match = availableViews.find((fv) =>
+        String(fv).toLowerCase().includes(pref),
+      );
+      if (match) return match;
+    }
   }
 
-  // For edit/filter modes, look for edit-capable fieldviews
-  const preferred = mode === "edit" || mode === "filter" ? "edit" : "show";
-  
-  // Try exact match first
-  if (field.fieldviews.includes(preferred)) return preferred;
-  
-  // Try fuzzy match (e.g., "editHTML" contains "edit")
-  const fuzzy = field.fieldviews.find((fv) =>
-    fv.toLowerCase().includes(preferred),
-  );
-  if (fuzzy) return fuzzy;
-  
-  // Fall back to first available fieldview
-  return field.fieldviews[0];
+  // Fall back to first available fieldview - this is always valid
+  return availableViews[0];
 };
 
 const evenWidths = (count) => {
@@ -558,7 +704,8 @@ const normalizeChild = (value, ctx) => {
 const normalizeTabs = (tabs, ctx) =>
   ensureArray(tabs)
     .map((tab) => ({ ...tab, contents: normalizeChild(tab?.contents, ctx) }))
-    .filter((tab) => tab?.title && tab.contents);
+    .filter((tab) => tab?.title && tab.contents)
+    .map((tab) => ({ ...tab, class: tab.class || "" }));
 
 const normalizeSegment = (segment, ctx) => {
   if (segment == null) return null;
@@ -595,35 +742,58 @@ const normalizeSegment = (segment, ctx) => {
   switch (clone.type) {
     case "container": {
       const contents = normalizeChild(clone.contents, ctx);
-      return contents ? { ...clone, contents } : null;
+      return contents
+        ? {
+            ...clone,
+            contents,
+            class: clone.class || "",
+            customClass: clone.customClass || "",
+          }
+        : null;
     }
     case "card": {
       const contents = normalizeChild(clone.contents, ctx);
-      return contents ? { ...clone, contents } : null;
+      return contents
+        ? {
+            ...clone,
+            contents,
+            title: clone.title || "",
+            class: clone.class || "",
+          }
+        : null;
     }
     case "tabs": {
       const tabs = normalizeTabs(clone.tabs, ctx);
-      return tabs.length ? { ...clone, tabs } : null;
+      return tabs.length ? { ...clone, tabs, class: clone.class || "" } : null;
     }
     case "blank":
       return {
         ...clone,
         contents: typeof clone.contents === "string" ? clone.contents : "",
+        class: clone.class || "",
       };
     case "line_break":
-      return { type: "line_break" };
+      return { type: "line_break", class: clone.class || "" };
     case "image":
-      return clone.url || clone.src ? { ...clone, alt: clone.alt || "" } : null;
+      return clone.url || clone.src
+        ? {
+            ...clone,
+            url: clone.url || clone.src || "",
+            alt: clone.alt || "",
+            class: clone.class || "",
+          }
+        : null;
     case "link":
       return clone.url
         ? {
             ...clone,
             text: clone.text || clone.url,
             link_style: clone.link_style || "",
+            class: clone.class || "",
           }
         : null;
     case "search_bar":
-      return clone;
+      return { ...clone, class: clone.class || "" };
     case "view":
       if (!ctx.viewNames.length) return null;
       return {
@@ -632,6 +802,7 @@ const normalizeSegment = (segment, ctx) => {
           ? clone.view
           : ctx.viewNames[0],
         state: clone.state || {},
+        class: clone.class || "",
       };
     case "view_link":
       if (!ctx.viewNames.length) return null;
@@ -642,15 +813,24 @@ const normalizeSegment = (segment, ctx) => {
           : ctx.viewNames[0],
         view_label: clone.view_label || clone.view,
         link_style: clone.link_style || "",
+        class: clone.class || "",
       };
     case "field": {
       if (!ctx.fields.length) return null;
       const fieldMeta = ctx.fieldMap[clone.field_name] || ctx.fields[0];
+      // Use pickFieldview which validates that the fieldview exists in fieldMeta.fieldviews
+      // If clone.fieldview is invalid, pickFieldview will return a valid alternative
+      const validFieldview = pickFieldview(
+        fieldMeta,
+        ctx.mode,
+        clone.fieldview,
+      );
       return {
         ...clone,
         field_name: fieldMeta.name,
-        fieldview: clone.fieldview || pickFieldview(fieldMeta, ctx.mode),
+        fieldview: validFieldview,
         configuration: clone.configuration || {},
+        class: clone.class || "",
       };
     }
     case "action": {
@@ -671,6 +851,7 @@ const normalizeSegment = (segment, ctx) => {
         nsteps: clone.nsteps || 1,
         isFormula: clone.isFormula || {},
         configuration: clone.configuration || {},
+        class: clone.class || "",
       };
     }
     default: {
@@ -702,19 +883,278 @@ const normalizeLayout = (layout, ctx) => {
       try {
         return normalizeLayout(parseHTML(trimmed), ctx);
       } catch (err) {
-        return buildDeterministicLayout(ctx, stripHtmlTags(trimmed));
+        return { above: [textFallback(stripHtmlTags(trimmed))] };
       }
     }
     const bracketCandidate = convertBracketSyntax(trimmed, ctx);
     if (bracketCandidate) return normalizeLayout(bracketCandidate, ctx);
-    return buildDeterministicLayout(ctx, trimmed);
+    return { above: [textFallback(trimmed)] };
   }
   let normalized = normalizeSegment(layout, ctx);
   if (Array.isArray(normalized)) normalized = { above: normalized };
   if (!normalized || typeof normalized !== "object") {
-    return buildDeterministicLayout(ctx, "");
+    return { above: [] };
   }
   return normalized;
+};
+
+const appendSegments = (layout, extraSegments = []) => {
+  const extras = ensureArray(extraSegments).filter(Boolean);
+  if (!extras.length) return layout;
+  if (layout && typeof layout === "object" && Array.isArray(layout.above)) {
+    return { ...layout, above: [...layout.above, ...extras] };
+  }
+  if (layout && typeof layout === "object") {
+    return { above: [layout, ...extras] };
+  }
+  return { above: extras };
+};
+
+const generateLoremWords = (count = 60) => {
+  const seed = [
+    "lorem",
+    "ipsum",
+    "dolor",
+    "sit",
+    "amet",
+    "consectetur",
+    "adipiscing",
+    "elit",
+    "sed",
+    "do",
+    "eiusmod",
+    "tempor",
+    "incididunt",
+    "ut",
+    "labore",
+    "et",
+    "dolore",
+    "magna",
+    "aliqua",
+    "enim",
+    "minim",
+    "veniam",
+    "quis",
+    "nostrud",
+    "exercitation",
+    "ullamco",
+    "laboris",
+    "nisi",
+    "aliquip",
+    "ex",
+    "ea",
+    "commodo",
+    "consequat",
+    "duis",
+    "aute",
+    "irure",
+    "dolor",
+    "in",
+    "reprehenderit",
+    "voluptate",
+    "velit",
+    "esse",
+    "cillum",
+    "dolore",
+    "eu",
+    "fugiat",
+    "nulla",
+    "pariatur",
+    "excepteur",
+    "sint",
+    "occaecat",
+    "cupidatat",
+    "non",
+    "proident",
+    "sunt",
+    "in",
+    "culpa",
+    "qui",
+    "officia",
+    "deserunt",
+    "mollit",
+    "anim",
+    "id",
+    "est",
+    "laborum",
+  ];
+  const words = [];
+  for (let i = 0; i < Math.max(1, count); i++) {
+    words.push(seed[i % seed.length]);
+  }
+  return words.join(" ");
+};
+
+const pickViewFromPrompt = (viewNames, prompt) => {
+  if (!viewNames?.length) return null;
+  const src = (prompt || "").toLowerCase();
+  let best = null;
+  for (const name of viewNames) {
+    const lower = String(name).toLowerCase();
+    if (src.includes(lower)) {
+      best = name;
+      break;
+    }
+  }
+  return best || viewNames[0];
+};
+
+const parseWidgetIntent = (prompt, ctx) => {
+  const src = (prompt || "").toLowerCase();
+  if (!src.trim()) return { hasAny: false };
+
+  const numberMatch = src.match(/(\d+)\s+cards?/i);
+  const listMatch = src.match(/list\s+of\s+(\d+)\s+cards?/i);
+  const cardCount = numberMatch
+    ? Number(numberMatch[1])
+    : listMatch
+      ? Number(listMatch[1])
+      : src.includes("card")
+        ? 1
+        : 0;
+
+  const wordMatch = src.match(/(\d+)\s+words?/i);
+  const wordCount = wordMatch ? Number(wordMatch[1]) : 0;
+
+  const wantViewLink = /view\s*[_ ]link/.test(src);
+  const wantView = /\bembed(?:ded)?\s+view\b|\bview\b/.test(src);
+  const wantImage = /image|photo|picture/.test(src);
+  const wantTabs = /tabs?/.test(src);
+  const wantSearch = /search\s*bar|search\s+box/.test(src);
+  const wantText = /text|paragraph|bio/.test(src);
+  const wantContainer = /container|box|section/.test(src);
+  const wantLineBreak = /line\s*break|divider|separator/.test(src);
+  const wantLink = /\blink\b/.test(src) && !wantViewLink;
+
+  return {
+    hasAny:
+      cardCount > 0 ||
+      wantViewLink ||
+      wantView ||
+      wantImage ||
+      wantTabs ||
+      wantSearch ||
+      wantText ||
+      wantContainer ||
+      wantLineBreak ||
+      wantLink,
+    cardCount,
+    wordCount: wordCount || (src.includes("bio") ? 80 : 0),
+    wantViewLink,
+    wantView,
+    wantImage,
+    wantTabs,
+    wantSearch,
+    wantText,
+    wantContainer,
+    wantLineBreak,
+    wantLink,
+    targetView: pickViewFromPrompt(ctx?.viewNames || [], prompt),
+  };
+};
+
+const buildWidgetsFromIntent = (intent, ctx) => {
+  if (!intent?.hasAny) return [];
+  const widgets = [];
+  const loremText = generateLoremWords(intent.wordCount || 60);
+
+  if (intent.cardCount > 0) {
+    const hasImages = intent.wantImage;
+    const baseLabel = /(tree|trees)/i.test(intent.source || "")
+      ? "Tree"
+      : "Card";
+    for (let i = 0; i < intent.cardCount; i++) {
+      const title = `${baseLabel} ${i + 1}`;
+      const parts = [
+        { type: "blank", contents: title, class: "fw-bold" },
+        { type: "blank", contents: generateLoremWords(20) },
+      ];
+      if (hasImages) {
+        parts.push({
+          type: "image",
+          url: "https://placehold.co/320x200",
+          alt: `${title} image`,
+          class: "mt-2",
+        });
+      }
+      widgets.push({
+        type: "card",
+        title,
+        contents: { above: parts },
+      });
+    }
+  }
+
+  if (intent.wantText) {
+    widgets.push({ type: "blank", contents: loremText });
+  }
+
+  const targetView =
+    intent.targetView || (ctx.viewNames ? ctx.viewNames[0] : null);
+
+  if (intent.wantView && targetView) {
+    widgets.push({ type: "view", view: targetView, state: {} });
+  }
+
+  if (intent.wantViewLink && targetView) {
+    widgets.push({
+      type: "view_link",
+      view: targetView,
+      view_label: targetView,
+      link_style: "btn-link",
+    });
+  }
+
+  if (intent.wantTabs) {
+    widgets.push({
+      type: "tabs",
+      tabs: [
+        {
+          title: "Tab 1",
+          contents: { type: "blank", contents: loremText.slice(0, 80) },
+        },
+        {
+          title: "Tab 2",
+          contents: { type: "blank", contents: loremText.slice(80, 160) },
+        },
+      ],
+    });
+  }
+
+  if (intent.wantImage) {
+    widgets.push({
+      type: "image",
+      url: "https://placehold.co/600x400",
+      alt: "Placeholder image",
+    });
+  }
+
+  if (intent.wantSearch) {
+    widgets.push({ type: "search_bar" });
+  }
+
+  if (intent.wantContainer) {
+    widgets.push({
+      type: "container",
+      contents: { type: "blank", contents: loremText.slice(0, 100) },
+      class: "border p-3",
+    });
+  }
+
+  if (intent.wantLineBreak) {
+    widgets.push({ type: "line_break" });
+  }
+
+  if (intent.wantLink) {
+    widgets.push({
+      type: "link",
+      url: "#",
+      text: "Click me",
+      link_style: "btn btn-primary",
+    });
+  }
+
+  return widgets;
 };
 
 const collectSegments = (segment, out = []) => {
@@ -740,8 +1180,8 @@ const makeEditRow = (field, prompt) => {
   const overrides = requestedFieldOverrides(prompt, { fields: [field] });
   const override = overrides[field.name];
   const overrideFieldview = findOverrideFieldview(field, override);
+  // pickFieldview always returns a valid fieldview from field.fieldviews
   const fieldview = overrideFieldview || pickFieldview(field, "edit");
-  const cfg = override?.inputType ? { input_type: override.inputType } : {};
 
   return {
     besides: [
@@ -760,7 +1200,7 @@ const makeEditRow = (field, prompt) => {
         fieldview,
         textStyle: "",
         block: false,
-        configuration: cfg,
+        configuration: {},
       },
     ],
     aligns: ["end", "start"],
@@ -773,40 +1213,46 @@ const makeEditRow = (field, prompt) => {
 
 const buildDeterministicEditLayout = (ctx, prompt) => {
   const selectedFields = fieldsFromPrompt(prompt, ctx);
-  const rows = selectedFields.map((field) => makeEditRow(field, prompt));
-  
-  const saveAction = pickSaveActionName(ctx.actions);
-  if (saveAction) {
-    rows.push({
-      besides: [
-        null,
-        {
-          type: "action",
-          block: false,
-          configuration: {},
-          action_name: saveAction,
-          action_label: "",
-          action_style: "btn-primary",
-          minRole: 100,
-          isFormula: {},
-          rndid: randomId(),
-        },
-      ],
-      aligns: ["end", "start"],
-      breakpoints: ["", ""],
-      style: { "margin-bottom": "1.5rem" },
-      widths: [2, 10],
-      setting_col_n: 0,
-    });
+  if (!selectedFields.length) return { above: [] };
+
+  const columnCount = getRequestedColumnCount(prompt);
+  let fieldRows;
+  if (columnCount && columnCount >= 2) {
+    fieldRows = [];
+    const colWidth = Math.floor(12 / columnCount);
+    for (let i = 0; i < selectedFields.length; i += columnCount) {
+      const fieldsInRow = selectedFields.slice(i, i + columnCount);
+      const besides = fieldsInRow.map((field) => {
+        const overrides = requestedFieldOverrides(prompt, { fields: [field] });
+        const override = overrides[field.name];
+        const overrideFieldview = findOverrideFieldview(field, override);
+        const fieldview = overrideFieldview || pickFieldview(field, "edit");
+        return {
+          above: [
+            {
+              type: "blank",
+              contents: field.label || field.name,
+            },
+            {
+              type: "field",
+              field_name: field.name,
+              fieldview,
+              configuration: {},
+            },
+          ],
+        };
+      });
+      while (besides.length < columnCount) besides.push(null);
+      fieldRows.push({
+        besides,
+        widths: Array(columnCount).fill(colWidth),
+      });
+    }
+  } else {
+    fieldRows = selectedFields.map((field) => makeEditRow(field, prompt));
   }
-  if (!rows.length) {
-    return {
-      above: [
-        { type: "blank", contents: "No editable fields found for this table" },
-      ],
-    };
-  }
-  return { above: rows };
+
+  return { above: fieldRows };
 };
 
 const mentionedFieldsByMode = (prompt, ctx) => {
@@ -823,12 +1269,7 @@ const mentionedFieldsByMode = (prompt, ctx) => {
 
 const fieldsFromPromptByMode = (prompt, ctx, limit = 6) => {
   const mentioned = mentionedFieldsByMode(prompt, ctx);
-  if (mentioned.length) return mentioned.slice(0, limit);
-  const baseFields =
-    ctx.mode === "edit" || ctx.mode === "filter"
-      ? preferEditableFields(ctx.fields)
-      : ctx.fields || [];
-  return baseFields.slice(0, limit);
+  return mentioned.slice(0, limit);
 };
 
 const pickFirstActionMatching = (actions, regex) => {
@@ -836,9 +1277,14 @@ const pickFirstActionMatching = (actions, regex) => {
   return actions.find((a) => regex.test(String(a || "")));
 };
 
-const makeDisplayRow = (field, mode, singleColumn = false, requestedFieldview = null) => {
+const makeDisplayRow = (
+  field,
+  mode,
+  singleColumn = false,
+  requestedFieldview = null,
+) => {
   const fieldview = pickFieldview(field, mode, requestedFieldview);
-  
+
   if (singleColumn) {
     return {
       above: [
@@ -907,42 +1353,37 @@ const buildDeterministicShowLayout = (ctx, prompt) => {
   const fields = fieldsFromPromptByMode(prompt, ctx, 8);
   const singleColumn = isSingleColumnLayout(prompt);
   const overrides = requestedFieldOverrides(prompt, ctx);
-  
   const rows = fields.map((field) => {
-    const requestedFieldview = findOverrideFieldview(field, overrides[field.name]);
+    const requestedFieldview = findOverrideFieldview(
+      field,
+      overrides[field.name],
+    );
     return makeDisplayRow(field, "show", singleColumn, requestedFieldview);
   });
-  
-  const requestedActions = extractRequestedActions(prompt, ctx.actions);
-  const actionSegments = requestedActions.map((name) => makeActionSegment(name)).filter(Boolean);
-  
-  if (!rows.length && !actionSegments.length) {
-    return { above: [textFallback("No fields available")] };
-  }
-  
-  return { above: [...rows, ...actionSegments] };
+  return { above: rows };
 };
 
 const buildDeterministicListLayout = (ctx, prompt) => {
   const fields = fieldsFromPromptByMode(prompt, ctx, 4);
-  if (!fields.length) return { above: [textFallback("No list fields available")] };
-  
+  if (!fields.length) return { above: [] };
+
   const overrides = requestedFieldOverrides(prompt, ctx);
-  
   const listRow = {
     besides: fields.map((field) => ({
       type: "field",
       field_name: field.name,
-      fieldview: pickFieldview(field, "show", findOverrideFieldview(field, overrides[field.name])),
+      fieldview: pickFieldview(
+        field,
+        "show",
+        findOverrideFieldview(field, overrides[field.name]),
+      ),
       block: false,
       configuration: {},
     })),
     widths: normalizeWidths([], fields.length),
   };
-  
-  const actionName = pickFirstActionMatching(ctx.actions, /view|edit|open|details/i) || ctx.actions[0];
-  const action = makeActionSegment(actionName, "btn-link");
-  return action ? { above: [listRow, action] } : { above: [listRow] };
+
+  return { above: [listRow] };
 };
 
 const buildDeterministicFilterLayout = (ctx, prompt) => {
@@ -957,53 +1398,65 @@ const buildDeterministicFilterLayout = (ctx, prompt) => {
     makeActionSegment(runActionName, "btn-primary"),
     makeActionSegment(resetActionName, "btn-outline-secondary"),
   ].filter(Boolean);
-  if (actions.length) rows.push({ besides: [null, { above: actions }], widths: [2, 10] });
-  if (!rows.length) return { above: [textFallback("No filter fields available")] };
+  if (actions.length)
+    rows.push({ besides: [null, { above: actions }], widths: [2, 10] });
+  if (!rows.length)
+    return { above: [textFallback("No filter fields available")] };
   return { above: rows };
 };
 
 const buildDeterministicPageLayout = (ctx, prompt) => {
   const lines = [];
-  if (prompt && String(prompt).trim()) lines.push(textFallback(String(prompt).trim()));
-  if (ctx.viewNames.length) {
-    lines.push({
-      type: "view",
-      view: ctx.viewNames[0],
-      state: {},
-    });
+  const intent = parseWidgetIntent(prompt, ctx);
+
+  if (prompt && String(prompt).trim())
+    lines.push(textFallback(String(prompt).trim()));
+
+  if (intent.hasAny) {
+    lines.push(...buildWidgetsFromIntent(intent, ctx));
+  } else if (ctx.viewNames.length) {
+    lines.push({ type: "view", view: ctx.viewNames[0], state: {} });
   } else {
     const fields = fieldsFromPromptByMode(prompt, ctx, 4);
     lines.push(...fields.map((field) => makeDisplayRow(field, "show")));
   }
-  const ctaName =
-    pickFirstActionMatching(ctx.actions, /create|new|add|save|submit/i) ||
-    ctx.actions[0];
-  const cta = makeActionSegment(ctaName, "btn-primary");
-  if (cta) lines.push(cta);
+
   return { above: lines.filter(Boolean) };
 };
 
+// Deterministic layouts kept minimal; widgets/actions appended after
 const buildDeterministicLayout = (ctx, prompt) => {
+  let base;
   switch (ctx.mode) {
     case "edit":
-      return buildDeterministicEditLayout(ctx, prompt);
+      base = buildDeterministicEditLayout(ctx, prompt);
+      break;
     case "show":
-      return buildDeterministicShowLayout(ctx, prompt);
+      base = buildDeterministicShowLayout(ctx, prompt);
+      break;
     case "list":
-      return buildDeterministicListLayout(ctx, prompt);
+      base = buildDeterministicListLayout(ctx, prompt);
+      break;
     case "filter":
-      return buildDeterministicFilterLayout(ctx, prompt);
+      base = buildDeterministicFilterLayout(ctx, prompt);
+      break;
     case "page":
-      return buildDeterministicPageLayout(ctx, prompt);
+      base = buildDeterministicPageLayout(ctx, prompt);
+      break;
     default:
-      return buildDeterministicPageLayout(ctx, prompt);
+      base = { above: [] };
   }
+  const withWidgets = ensureRequestedWidgets(base, ctx, prompt);
+  const withActions = ensureRequestedActions(withWidgets, ctx, prompt);
+  return withActions;
 };
 
 const sanitizeNoHtmlSegments = (segment) => {
   if (segment == null) return segment;
   if (Array.isArray(segment))
-    return segment.map((child) => sanitizeNoHtmlSegments(child)).filter(Boolean);
+    return segment
+      .map((child) => sanitizeNoHtmlSegments(child))
+      .filter(Boolean);
   if (typeof segment !== "object") return segment;
 
   const clone = { ...segment };
@@ -1018,146 +1471,122 @@ const sanitizeNoHtmlSegments = (segment) => {
 
   if (clone.contents !== undefined)
     clone.contents = sanitizeNoHtmlSegments(clone.contents);
-  if (clone.above !== undefined) clone.above = sanitizeNoHtmlSegments(clone.above);
+  if (clone.above !== undefined)
+    clone.above = sanitizeNoHtmlSegments(clone.above);
   if (clone.besides !== undefined)
     clone.besides = sanitizeNoHtmlSegments(clone.besides);
   if (clone.tabs !== undefined)
     clone.tabs = ensureArray(clone.tabs)
-      .map((tab) => ({ ...tab, contents: sanitizeNoHtmlSegments(tab?.contents) }))
+      .map((tab) => ({
+        ...tab,
+        contents: sanitizeNoHtmlSegments(tab?.contents),
+      }))
       .filter((tab) => tab?.contents);
   return clone;
 };
 
-const enforceModeConsistency = (layout, ctx, prompt) => {
-  if (!layout) return layout;
-  const noHtmlLayout = sanitizeNoHtmlSegments(layout);
-  const segments = collectSegments(noHtmlLayout, []);
-
-  // For show mode, validate that requested actions, fields, and fieldviews are present
-  if (ctx.mode === "show") {
-    const requestedActions = extractRequestedActions(prompt, ctx.actions);
-    if (requestedActions.length) {
-      const presentActions = new Set(
-        segments.filter((s) => s.type === "action").map((s) => s.action_name),
-      );
-      const missingActions = requestedActions.filter((a) => !presentActions.has(a));
-      if (missingActions.length) {
-        // LLM didn't include requested actions, fall back to deterministic
-        return buildDeterministicLayout(ctx, prompt);
-      }
-    }
-    
-    // Check if single-column was requested but LLM returned multi-column
-    const wantsSingleColumn = isSingleColumnLayout(prompt);
-    if (wantsSingleColumn) {
-      const hasMultiColumn = segments.some((s) => s.besides && s.besides.length > 1);
-      if (hasMultiColumn) {
-        return buildDeterministicLayout(ctx, prompt);
-      }
-    }
-    
-    // Check if specific fields were mentioned and validate they're present
-    const mentionedFields = mentionedFieldsByMode(prompt, ctx);
-    if (mentionedFields.length) {
-      const presentFields = new Set(
-        segments.filter((s) => s.type === "field").map((s) => s.field_name),
-      );
-      const missingFields = mentionedFields.filter((f) => !presentFields.has(f.name));
-      if (missingFields.length) {
-        return buildDeterministicLayout(ctx, prompt);
-      }
-    }
-    
-    // Validate that user-requested fieldviews are honored
-    const overrides = requestedFieldOverrides(prompt, ctx);
-    const fieldSegments = segments.filter((s) => s.type === "field");
-    for (const [fieldName, wanted] of Object.entries(overrides)) {
-      if (!wanted.preferredFieldviews?.length) continue;
-      
-      const fieldSegs = fieldSegments.filter((s) => s.field_name === fieldName);
-      if (!fieldSegs.length) continue; // Field not present, will be caught above
-      
-      const satisfied = fieldSegs.some((seg) => {
-        const fv = (seg.fieldview || "").toLowerCase();
-        return wanted.preferredFieldviews.some(
-          (pref) => fv.includes(pref.toLowerCase())
-        );
-      });
-      
-      if (!satisfied) {
-        // LLM didn't use the requested fieldview, fall back to deterministic
-        return buildDeterministicLayout(ctx, prompt);
-      }
-    }
-    
-    return noHtmlLayout;
-  }
-
-  // For non-edit/non-show modes, trust the LLM structure and only enforce HTML safety.
-  if (ctx.mode !== "edit") return noHtmlLayout;
-
-  const editFields = segments.filter(
-    (s) =>
-      s.type === "field" && (s.fieldview || "").toLowerCase().includes("edit"),
-  );
-  const actionNames = new Set(
+const ensureRequestedActions = (layout, ctx, prompt) => {
+  const segments = collectSegments(layout, []);
+  const presentActions = new Set(
     segments.filter((s) => s.type === "action").map((s) => s.action_name),
   );
-  const hasSave = [...actionNames].some((nm) => /save/i.test(nm || ""));
-  const overrides = requestedFieldOverrides(prompt, ctx);
-  for (const [fieldName, wanted] of Object.entries(overrides)) {
-    const segs = editFields.filter((f) => f.field_name === fieldName);
-    if (!segs.length) return buildDeterministicLayout(ctx, prompt);
-    const satisfied = segs.some((f) => {
-      const fv = (f.fieldview || "").toLowerCase();
-      const cfg = f.configuration || {};
-      const inputType = String(cfg.input_type || "").toLowerCase();
-      const wantedViews = (wanted.preferredFieldviews || []).map((v) =>
-        String(v).toLowerCase(),
-      );
-      const wantsInputType = String(wanted.inputType || "").toLowerCase();
-      const viewSatisfied =
-        !wantedViews.length ||
-        wantedViews.some((wv) => fv === wv || fv.includes(wv));
-      const inputSatisfied = !wantsInputType || inputType === wantsInputType;
-      return viewSatisfied && inputSatisfied;
-    });
-    if (!satisfied) return buildDeterministicLayout(ctx, prompt);
-  }
 
-  const mentionedOrdered = mentionedEditableFields(prompt, ctx).map(
-    (f) => f.name,
+  const requested = extractRequestedActions(prompt, ctx.actions);
+  const missingActions = requested.filter((a) => !presentActions.has(a));
+
+  if (!missingActions.length) return layout;
+  const newSegments = missingActions
+    .map((name, idx) =>
+      makeActionSegment(name, idx === 0 ? "btn-primary" : "btn-secondary"),
+    )
+    .filter(Boolean);
+  return appendSegments(layout, newSegments);
+};
+
+const ensureRequestedWidgets = (layout, ctx, prompt) => {
+  const intent = parseWidgetIntent(prompt, ctx);
+  if (!intent.hasAny) return layout;
+
+  const segments = collectSegments(layout, []);
+  const countByType = (type) => segments.filter((s) => s.type === type).length;
+  const hasType = (type) => segments.some((s) => s.type === type);
+
+  const missingIntent = { ...intent };
+  missingIntent.cardCount = Math.max(0, intent.cardCount - countByType("card"));
+  if (hasType("view")) missingIntent.wantView = false;
+  if (hasType("view_link")) missingIntent.wantViewLink = false;
+  if (hasType("image")) missingIntent.wantImage = false;
+  if (hasType("tabs")) missingIntent.wantTabs = false;
+  if (segments.some((s) => s.type === "search_bar"))
+    missingIntent.wantSearch = false;
+  if (hasType("container")) missingIntent.wantContainer = false;
+  if (hasType("line_break")) missingIntent.wantLineBreak = false;
+  if (hasType("link")) missingIntent.wantLink = false;
+
+  if (!missingIntent.hasAny && missingIntent.cardCount === 0) return layout;
+
+  // Update hasAny based on remaining missing items
+  missingIntent.hasAny =
+    missingIntent.cardCount > 0 ||
+    missingIntent.wantView ||
+    missingIntent.wantViewLink ||
+    missingIntent.wantImage ||
+    missingIntent.wantTabs ||
+    missingIntent.wantSearch ||
+    missingIntent.wantText ||
+    missingIntent.wantContainer ||
+    missingIntent.wantLineBreak ||
+    missingIntent.wantLink;
+
+  if (!missingIntent.hasAny) return layout;
+
+  const extras = buildWidgetsFromIntent(missingIntent, ctx);
+  return extras.length ? appendSegments(layout, extras) : layout;
+};
+
+const ensureRequestedFields = (layout, ctx, prompt) => {
+  const requestedFields =
+    ctx.mode === "edit"
+      ? fieldsFromPrompt(prompt, ctx)
+      : fieldsFromPromptByMode(prompt, ctx, 12);
+
+  if (!requestedFields.length) return layout;
+
+  const segments = collectSegments(layout, []);
+  const presentFields = new Set(
+    segments.filter((s) => s.type === "field").map((s) => s.field_name),
   );
-  if (mentionedOrdered.length > 1) {
-    const generatedOrder = editFields.map((f) => f.field_name).filter(Boolean);
-    const generatedMentioned = generatedOrder.filter((nm) =>
-      mentionedOrdered.includes(nm),
+
+  const missing = requestedFields.filter(
+    (f) => f && !presentFields.has(f.name),
+  );
+  if (!missing.length) return layout;
+
+  const extras = missing.map((field) => {
+    if (ctx.mode === "edit") return makeEditRow(field, prompt);
+    const overrides = requestedFieldOverrides(prompt, { fields: [field] });
+    const requestedFieldview = findOverrideFieldview(
+      field,
+      overrides[field.name],
     );
-    let cursor = -1;
-    const ordered = mentionedOrdered.every((nm) => {
-      const idx = generatedMentioned.indexOf(nm);
-      if (idx === -1) return true;
-      if (idx < cursor) return false;
-      cursor = idx;
-      return true;
-    });
-    if (!ordered) return buildDeterministicLayout(ctx, prompt);
-  }
-  if (isExplicitSubsetPrompt(prompt, ctx)) {
-    const requested = new Set(fieldsFromPrompt(prompt, ctx).map((f) => f.name));
-    const generatedNames = new Set(
-      editFields.map((f) => f.field_name).filter(Boolean),
+    return makeDisplayRow(
+      field,
+      "show",
+      isSingleColumnLayout(prompt),
+      requestedFieldview,
     );
-    const hasUnexpected = [...generatedNames].some((nm) => !requested.has(nm));
-    const missingRequested = [...requested].some(
-      (nm) => !generatedNames.has(nm),
-    );
-    if (hasUnexpected || missingRequested) {
-      return buildDeterministicLayout(ctx, prompt);
-    }
-  }
-  if (editFields.length && hasSave) return noHtmlLayout;
-  return buildDeterministicLayout(ctx, prompt);
+  });
+
+  return appendSegments(layout, extras);
+};
+
+const enforceModeConsistency = (layout, ctx, prompt) => {
+  if (!layout) return layout;
+  const sanitized = sanitizeNoHtmlSegments(layout);
+  const withFields = ensureRequestedFields(sanitized, ctx, prompt);
+  const withWidgets = ensureRequestedWidgets(withFields, ctx, prompt);
+  const withActions = ensureRequestedActions(withWidgets, ctx, prompt);
+  return withActions;
 };
 
 const buildPromptText = (userPrompt, ctx) => {
@@ -1431,10 +1860,12 @@ const convertForeignField = (node, ctx) => {
   ) {
     userView = "textarea";
   }
+  // Use pickFieldview to validate userView against field's available fieldviews
+  const validFieldview = pickFieldview(fieldMeta, ctx.mode, userView);
   return {
     type: "field",
     field_name: fieldMeta.name,
-    fieldview: userView || pickFieldview(fieldMeta, ctx.mode),
+    fieldview: validFieldview,
     configuration: node.configuration || {},
   };
 };
@@ -1652,7 +2083,26 @@ const buildContext = async (mode, tableName) => {
     actions: [],
     viewNames: [],
   };
-  if (!tableName) return ctx;
+
+  // Global actions and views are useful even when no table is specified (page builder)
+  const stateActions = Object.keys(getState().actions || {});
+  try {
+    const allViews = await View.find();
+    ctx.viewNames = allViews.map((v) => v.name).filter(Boolean);
+  } catch (err) {
+    ctx.viewNames = [];
+  }
+
+  if (!tableName) {
+    const triggers = Trigger.find({
+      when_trigger: { or: ["API call", "Never"] },
+    }).filter((tr) => tr.name && !tr.table_id);
+
+    ctx.actions = Array.from(
+      new Set([...stateActions, ...triggers.map((tr) => tr.name)]),
+    ).filter(Boolean);
+    return ctx;
+  }
 
   const lookup =
     typeof tableName === "number" || /^[0-9]+$/.test(String(tableName))
@@ -1674,16 +2124,16 @@ const buildContext = async (mode, tableName) => {
       table.pk_name &&
       typeof field.name === "string" &&
       field.name === table.pk_name;
-    
+
     // Capture the default fieldview from various possible sources
     // Priority: field-level configured > field's attributes > type default
-    const defaultFieldview = 
+    const defaultFieldview =
       field.fieldview ||
       field.default_fieldview ||
       (field.attributes && field.attributes.fieldview) ||
       field.type?.default_fieldview ||
       null;
-    
+
     return {
       name: field.name,
       label: field.label || field.name,
@@ -1710,10 +2160,9 @@ const buildContext = async (mode, tableName) => {
   }
 
   const builtIns =
-    ctx.mode === "edit" || ctx.mode === "filter"
+    ctx.mode === "edit" || ctx.mode === "filter"        
       ? edit_build_in_actions || []
       : ["Delete", "GoBack"];
-  const stateActions = Object.keys(getState().actions || {});
   const actions = Array.from(
     new Set([...builtIns, ...stateActions, ...triggers.map((tr) => tr.name)]),
   ).filter(Boolean);
@@ -1744,6 +2193,8 @@ module.exports = {
       },
     };
 
+    const deterministicLayout = buildDeterministicLayout(ctx, prompt);
+
     let payload;
     let rawResponse;
     try {
@@ -1751,35 +2202,59 @@ module.exports = {
       payload = parseJsonPayload(rawResponse);
     } catch (err) {
       const salvaged = extractJsonStructure(rawResponse || err.message || "");
+      console.log({ salvaged });
       if (salvaged) {
         payload = salvaged.layout ? salvaged : { layout: salvaged };
       } else {
-        console.warn("Copilot layout JSON parsing failed", err?.message || String(err));
-        const bracketCandidate = convertBracketSyntax(rawResponse || err.message || "", ctx);
+        console.warn(
+          "Copilot layout JSON parsing failed",
+          err?.message || String(err),
+        );
+        const bracketCandidate = convertBracketSyntax(
+          rawResponse || err.message || "",
+          ctx,
+        );
         if (bracketCandidate) {
           try {
-            return enforceModeConsistency(normalizeLayout(bracketCandidate, ctx), ctx, prompt);
+            const normalized = normalizeLayout(bracketCandidate, ctx);
+            const safeLayout = isSchemaTextLayout(normalized)
+              ? deterministicLayout
+              : normalized;
+            return enforceModeConsistency(safeLayout, ctx, prompt);
           } catch (bracketErr) {
-            console.error("Copilot bracket layout normalization failed", bracketErr);
+            console.error(
+              "Copilot bracket layout normalization failed",
+              bracketErr,
+            );
           }
         }
-        return buildDeterministicLayout(ctx, prompt);
+        // Minimal fallback: return prompt text as blank content or deterministic layout if prompt is schema text
+        const fallbackLayout = isSchemaTextLayout({
+          above: [textFallback(prompt || "")],
+        })
+          ? deterministicLayout
+          : { above: [textFallback(prompt || "")] };
+        return enforceModeConsistency(fallbackLayout, ctx, prompt);
       }
     }
 
     const candidate = payload.layout ?? payload;
     try {
-      return enforceModeConsistency(normalizeLayout(candidate, ctx), ctx, prompt);
+      const normalized = normalizeLayout(candidate, ctx);
+      const safeLayout = isSchemaTextLayout(normalized)
+        ? deterministicLayout
+        : normalized;
+      return enforceModeConsistency(safeLayout, ctx, prompt);
     } catch (err) {
       console.error("Copilot layout normalization failed", err);
       const converted = convertForeignLayout(candidate, ctx);
       if (converted) {
         try {
-          return enforceModeConsistency(
-            normalizeLayout(converted, ctx),
-            ctx,
-            prompt,
-          );
+          const normalized = normalizeLayout(converted, ctx);
+          const safeLayout = isSchemaTextLayout(normalized)
+            ? deterministicLayout
+            : normalized;
+          return enforceModeConsistency(safeLayout, ctx, prompt);
         } catch (innerErr) {
           console.error(
             "Copilot converted layout normalization failed",
@@ -1789,7 +2264,13 @@ module.exports = {
       } else {
         console.error("Copilot foreign layout conversion failed", candidate);
       }
-      return buildDeterministicLayout(ctx, prompt);
+      // Minimal fallback: return prompt text to avoid overriding user intent
+      const fallbackLayout = isSchemaTextLayout({
+        above: [textFallback(prompt || "")],
+      })
+        ? deterministicLayout
+        : { above: [textFallback(prompt || "")] };
+      return enforceModeConsistency(fallbackLayout, ctx, prompt);
     }
   },
   isAsync: true,
