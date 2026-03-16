@@ -3,6 +3,7 @@ const Table = require("@saltcorn/data/models/table");
 const Trigger = require("@saltcorn/data/models/trigger");
 const View = require("@saltcorn/data/models/view");
 const { edit_build_in_actions } = require("@saltcorn/data/viewable_fields");
+const { buildBuilderSchema } = require("./builder-schema");
 
 const ACTION_SIZES = ["btn-sm", "btn-lg"];
 const MODE_GUIDANCE = {
@@ -788,25 +789,6 @@ const buildContext = async (mode, tableName) => {
   return ctx;
 };
 
-const fetchBuilderSchema = async (mode, table, req) => {
-  const baseUrl =
-    (getState().getConfig && getState().getConfig("base_url")) ||
-    "http://localhost:3000";
-  const url = new URL("/scapi/builder_schema/", baseUrl);
-  url.searchParams.set("mode", mode || "show");
-  if (table) url.searchParams.set("table", table);
-  const headers = {};
-  if (req?.headers?.cookie) headers.Cookie = req.headers.cookie;
-  if (req?.headers?.authorization)
-    headers.Authorization = req.headers.authorization;
-  if (typeof fetch !== "function") return null;
-  console.log({ url: url.toString(), headers });
-  const res = await fetch(url.toString(), { headers });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json.success || null;
-};
-
 const buildErrorLayout = ({ message, mode, table }) => {
   const trimmedMessage = String(message || "Unknown error").slice(0, 500);
   const contextLine = table
@@ -860,14 +842,14 @@ const buildErrorLayout = ({ message, mode, table }) => {
 };
 
 module.exports = {
-  run: async (prompt, mode, table, req) => {
+  run: async (prompt, mode, table) => {
     // Remove any leading "container:" or similar so as to remain with only the user prompt.
     prompt = prompt.trim().replace(/^\[\w+\]:\s*/, "");
 
     console.log({ prompt, mode, table });
 
     const ctx = await buildContext(mode, table);
-    const schema = await fetchBuilderSchema(mode, table, req);
+    const schema = buildBuilderSchema({ mode, ctx });
     const llm = getState().functions.llm_generate;
     if (!llm?.run) throw new Error("LLM generator not configured");
 
