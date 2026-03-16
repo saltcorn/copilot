@@ -14,6 +14,7 @@ module.exports = {
     : [require("./action-builder"), require("./database-designer")],
   functions: features.workflows
     ? {
+        copilot_standard_prompt: require("./standard-prompt.js"),
         copilot_generate_layout: require("./builder-gen.js"),
         copilot_generate_workflow: require("./workflow-gen"),
       }
