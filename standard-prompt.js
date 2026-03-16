@@ -3,6 +3,7 @@ const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");
 const Table = require("@saltcorn/data/models/table");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
+const { getPromptFromTemplate } = require("./common");
 
 const scTypeToTsType = (type, field) => {
   if (field?.is_fkey) {
