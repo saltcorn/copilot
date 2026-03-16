@@ -37,6 +37,10 @@ database queries or other aynchronous code (see examples below)
         const ds = [];
         for (const [nm, f] of Object.entries(getState().functions)) {
           const comment = f.description ? " // " + f.description : "";
+          const returns =
+            f.returns || f.tsreturns
+              ? ": " + (f.tsreturns || scTypeToTsType(f.returns))
+              : "";
           if (nm === "today") {
             ds.push(
               `function today(offset_days?: number | {startOf:  "year" | "quarter" | "month" | "week" | "day" | "hour"} | {endOf:  "year" | "quarter" | "month" | "week" | "day" | "hour"}): Date`,
@@ -51,7 +55,7 @@ database queries or other aynchronous code (see examples below)
                   `${name}${required ? "" : "?"}: ${tstype || scTypeToTsType(type)}`,
               );
               ds.push(
-                `${f.isAsync ? "async " : ""}function ${nm}(${args.join(", ")})${comment}`,
+                `${f.isAsync ? "async " : ""}function ${nm}(${args.join(", ")})${returns}${comment}`,
               );
             } else
               ds.push(
