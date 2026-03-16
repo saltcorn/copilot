@@ -3,34 +3,34 @@ const Table = require("@saltcorn/data/models/table");
 const Trigger = require("@saltcorn/data/models/trigger");
 const View = require("@saltcorn/data/models/view");
 const { edit_build_in_actions } = require("@saltcorn/data/viewable_fields");
-const { parseHTML } = require("./common");
+// const { parseHTML } = require("./common");
 
-const BUTTON_STYLES = [
-  "btn-primary",
-  "btn-secondary",
-  "btn-success",
-  "btn-info",
-  "btn-warning",
-  "btn-danger",
-  "btn-outline-primary",
-  "btn-outline-secondary",
-  "btn-link",
-];
+// const BUTTON_STYLES = [
+//   "btn-primary",
+//   "btn-secondary",
+//   "btn-success",
+//   "btn-info",
+//   "btn-warning",
+//   "btn-danger",
+//   "btn-outline-primary",
+//   "btn-outline-secondary",
+//   "btn-link",
+// ];
 const ACTION_SIZES = ["btn-sm", "btn-lg"];
-const TEXT_STYLES = [
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "fst-italic",
-  "text-muted",
-  "fw-bold",
-  "text-underline",
-  "small",
-  "font-monospace",
-];
+// const TEXT_STYLES = [
+//   "h1",
+//   "h2",
+//   "h3",
+//   "h4",
+//   "h5",
+//   "h6",
+//   "fst-italic",
+//   "text-muted",
+//   "fw-bold",
+//   "text-underline",
+//   "small",
+//   "font-monospace",
+// ];
 const MODE_GUIDANCE = {
   edit: "Layout is a form for editing a single row. Include required inputs with edit fieldviews, group related inputs, and finish with a Save action.",
   show: "Layout displays one record read-only. Use show fieldviews, blank headings, and optional follow-up actions.",
@@ -42,32 +42,30 @@ const MODE_GUIDANCE = {
     "Use Saltcorn layout primitives (above, besides, container, card, tabs, blank, field, action, view_link, view). Do not return HTML snippets.",
 };
 
-const textFallback = (contents) => ({
-  type: "blank",
-  contents: String(contents || "").trim(),
-});
+// const textFallback = (contents) => ({
+//   type: "blank",
+//   contents: String(contents || "").trim(),
+// });
 
-const looksLikeSchemaText = (text) => {
-  if (!text || typeof text !== "string") return false;
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  const hasBraces = /[\[{].*[\]}]/s.test(trimmed);
-  const hasColon = trimmed.includes(":");
-  const hasKeywords = /\b(layout|above|besides|field|action|view)\b/i.test(
-    trimmed,
-  );
-  return (hasBraces && hasColon) || hasKeywords;
-};
+// const looksLikeSchemaText = (text) => {
+//   if (!text || typeof text !== "string") return false;
+//   const trimmed = text.trim();
+//   if (!trimmed) return false;
+//   const hasBraces = /[\[{].*[\]}]/s.test(trimmed);
+//   const hasColon = trimmed.includes(":");
+//   const hasKeywords = /\b(layout|above|besides|field|action|view)\b/i.test(
+//     trimmed,
+//   );
+//   return (hasBraces && hasColon) || hasKeywords;
+// };
 
-const isSchemaTextLayout = (layout) => {
-  if (!layout || typeof layout !== "object") return false;
-  const items = Array.isArray(layout.above)
-    ? layout.above.filter(Boolean)
-    : [];
-  if (items.length !== 1) return false;
-  const seg = items[0];
-  return seg?.type === "blank" && looksLikeSchemaText(seg.contents);
-};
+// const isSchemaTextLayout = (layout) => {
+//   if (!layout || typeof layout !== "object") return false;
+//   const items = Array.isArray(layout.above) ? layout.above.filter(Boolean) : [];
+//   if (items.length !== 1) return false;
+//   const seg = items[0];
+//   return seg?.type === "blank" && looksLikeSchemaText(seg.contents);
+// };
 
 const stripCodeFences = (text) => text.replace(/```(?:json)?/gi, "").trim();
 
@@ -177,407 +175,407 @@ const prettifyActionName = (name) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const pickSaveActionName = (actions) => {
-  if (!actions?.length) return undefined;
-  const exact = actions.find((a) => a === "Save");
-  if (exact) return exact;
-  const fuzzy = actions.find((a) => /save/i.test(a));
-  if (fuzzy) return fuzzy;
-  return actions[0];
-};
+// const pickSaveActionName = (actions) => {
+//   if (!actions?.length) return undefined;
+//   const exact = actions.find((a) => a === "Save");
+//   if (exact) return exact;
+//   const fuzzy = actions.find((a) => /save/i.test(a));
+//   if (fuzzy) return fuzzy;
+//   return actions[0];
+// };
 
 // Extracts all action mentions from the prompt, including duplicates for repeated mentions
 // Also handles common action phrases like "button with X action"
-const extractRequestedActions = (prompt, availableActions) => {
-  if (!prompt || !availableActions?.length) return [];
-  const src = prompt.toLowerCase();
-  const requestedEntries = []; // { action, idx } for ordering
+// const extractRequestedActions = (prompt, availableActions) => {
+//   if (!prompt || !availableActions?.length) return [];
+//   const src = prompt.toLowerCase();
+//   const requestedEntries = []; // { action, idx } for ordering
 
-  // Common action phrase patterns to detect action requests
-  const actionPhrasePatterns = [
-    /button\s+(?:with|for)\s+["']?([^"']+?)["']?\s*action/gi,
-    /action\s*["']([^"']+)["']/gi,
-    /(\w+)\s+button/gi,
-    /button.*?["']([^"']+)["']/gi,
-  ];
+//   // Common action phrase patterns to detect action requests
+//   const actionPhrasePatterns = [
+//     /button\s+(?:with|for)\s+["']?([^"']+?)["']?\s*action/gi,
+//     /action\s*["']([^"']+)["']/gi,
+//     /(\w+)\s+button/gi,
+//     /button.*?["']([^"']+)["']/gi,
+//   ];
 
-  // First, try to extract actions from phrase patterns
-  for (const pattern of actionPhrasePatterns) {
-    let match;
-    const re = new RegExp(pattern.source, pattern.flags);
-    while ((match = re.exec(src))) {
-      const actionMention = (match[1] || "").trim().toLowerCase();
-      if (!actionMention) continue;
+//   // First, try to extract actions from phrase patterns
+//   for (const pattern of actionPhrasePatterns) {
+//     let match;
+//     const re = new RegExp(pattern.source, pattern.flags);
+//     while ((match = re.exec(src))) {
+//       const actionMention = (match[1] || "").trim().toLowerCase();
+//       if (!actionMention) continue;
 
-      // Find matching available action
-      const matchedAction = availableActions.find((a) => {
-        const actionLower = String(a).toLowerCase();
-        const aliases = [
-          actionLower,
-          actionLower.replace(/_/g, " "),
-          actionLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase(),
-        ];
-        return aliases.some(
-          (alias) =>
-            actionMention.includes(alias) || alias.includes(actionMention),
-        );
-      });
+//       // Find matching available action
+//       const matchedAction = availableActions.find((a) => {
+//         const actionLower = String(a).toLowerCase();
+//         const aliases = [
+//           actionLower,
+//           actionLower.replace(/_/g, " "),
+//           actionLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase(),
+//         ];
+//         return aliases.some(
+//           (alias) =>
+//             actionMention.includes(alias) || alias.includes(actionMention),
+//         );
+//       });
 
-      if (matchedAction) {
-        requestedEntries.push({ action: matchedAction, idx: match.index });
-      }
-    }
-  }
+//       if (matchedAction) {
+//         requestedEntries.push({ action: matchedAction, idx: match.index });
+//       }
+//     }
+//   }
 
-  // Also check for direct action name mentions
-  for (const action of availableActions) {
-    const actionLower = String(action).toLowerCase();
-    const aliasPatterns = [
-      actionLower,
-      actionLower.replace(/_/g, " "),
-      actionLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase(),
-    ];
+//   // Also check for direct action name mentions
+//   for (const action of availableActions) {
+//     const actionLower = String(action).toLowerCase();
+//     const aliasPatterns = [
+//       actionLower,
+//       actionLower.replace(/_/g, " "),
+//       actionLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase(),
+//     ];
 
-    for (const alias of aliasPatterns) {
-      const escaped = escapeRegex(alias);
-      const re = new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`, "gi");
-      let match;
-      while ((match = re.exec(src))) {
-        const idx = match.index + (match[1] ? match[1].length : 0);
-        // Check if this position is already captured
-        const alreadyCaptured = requestedEntries.some(
-          (e) =>
-            Math.abs(e.idx - idx) < alias.length + 5 && e.action === action,
-        );
-        if (!alreadyCaptured) {
-          requestedEntries.push({ action, idx });
-        }
-        if (re.lastIndex === match.index) re.lastIndex++;
-      }
-    }
-  }
+//     for (const alias of aliasPatterns) {
+//       const escaped = escapeRegex(alias);
+//       const re = new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`, "gi");
+//       let match;
+//       while ((match = re.exec(src))) {
+//         const idx = match.index + (match[1] ? match[1].length : 0);
+//         // Check if this position is already captured
+//         const alreadyCaptured = requestedEntries.some(
+//           (e) =>
+//             Math.abs(e.idx - idx) < alias.length + 5 && e.action === action,
+//         );
+//         if (!alreadyCaptured) {
+//           requestedEntries.push({ action, idx });
+//         }
+//         if (re.lastIndex === match.index) re.lastIndex++;
+//       }
+//     }
+//   }
 
-  // Sort by position and return actions in order (preserving order of first occurrence)
-  requestedEntries.sort((a, b) => a.idx - b.idx);
+//   // Sort by position and return actions in order (preserving order of first occurrence)
+//   requestedEntries.sort((a, b) => a.idx - b.idx);
 
-  // Deduplicate while preserving order
-  const seen = new Set();
-  const result = [];
-  for (const entry of requestedEntries) {
-    if (!seen.has(entry.action)) {
-      seen.add(entry.action);
-      result.push(entry.action);
-    }
-  }
+//   // Deduplicate while preserving order
+//   const seen = new Set();
+//   const result = [];
+//   for (const entry of requestedEntries) {
+//     if (!seen.has(entry.action)) {
+//       seen.add(entry.action);
+//       result.push(entry.action);
+//     }
+//   }
 
-  return result;
-};
+//   return result;
+// };
 
-const isSingleColumnLayout = (prompt) => {
-  if (!prompt) return false;
-  return /\b(single[- ]?column|one[- ]?column|1[- ]?column|vertical|stacked|no[- ]?columns?)\b/i.test(
-    prompt,
-  );
-};
+// const isSingleColumnLayout = (prompt) => {
+//   if (!prompt) return false;
+//   return /\b(single[- ]?column|one[- ]?column|1[- ]?column|vertical|stacked|no[- ]?columns?)\b/i.test(
+//     prompt,
+//   );
+// };
 
 // Detects requested column count from prompt (1, 2, 3, 4, etc.)
-const getRequestedColumnCount = (prompt) => {
-  if (!prompt) return null;
-  const src = prompt.toLowerCase();
+// const getRequestedColumnCount = (prompt) => {
+//   if (!prompt) return null;
+//   const src = prompt.toLowerCase();
 
-  // Check for specific column counts
-  if (/\b(two|2|double)[- ]?column/i.test(src)) return 2;
-  if (/\b(three|3|triple)[- ]?column/i.test(src)) return 3;
-  if (/\b(four|4)[- ]?column/i.test(src)) return 4;
-  if (/\b(single|1|one)[- ]?column/i.test(src)) return 1;
+//   // Check for specific column counts
+//   if (/\b(two|2|double)[- ]?column/i.test(src)) return 2;
+//   if (/\b(three|3|triple)[- ]?column/i.test(src)) return 3;
+//   if (/\b(four|4)[- ]?column/i.test(src)) return 4;
+//   if (/\b(single|1|one)[- ]?column/i.test(src)) return 1;
 
-  // Check for multi-column without specific count - default to 2
-  if (/\b(multi[- ]?column|grid|columns)\b/i.test(src)) return 2;
+//   // Check for multi-column without specific count - default to 2
+//   if (/\b(multi[- ]?column|grid|columns)\b/i.test(src)) return 2;
 
-  return null; // No column preference detected
-};
+//   return null; // No column preference detected
+// };
 
-const preferEditableFields = (fields) => {
-  const editable = (fields || []).filter(
-    (f) => !f.primary_key && !f.calculated && !f.is_pk_name && f.name !== "id",
-  );
-  return editable.length ? editable : fields || [];
-};
+// const preferEditableFields = (fields) => {
+//   const editable = (fields || []).filter(
+//     (f) => !f.primary_key && !f.calculated && !f.is_pk_name && f.name !== "id",
+//   );
+//   return editable.length ? editable : fields || [];
+// };
 
-const fieldAliases = (field) =>
-  [field?.name, field?.label]
-    .filter(Boolean)
-    .map((s) => String(s).toLowerCase())
-    .flatMap((s) => [s, s.replace(/_/g, " "), s.replace(/[-_]/g, " ")]);
+// const fieldAliases = (field) =>
+//   [field?.name, field?.label]
+//     .filter(Boolean)
+//     .map((s) => String(s).toLowerCase())
+//     .flatMap((s) => [s, s.replace(/_/g, " "), s.replace(/[-_]/g, " ")]);
 
-const compactAlnum = (s) =>
-  String(s || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
+// const compactAlnum = (s) =>
+//   String(s || "")
+//     .toLowerCase()
+//     .replace(/[^a-z0-9]/g, "");
 
-const compactIndexMap = (text) => {
-  const chars = [];
-  const indexMap = [];
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (/[a-z0-9]/i.test(ch)) {
-      chars.push(ch.toLowerCase());
-      indexMap.push(i);
-    }
-  }
-  return { compact: chars.join(""), indexMap };
-};
+// const compactIndexMap = (text) => {
+//   const chars = [];
+//   const indexMap = [];
+//   for (let i = 0; i < text.length; i++) {
+//     const ch = text[i];
+//     if (/[a-z0-9]/i.test(ch)) {
+//       chars.push(ch.toLowerCase());
+//       indexMap.push(i);
+//     }
+//   }
+//   return { compact: chars.join(""), indexMap };
+// };
 
-const firstAliasIndex = (field, prompt) => {
-  const src = (prompt || "").toLowerCase();
-  if (!src) return -1;
-  let best = -1;
-  for (const nm of fieldAliases(field)) {
-    if (!nm) continue;
-    const re = new RegExp(
-      `(^|[^a-z0-9_])${escapeRegex(nm)}([^a-z0-9_]|$)`,
-      "i",
-    );
-    const match = re.exec(src);
-    if (!match) continue;
-    const idx = match.index + (match[1] ? match[1].length : 0);
-    if (best === -1 || idx < best) best = idx;
-  }
+// const firstAliasIndex = (field, prompt) => {
+//   const src = (prompt || "").toLowerCase();
+//   if (!src) return -1;
+//   let best = -1;
+//   for (const nm of fieldAliases(field)) {
+//     if (!nm) continue;
+//     const re = new RegExp(
+//       `(^|[^a-z0-9_])${escapeRegex(nm)}([^a-z0-9_]|$)`,
+//       "i",
+//     );
+//     const match = re.exec(src);
+//     if (!match) continue;
+//     const idx = match.index + (match[1] ? match[1].length : 0);
+//     if (best === -1 || idx < best) best = idx;
+//   }
 
-  const { compact, indexMap } = compactIndexMap(src);
-  for (const nm of fieldAliases(field)) {
-    const compactAlias = compactAlnum(nm);
-    if (!compactAlias || compactAlias.length < 3) continue;
-    const cidx = compact.indexOf(compactAlias);
-    if (cidx === -1) continue;
-    const idx = indexMap[cidx] ?? -1;
-    if (idx >= 0 && (best === -1 || idx < best)) best = idx;
-  }
+//   const { compact, indexMap } = compactIndexMap(src);
+//   for (const nm of fieldAliases(field)) {
+//     const compactAlias = compactAlnum(nm);
+//     if (!compactAlias || compactAlias.length < 3) continue;
+//     const cidx = compact.indexOf(compactAlias);
+//     if (cidx === -1) continue;
+//     const idx = indexMap[cidx] ?? -1;
+//     if (idx >= 0 && (best === -1 || idx < best)) best = idx;
+//   }
 
-  return best;
-};
+//   return best;
+// };
 
-const allAliasIndexes = (field, prompt) => {
-  const src = (prompt || "").toLowerCase();
-  if (!src) return [];
-  const idxs = [];
-  for (const nm of fieldAliases(field)) {
-    if (!nm) continue;
-    const re = new RegExp(
-      `(^|[^a-z0-9_])${escapeRegex(nm)}([^a-z0-9_]|$)`,
-      "gi",
-    );
-    let match;
-    while ((match = re.exec(src))) {
-      idxs.push(match.index + (match[1] ? match[1].length : 0));
-      if (re.lastIndex === match.index) re.lastIndex++;
-    }
-  }
+// const allAliasIndexes = (field, prompt) => {
+//   const src = (prompt || "").toLowerCase();
+//   if (!src) return [];
+//   const idxs = [];
+//   for (const nm of fieldAliases(field)) {
+//     if (!nm) continue;
+//     const re = new RegExp(
+//       `(^|[^a-z0-9_])${escapeRegex(nm)}([^a-z0-9_]|$)`,
+//       "gi",
+//     );
+//     let match;
+//     while ((match = re.exec(src))) {
+//       idxs.push(match.index + (match[1] ? match[1].length : 0));
+//       if (re.lastIndex === match.index) re.lastIndex++;
+//     }
+//   }
 
-  const { compact, indexMap } = compactIndexMap(src);
-  for (const nm of fieldAliases(field)) {
-    const compactAlias = compactAlnum(nm);
-    if (!compactAlias || compactAlias.length < 3) continue;
-    let from = 0;
-    while (from < compact.length) {
-      const cidx = compact.indexOf(compactAlias, from);
-      if (cidx === -1) break;
-      const idx = indexMap[cidx];
-      if (typeof idx === "number") idxs.push(idx);
-      from = cidx + compactAlias.length;
-    }
-  }
+//   const { compact, indexMap } = compactIndexMap(src);
+//   for (const nm of fieldAliases(field)) {
+//     const compactAlias = compactAlnum(nm);
+//     if (!compactAlias || compactAlias.length < 3) continue;
+//     let from = 0;
+//     while (from < compact.length) {
+//       const cidx = compact.indexOf(compactAlias, from);
+//       if (cidx === -1) break;
+//       const idx = indexMap[cidx];
+//       if (typeof idx === "number") idxs.push(idx);
+//       from = cidx + compactAlias.length;
+//     }
+//   }
 
-  return Array.from(new Set(idxs)).sort((a, b) => a - b);
-};
+//   return Array.from(new Set(idxs)).sort((a, b) => a - b);
+// };
 
-const mentionedEditableFields = (prompt, ctx) => {
-  return preferEditableFields(ctx.fields)
-    .map((field) => ({ field, idx: firstAliasIndex(field, prompt) }))
-    .filter((m) => m.idx >= 0)
-    .sort((a, b) => a.idx - b.idx)
-    .map((m) => m.field);
-};
+// const mentionedEditableFields = (prompt, ctx) => {
+//   return preferEditableFields(ctx.fields)
+//     .map((field) => ({ field, idx: firstAliasIndex(field, prompt) }))
+//     .filter((m) => m.idx >= 0)
+//     .sort((a, b) => a.idx - b.idx)
+//     .map((m) => m.field);
+// };
 
 // Find best matching fieldview from user's request, strictly validating against field's available views
-const findOverrideFieldview = (field, override) => {
-  if (!override?.keywords?.length || !field?.fieldviews?.length) return null;
+// const findOverrideFieldview = (field, override) => {
+//   if (!override?.keywords?.length || !field?.fieldviews?.length) return null;
 
-  // Search for a matching fieldview from the field's actual available views
-  // based on the user's requested keywords
-  for (const keyword of override.keywords) {
-    const lowerKeyword = String(keyword).toLowerCase();
-    // Try exact match first
-    const exact = field.fieldviews.find(
-      (fv) => String(fv).toLowerCase() === lowerKeyword,
-    );
-    if (exact) return exact;
-    // Try contains match
-    const fuzzy = field.fieldviews.find((fv) =>
-      String(fv).toLowerCase().includes(lowerKeyword),
-    );
-    if (fuzzy) return fuzzy;
-  }
-  // No valid fieldview found for the requested keywords
-  return null;
-};
+//   // Search for a matching fieldview from the field's actual available views
+//   // based on the user's requested keywords
+//   for (const keyword of override.keywords) {
+//     const lowerKeyword = String(keyword).toLowerCase();
+//     // Try exact match first
+//     const exact = field.fieldviews.find(
+//       (fv) => String(fv).toLowerCase() === lowerKeyword,
+//     );
+//     if (exact) return exact;
+//     // Try contains match
+//     const fuzzy = field.fieldviews.find((fv) =>
+//       String(fv).toLowerCase().includes(lowerKeyword),
+//     );
+//     if (fuzzy) return fuzzy;
+//   }
+//   // No valid fieldview found for the requested keywords
+//   return null;
+// };
 
 // Semantic keyword mappings - these are user-facing terms that map to fieldview search keywords
 // The actual fieldview matching happens dynamically against the field's available fieldviews
-const FIELDVIEW_KEYWORDS = [
-  // Edit mode keywords
-  {
-    aliases: ["markdown", "markdown editor", "md editor", "rich text"],
-    keywords: ["markdown", "toastui", "richtext", "textarea"],
-  },
-  {
-    aliases: ["text area", "textarea", "multi-line", "multiline"],
-    keywords: ["textarea", "text_area", "multiline"],
-  },
-  { aliases: ["email", "email input"], keywords: ["email"] },
-  { aliases: ["url", "link input"], keywords: ["url", "link"] },
-  {
-    aliases: ["number", "numeric", "integer"],
-    keywords: ["number", "integer", "numeric"],
-  },
-  { aliases: ["date", "date picker"], keywords: ["date"] },
-  { aliases: ["time", "time picker"], keywords: ["time"] },
-  {
-    aliases: ["datetime", "date time", "timestamp"],
-    keywords: ["datetime", "timestamp"],
-  },
-  {
-    aliases: ["checkbox", "toggle", "boolean"],
-    keywords: ["checkbox", "toggle", "bool"],
-  },
-  {
-    aliases: ["color", "colour", "color picker"],
-    keywords: ["color", "colour"],
-  },
-  {
-    aliases: ["file", "upload", "attachment"],
-    keywords: ["file", "upload", "attachment"],
-  },
-  { aliases: ["password", "secret"], keywords: ["password", "secret"] },
-  { aliases: ["phone", "telephone", "tel"], keywords: ["phone", "tel"] },
-  // Show mode keywords
-  {
-    aliases: [
-      "render as markdown",
-      "render markdown",
-      "as markdown",
-      "show as markdown",
-      "display as markdown",
-      "markdown format",
-    ],
-    keywords: ["markdown", "show_markdown"],
-  },
-  {
-    aliases: [
-      "render as html",
-      "as html",
-      "show as html",
-      "display as html",
-      "html format",
-      "render html",
-    ],
-    keywords: ["html", "unsafe_html", "show_with_html"],
-  },
-  {
-    aliases: ["as code", "code block", "show as code", "code format"],
-    keywords: ["code", "pre"],
-  },
-  {
-    aliases: ["as link", "as a link", "show as link", "clickable link"],
-    keywords: ["link", "as_link"],
-  },
-];
+// const FIELDVIEW_KEYWORDS = [
+//   // Edit mode keywords
+//   {
+//     aliases: ["markdown", "markdown editor", "md editor", "rich text"],
+//     keywords: ["markdown", "toastui", "richtext", "textarea"],
+//   },
+//   {
+//     aliases: ["text area", "textarea", "multi-line", "multiline"],
+//     keywords: ["textarea", "text_area", "multiline"],
+//   },
+//   { aliases: ["email", "email input"], keywords: ["email"] },
+//   { aliases: ["url", "link input"], keywords: ["url", "link"] },
+//   {
+//     aliases: ["number", "numeric", "integer"],
+//     keywords: ["number", "integer", "numeric"],
+//   },
+//   { aliases: ["date", "date picker"], keywords: ["date"] },
+//   { aliases: ["time", "time picker"], keywords: ["time"] },
+//   {
+//     aliases: ["datetime", "date time", "timestamp"],
+//     keywords: ["datetime", "timestamp"],
+//   },
+//   {
+//     aliases: ["checkbox", "toggle", "boolean"],
+//     keywords: ["checkbox", "toggle", "bool"],
+//   },
+//   {
+//     aliases: ["color", "colour", "color picker"],
+//     keywords: ["color", "colour"],
+//   },
+//   {
+//     aliases: ["file", "upload", "attachment"],
+//     keywords: ["file", "upload", "attachment"],
+//   },
+//   { aliases: ["password", "secret"], keywords: ["password", "secret"] },
+//   { aliases: ["phone", "telephone", "tel"], keywords: ["phone", "tel"] },
+//   // Show mode keywords
+//   {
+//     aliases: [
+//       "render as markdown",
+//       "render markdown",
+//       "as markdown",
+//       "show as markdown",
+//       "display as markdown",
+//       "markdown format",
+//     ],
+//     keywords: ["markdown", "show_markdown"],
+//   },
+//   {
+//     aliases: [
+//       "render as html",
+//       "as html",
+//       "show as html",
+//       "display as html",
+//       "html format",
+//       "render html",
+//     ],
+//     keywords: ["html", "unsafe_html", "show_with_html"],
+//   },
+//   {
+//     aliases: ["as code", "code block", "show as code", "code format"],
+//     keywords: ["code", "pre"],
+//   },
+//   {
+//     aliases: ["as link", "as a link", "show as link", "clickable link"],
+//     keywords: ["link", "as_link"],
+//   },
+// ];
 
-const requestedFieldOverrides = (prompt, ctx) => {
-  const src = (prompt || "").toLowerCase();
-  const overrides = {};
+// const requestedFieldOverrides = (prompt, ctx) => {
+//   const src = (prompt || "").toLowerCase();
+//   const overrides = {};
 
-  // Check if any fieldview keyword is mentioned
-  const hasAnyInputTypeCue = FIELDVIEW_KEYWORDS.some(({ aliases }) =>
-    aliases.some((alias) => src.includes(alias.toLowerCase())),
-  );
-  if (!hasAnyInputTypeCue) return overrides;
+//   // Check if any fieldview keyword is mentioned
+//   const hasAnyInputTypeCue = FIELDVIEW_KEYWORDS.some(({ aliases }) =>
+//     aliases.some((alias) => src.includes(alias.toLowerCase())),
+//   );
+//   if (!hasAnyInputTypeCue) return overrides;
 
-  // Build field mentions with their positions in the prompt
-  const fieldMentions = [];
-  for (const field of ctx.fields || []) {
-    const idxs = allAliasIndexes(field, src);
-    for (const idx of idxs)
-      fieldMentions.push({ fieldName: field.name, field, idx });
-  }
-  fieldMentions.sort((a, b) => a.idx - b.idx);
-  if (!fieldMentions.length) return overrides;
+//   // Build field mentions with their positions in the prompt
+//   const fieldMentions = [];
+//   for (const field of ctx.fields || []) {
+//     const idxs = allAliasIndexes(field, src);
+//     for (const idx of idxs)
+//       fieldMentions.push({ fieldName: field.name, field, idx });
+//   }
+//   fieldMentions.sort((a, b) => a.idx - b.idx);
+//   if (!fieldMentions.length) return overrides;
 
-  // Build keyword mentions with their positions
-  const keywordMentions = [];
-  for (const spec of FIELDVIEW_KEYWORDS) {
-    for (const alias of spec.aliases) {
-      const escaped = escapeRegex(alias.toLowerCase());
-      const re = new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`, "gi");
-      let match;
-      while ((match = re.exec(src))) {
-        keywordMentions.push({
-          idx: match.index + (match[1] ? match[1].length : 0),
-          keywords: spec.keywords,
-        });
-        if (re.lastIndex === match.index) re.lastIndex++;
-      }
-    }
-  }
-  keywordMentions.sort((a, b) => a.idx - b.idx);
+//   // Build keyword mentions with their positions
+//   const keywordMentions = [];
+//   for (const spec of FIELDVIEW_KEYWORDS) {
+//     for (const alias of spec.aliases) {
+//       const escaped = escapeRegex(alias.toLowerCase());
+//       const re = new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`, "gi");
+//       let match;
+//       while ((match = re.exec(src))) {
+//         keywordMentions.push({
+//           idx: match.index + (match[1] ? match[1].length : 0),
+//           keywords: spec.keywords,
+//         });
+//         if (re.lastIndex === match.index) re.lastIndex++;
+//       }
+//     }
+//   }
+//   keywordMentions.sort((a, b) => a.idx - b.idx);
 
-  // Associate keywords with fields based on proximity
-  for (const k of keywordMentions) {
-    // Find the closest field mention before this keyword (within 80 chars)
-    const candidates = fieldMentions.filter(
-      (fm) => fm.idx <= k.idx && k.idx - fm.idx <= 80,
-    );
-    if (!candidates.length) continue;
-    const chosen = candidates[candidates.length - 1];
+//   // Associate keywords with fields based on proximity
+//   for (const k of keywordMentions) {
+//     // Find the closest field mention before this keyword (within 80 chars)
+//     const candidates = fieldMentions.filter(
+//       (fm) => fm.idx <= k.idx && k.idx - fm.idx <= 80,
+//     );
+//     if (!candidates.length) continue;
+//     const chosen = candidates[candidates.length - 1];
 
-    // Only add override if the field actually supports one of the requested fieldviews
-    const fieldviews = chosen.field?.fieldviews || [];
-    const validKeywords = k.keywords.filter((kw) =>
-      fieldviews.some((fv) =>
-        String(fv).toLowerCase().includes(kw.toLowerCase()),
-      ),
-    );
+//     // Only add override if the field actually supports one of the requested fieldviews
+//     const fieldviews = chosen.field?.fieldviews || [];
+//     const validKeywords = k.keywords.filter((kw) =>
+//       fieldviews.some((fv) =>
+//         String(fv).toLowerCase().includes(kw.toLowerCase()),
+//       ),
+//     );
 
-    if (validKeywords.length) {
-      overrides[chosen.fieldName] = {
-        keywords: validKeywords,
-      };
-    }
-  }
+//     if (validKeywords.length) {
+//       overrides[chosen.fieldName] = {
+//         keywords: validKeywords,
+//       };
+//     }
+//   }
 
-  return overrides;
-};
+//   return overrides;
+// };
 
-const fieldsFromPrompt = (prompt, ctx) => {
-  // Respect only explicitly mentioned fields; if none are mentioned, return none
-  const preferred = mentionedEditableFields(prompt, ctx);
-  return preferred;
-};
+// const fieldsFromPrompt = (prompt, ctx) => {
+//   // Respect only explicitly mentioned fields; if none are mentioned, return none
+//   const preferred = mentionedEditableFields(prompt, ctx);
+//   return preferred;
+// };
 
-const isExplicitSubsetPrompt = (prompt, ctx) => {
-  const src = (prompt || "").toLowerCase();
-  if (!src.trim()) return false;
-  const hasSubsetCue =
-    /\bonly\b|\bjust\b|\bthese\s+fields\b|\bfor\s+(the\s+)?fields?\b|\bwith\s+(the\s+)?fields?\b/.test(
-      src,
-    );
-  if (!hasSubsetCue) return false;
-  const mentioned = mentionedEditableFields(prompt, ctx);
-  const editable = preferEditableFields(ctx.fields);
-  return mentioned.length > 0 && mentioned.length < editable.length;
-};
+// const isExplicitSubsetPrompt = (prompt, ctx) => {
+//   const src = (prompt || "").toLowerCase();
+//   if (!src.trim()) return false;
+//   const hasSubsetCue =
+//     /\bonly\b|\bjust\b|\bthese\s+fields\b|\bfor\s+(the\s+)?fields?\b|\bwith\s+(the\s+)?fields?\b/.test(
+//       src,
+//     );
+//   if (!hasSubsetCue) return false;
+//   const mentioned = mentionedEditableFields(prompt, ctx);
+//   const editable = preferEditableFields(ctx.fields);
+//   return mentioned.length > 0 && mentioned.length < editable.length;
+// };
 
 // Picks a valid fieldview from the field's available fieldviews only.
 // Never returns a fieldview that doesn't exist in field.fieldviews
@@ -871,291 +869,264 @@ const normalizeSegment = (segment, ctx) => {
   }
 };
 
-const normalizeLayout = (layout, ctx) => {
-  if (typeof layout === "string") {
-    const trimmed = layout.trim();
-    const jsonCandidate = extractJsonStructure(trimmed);
-    if (jsonCandidate) {
-      const nested = jsonCandidate.layout ?? jsonCandidate;
-      return normalizeLayout(nested, ctx);
-    }
-    if (trimmed.startsWith("<")) {
-      try {
-        return normalizeLayout(parseHTML(trimmed), ctx);
-      } catch (err) {
-        return { above: [textFallback(stripHtmlTags(trimmed))] };
-      }
-    }
-    const bracketCandidate = convertBracketSyntax(trimmed, ctx);
-    if (bracketCandidate) return normalizeLayout(bracketCandidate, ctx);
-    return { above: [textFallback(trimmed)] };
-  }
-  let normalized = normalizeSegment(layout, ctx);
-  if (Array.isArray(normalized)) normalized = { above: normalized };
-  if (!normalized || typeof normalized !== "object") {
-    return { above: [] };
-  }
-  return normalized;
-};
+// const appendSegments = (layout, extraSegments = []) => {
+//   const extras = ensureArray(extraSegments).filter(Boolean);
+//   if (!extras.length) return layout;
+//   if (layout && typeof layout === "object" && Array.isArray(layout.above)) {
+//     return { ...layout, above: [...layout.above, ...extras] };
+//   }
+//   if (layout && typeof layout === "object") {
+//     return { above: [layout, ...extras] };
+//   }
+//   return { above: extras };
+// };
 
-const appendSegments = (layout, extraSegments = []) => {
-  const extras = ensureArray(extraSegments).filter(Boolean);
-  if (!extras.length) return layout;
-  if (layout && typeof layout === "object" && Array.isArray(layout.above)) {
-    return { ...layout, above: [...layout.above, ...extras] };
-  }
-  if (layout && typeof layout === "object") {
-    return { above: [layout, ...extras] };
-  }
-  return { above: extras };
-};
+// const generateLoremWords = (count = 60) => {
+//   const seed = [
+//     "lorem",
+//     "ipsum",
+//     "dolor",
+//     "sit",
+//     "amet",
+//     "consectetur",
+//     "adipiscing",
+//     "elit",
+//     "sed",
+//     "do",
+//     "eiusmod",
+//     "tempor",
+//     "incididunt",
+//     "ut",
+//     "labore",
+//     "et",
+//     "dolore",
+//     "magna",
+//     "aliqua",
+//     "enim",
+//     "minim",
+//     "veniam",
+//     "quis",
+//     "nostrud",
+//     "exercitation",
+//     "ullamco",
+//     "laboris",
+//     "nisi",
+//     "aliquip",
+//     "ex",
+//     "ea",
+//     "commodo",
+//     "consequat",
+//     "duis",
+//     "aute",
+//     "irure",
+//     "dolor",
+//     "in",
+//     "reprehenderit",
+//     "voluptate",
+//     "velit",
+//     "esse",
+//     "cillum",
+//     "dolore",
+//     "eu",
+//     "fugiat",
+//     "nulla",
+//     "pariatur",
+//     "excepteur",
+//     "sint",
+//     "occaecat",
+//     "cupidatat",
+//     "non",
+//     "proident",
+//     "sunt",
+//     "in",
+//     "culpa",
+//     "qui",
+//     "officia",
+//     "deserunt",
+//     "mollit",
+//     "anim",
+//     "id",
+//     "est",
+//     "laborum",
+//   ];
+//   const words = [];
+//   for (let i = 0; i < Math.max(1, count); i++) {
+//     words.push(seed[i % seed.length]);
+//   }
+//   return words.join(" ");
+// };
 
-const generateLoremWords = (count = 60) => {
-  const seed = [
-    "lorem",
-    "ipsum",
-    "dolor",
-    "sit",
-    "amet",
-    "consectetur",
-    "adipiscing",
-    "elit",
-    "sed",
-    "do",
-    "eiusmod",
-    "tempor",
-    "incididunt",
-    "ut",
-    "labore",
-    "et",
-    "dolore",
-    "magna",
-    "aliqua",
-    "enim",
-    "minim",
-    "veniam",
-    "quis",
-    "nostrud",
-    "exercitation",
-    "ullamco",
-    "laboris",
-    "nisi",
-    "aliquip",
-    "ex",
-    "ea",
-    "commodo",
-    "consequat",
-    "duis",
-    "aute",
-    "irure",
-    "dolor",
-    "in",
-    "reprehenderit",
-    "voluptate",
-    "velit",
-    "esse",
-    "cillum",
-    "dolore",
-    "eu",
-    "fugiat",
-    "nulla",
-    "pariatur",
-    "excepteur",
-    "sint",
-    "occaecat",
-    "cupidatat",
-    "non",
-    "proident",
-    "sunt",
-    "in",
-    "culpa",
-    "qui",
-    "officia",
-    "deserunt",
-    "mollit",
-    "anim",
-    "id",
-    "est",
-    "laborum",
-  ];
-  const words = [];
-  for (let i = 0; i < Math.max(1, count); i++) {
-    words.push(seed[i % seed.length]);
-  }
-  return words.join(" ");
-};
+// const pickViewFromPrompt = (viewNames, prompt) => {
+//   if (!viewNames?.length) return null;
+//   const src = (prompt || "").toLowerCase();
+//   let best = null;
+//   for (const name of viewNames) {
+//     const lower = String(name).toLowerCase();
+//     if (src.includes(lower)) {
+//       best = name;
+//       break;
+//     }
+//   }
+//   return best || viewNames[0];
+// };
 
-const pickViewFromPrompt = (viewNames, prompt) => {
-  if (!viewNames?.length) return null;
-  const src = (prompt || "").toLowerCase();
-  let best = null;
-  for (const name of viewNames) {
-    const lower = String(name).toLowerCase();
-    if (src.includes(lower)) {
-      best = name;
-      break;
-    }
-  }
-  return best || viewNames[0];
-};
+// const parseWidgetIntent = (prompt, ctx) => {
+//   const src = (prompt || "").toLowerCase();
+//   if (!src.trim()) return { hasAny: false };
 
-const parseWidgetIntent = (prompt, ctx) => {
-  const src = (prompt || "").toLowerCase();
-  if (!src.trim()) return { hasAny: false };
+//   const numberMatch = src.match(/(\d+)\s+cards?/i);
+//   const listMatch = src.match(/list\s+of\s+(\d+)\s+cards?/i);
+//   const cardCount = numberMatch
+//     ? Number(numberMatch[1])
+//     : listMatch
+//       ? Number(listMatch[1])
+//       : src.includes("card")
+//         ? 1
+//         : 0;
 
-  const numberMatch = src.match(/(\d+)\s+cards?/i);
-  const listMatch = src.match(/list\s+of\s+(\d+)\s+cards?/i);
-  const cardCount = numberMatch
-    ? Number(numberMatch[1])
-    : listMatch
-      ? Number(listMatch[1])
-      : src.includes("card")
-        ? 1
-        : 0;
+//   const wordMatch = src.match(/(\d+)\s+words?/i);
+//   const wordCount = wordMatch ? Number(wordMatch[1]) : 0;
 
-  const wordMatch = src.match(/(\d+)\s+words?/i);
-  const wordCount = wordMatch ? Number(wordMatch[1]) : 0;
+//   const wantViewLink = /view\s*[_ ]link/.test(src);
+//   const wantView = /\bembed(?:ded)?\s+view\b|\bview\b/.test(src);
+//   const wantImage = /image|photo|picture/.test(src);
+//   const wantTabs = /tabs?/.test(src);
+//   const wantSearch = /search\s*bar|search\s+box/.test(src);
+//   const wantText = /text|paragraph|bio/.test(src);
+//   const wantContainer = /container|box|section/.test(src);
+//   const wantLineBreak = /line\s*break|divider|separator/.test(src);
+//   const wantLink = /\blink\b/.test(src) && !wantViewLink;
 
-  const wantViewLink = /view\s*[_ ]link/.test(src);
-  const wantView = /\bembed(?:ded)?\s+view\b|\bview\b/.test(src);
-  const wantImage = /image|photo|picture/.test(src);
-  const wantTabs = /tabs?/.test(src);
-  const wantSearch = /search\s*bar|search\s+box/.test(src);
-  const wantText = /text|paragraph|bio/.test(src);
-  const wantContainer = /container|box|section/.test(src);
-  const wantLineBreak = /line\s*break|divider|separator/.test(src);
-  const wantLink = /\blink\b/.test(src) && !wantViewLink;
+//   return {
+//     hasAny:
+//       cardCount > 0 ||
+//       wantViewLink ||
+//       wantView ||
+//       wantImage ||
+//       wantTabs ||
+//       wantSearch ||
+//       wantText ||
+//       wantContainer ||
+//       wantLineBreak ||
+//       wantLink,
+//     cardCount,
+//     wordCount: wordCount || (src.includes("bio") ? 80 : 0),
+//     wantViewLink,
+//     wantView,
+//     wantImage,
+//     wantTabs,
+//     wantSearch,
+//     wantText,
+//     wantContainer,
+//     wantLineBreak,
+//     wantLink,
+//     targetView: pickViewFromPrompt(ctx?.viewNames || [], prompt),
+//   };
+// };
 
-  return {
-    hasAny:
-      cardCount > 0 ||
-      wantViewLink ||
-      wantView ||
-      wantImage ||
-      wantTabs ||
-      wantSearch ||
-      wantText ||
-      wantContainer ||
-      wantLineBreak ||
-      wantLink,
-    cardCount,
-    wordCount: wordCount || (src.includes("bio") ? 80 : 0),
-    wantViewLink,
-    wantView,
-    wantImage,
-    wantTabs,
-    wantSearch,
-    wantText,
-    wantContainer,
-    wantLineBreak,
-    wantLink,
-    targetView: pickViewFromPrompt(ctx?.viewNames || [], prompt),
-  };
-};
+// const buildWidgetsFromIntent = (intent, ctx) => {
+//   if (!intent?.hasAny) return [];
+//   const widgets = [];
+//   const loremText = generateLoremWords(intent.wordCount || 60);
 
-const buildWidgetsFromIntent = (intent, ctx) => {
-  if (!intent?.hasAny) return [];
-  const widgets = [];
-  const loremText = generateLoremWords(intent.wordCount || 60);
+//   if (intent.cardCount > 0) {
+//     const hasImages = intent.wantImage;
+//     const baseLabel = /(tree|trees)/i.test(intent.source || "")
+//       ? "Tree"
+//       : "Card";
+//     for (let i = 0; i < intent.cardCount; i++) {
+//       const title = `${baseLabel} ${i + 1}`;
+//       const parts = [
+//         { type: "blank", contents: title, class: "fw-bold" },
+//         { type: "blank", contents: generateLoremWords(20) },
+//       ];
+//       if (hasImages) {
+//         parts.push({
+//           type: "image",
+//           url: "https://placehold.co/320x200",
+//           alt: `${title} image`,
+//           class: "mt-2",
+//         });
+//       }
+//       widgets.push({
+//         type: "card",
+//         title,
+//         contents: { above: parts },
+//       });
+//     }
+//   }
 
-  if (intent.cardCount > 0) {
-    const hasImages = intent.wantImage;
-    const baseLabel = /(tree|trees)/i.test(intent.source || "")
-      ? "Tree"
-      : "Card";
-    for (let i = 0; i < intent.cardCount; i++) {
-      const title = `${baseLabel} ${i + 1}`;
-      const parts = [
-        { type: "blank", contents: title, class: "fw-bold" },
-        { type: "blank", contents: generateLoremWords(20) },
-      ];
-      if (hasImages) {
-        parts.push({
-          type: "image",
-          url: "https://placehold.co/320x200",
-          alt: `${title} image`,
-          class: "mt-2",
-        });
-      }
-      widgets.push({
-        type: "card",
-        title,
-        contents: { above: parts },
-      });
-    }
-  }
+//   if (intent.wantText) {
+//     widgets.push({ type: "blank", contents: loremText });
+//   }
 
-  if (intent.wantText) {
-    widgets.push({ type: "blank", contents: loremText });
-  }
+//   const targetView =
+//     intent.targetView || (ctx.viewNames ? ctx.viewNames[0] : null);
 
-  const targetView =
-    intent.targetView || (ctx.viewNames ? ctx.viewNames[0] : null);
+//   if (intent.wantView && targetView) {
+//     widgets.push({ type: "view", view: targetView, state: {} });
+//   }
 
-  if (intent.wantView && targetView) {
-    widgets.push({ type: "view", view: targetView, state: {} });
-  }
+//   if (intent.wantViewLink && targetView) {
+//     widgets.push({
+//       type: "view_link",
+//       view: targetView,
+//       view_label: targetView,
+//       link_style: "btn-link",
+//     });
+//   }
 
-  if (intent.wantViewLink && targetView) {
-    widgets.push({
-      type: "view_link",
-      view: targetView,
-      view_label: targetView,
-      link_style: "btn-link",
-    });
-  }
+//   if (intent.wantTabs) {
+//     widgets.push({
+//       type: "tabs",
+//       tabs: [
+//         {
+//           title: "Tab 1",
+//           contents: { type: "blank", contents: loremText.slice(0, 80) },
+//         },
+//         {
+//           title: "Tab 2",
+//           contents: { type: "blank", contents: loremText.slice(80, 160) },
+//         },
+//       ],
+//     });
+//   }
 
-  if (intent.wantTabs) {
-    widgets.push({
-      type: "tabs",
-      tabs: [
-        {
-          title: "Tab 1",
-          contents: { type: "blank", contents: loremText.slice(0, 80) },
-        },
-        {
-          title: "Tab 2",
-          contents: { type: "blank", contents: loremText.slice(80, 160) },
-        },
-      ],
-    });
-  }
+//   if (intent.wantImage) {
+//     widgets.push({
+//       type: "image",
+//       url: "https://placehold.co/600x400",
+//       alt: "Placeholder image",
+//     });
+//   }
 
-  if (intent.wantImage) {
-    widgets.push({
-      type: "image",
-      url: "https://placehold.co/600x400",
-      alt: "Placeholder image",
-    });
-  }
+//   if (intent.wantSearch) {
+//     widgets.push({ type: "search_bar" });
+//   }
 
-  if (intent.wantSearch) {
-    widgets.push({ type: "search_bar" });
-  }
+//   if (intent.wantContainer) {
+//     widgets.push({
+//       type: "container",
+//       contents: { type: "blank", contents: loremText.slice(0, 100) },
+//       class: "border p-3",
+//     });
+//   }
 
-  if (intent.wantContainer) {
-    widgets.push({
-      type: "container",
-      contents: { type: "blank", contents: loremText.slice(0, 100) },
-      class: "border p-3",
-    });
-  }
+//   if (intent.wantLineBreak) {
+//     widgets.push({ type: "line_break" });
+//   }
 
-  if (intent.wantLineBreak) {
-    widgets.push({ type: "line_break" });
-  }
+//   if (intent.wantLink) {
+//     widgets.push({
+//       type: "link",
+//       url: "#",
+//       text: "Click me",
+//       link_style: "btn btn-primary",
+//     });
+//   }
 
-  if (intent.wantLink) {
-    widgets.push({
-      type: "link",
-      url: "#",
-      text: "Click me",
-      link_style: "btn btn-primary",
-    });
-  }
-
-  return widgets;
-};
+//   return widgets;
+// };
 
 const collectSegments = (segment, out = []) => {
   if (segment == null) return out;
@@ -1176,280 +1147,280 @@ const collectSegments = (segment, out = []) => {
   return out;
 };
 
-const makeEditRow = (field, prompt) => {
-  const overrides = requestedFieldOverrides(prompt, { fields: [field] });
-  const override = overrides[field.name];
-  const overrideFieldview = findOverrideFieldview(field, override);
-  // pickFieldview always returns a valid fieldview from field.fieldviews
-  const fieldview = overrideFieldview || pickFieldview(field, "edit");
+// const makeEditRow = (field, prompt) => {
+//   const overrides = requestedFieldOverrides(prompt, { fields: [field] });
+//   const override = overrides[field.name];
+//   const overrideFieldview = findOverrideFieldview(field, override);
+//   // pickFieldview always returns a valid fieldview from field.fieldviews
+//   const fieldview = overrideFieldview || pickFieldview(field, "edit");
 
-  return {
-    besides: [
-      {
-        type: "blank",
-        contents: field.label || field.name,
-        block: false,
-        inline: false,
-        textStyle: "",
-        isFormula: {},
-        labelFor: field.name,
-      },
-      {
-        type: "field",
-        field_name: field.name,
-        fieldview,
-        textStyle: "",
-        block: false,
-        configuration: {},
-      },
-    ],
-    aligns: ["end", "start"],
-    breakpoints: ["", ""],
-    style: { "margin-bottom": "1.5rem" },
-    widths: [2, 10],
-    setting_col_n: 0,
-  };
-};
+//   return {
+//     besides: [
+//       {
+//         type: "blank",
+//         contents: field.label || field.name,
+//         block: false,
+//         inline: false,
+//         textStyle: "",
+//         isFormula: {},
+//         labelFor: field.name,
+//       },
+//       {
+//         type: "field",
+//         field_name: field.name,
+//         fieldview,
+//         textStyle: "",
+//         block: false,
+//         configuration: {},
+//       },
+//     ],
+//     aligns: ["end", "start"],
+//     breakpoints: ["", ""],
+//     style: { "margin-bottom": "1.5rem" },
+//     widths: [2, 10],
+//     setting_col_n: 0,
+//   };
+// };
 
-const buildDeterministicEditLayout = (ctx, prompt) => {
-  const selectedFields = fieldsFromPrompt(prompt, ctx);
-  if (!selectedFields.length) return { above: [] };
+// const buildDeterministicEditLayout = (ctx, prompt) => {
+//   const selectedFields = fieldsFromPrompt(prompt, ctx);
+//   if (!selectedFields.length) return { above: [] };
 
-  const columnCount = getRequestedColumnCount(prompt);
-  let fieldRows;
-  if (columnCount && columnCount >= 2) {
-    fieldRows = [];
-    const colWidth = Math.floor(12 / columnCount);
-    for (let i = 0; i < selectedFields.length; i += columnCount) {
-      const fieldsInRow = selectedFields.slice(i, i + columnCount);
-      const besides = fieldsInRow.map((field) => {
-        const overrides = requestedFieldOverrides(prompt, { fields: [field] });
-        const override = overrides[field.name];
-        const overrideFieldview = findOverrideFieldview(field, override);
-        const fieldview = overrideFieldview || pickFieldview(field, "edit");
-        return {
-          above: [
-            {
-              type: "blank",
-              contents: field.label || field.name,
-            },
-            {
-              type: "field",
-              field_name: field.name,
-              fieldview,
-              configuration: {},
-            },
-          ],
-        };
-      });
-      while (besides.length < columnCount) besides.push(null);
-      fieldRows.push({
-        besides,
-        widths: Array(columnCount).fill(colWidth),
-      });
-    }
-  } else {
-    fieldRows = selectedFields.map((field) => makeEditRow(field, prompt));
-  }
+//   const columnCount = getRequestedColumnCount(prompt);
+//   let fieldRows;
+//   if (columnCount && columnCount >= 2) {
+//     fieldRows = [];
+//     const colWidth = Math.floor(12 / columnCount);
+//     for (let i = 0; i < selectedFields.length; i += columnCount) {
+//       const fieldsInRow = selectedFields.slice(i, i + columnCount);
+//       const besides = fieldsInRow.map((field) => {
+//         const overrides = requestedFieldOverrides(prompt, { fields: [field] });
+//         const override = overrides[field.name];
+//         const overrideFieldview = findOverrideFieldview(field, override);
+//         const fieldview = overrideFieldview || pickFieldview(field, "edit");
+//         return {
+//           above: [
+//             {
+//               type: "blank",
+//               contents: field.label || field.name,
+//             },
+//             {
+//               type: "field",
+//               field_name: field.name,
+//               fieldview,
+//               configuration: {},
+//             },
+//           ],
+//         };
+//       });
+//       while (besides.length < columnCount) besides.push(null);
+//       fieldRows.push({
+//         besides,
+//         widths: Array(columnCount).fill(colWidth),
+//       });
+//     }
+//   } else {
+//     fieldRows = selectedFields.map((field) => makeEditRow(field, prompt));
+//   }
 
-  return { above: fieldRows };
-};
+//   return { above: fieldRows };
+// };
 
-const mentionedFieldsByMode = (prompt, ctx) => {
-  const baseFields =
-    ctx.mode === "edit" || ctx.mode === "filter"
-      ? preferEditableFields(ctx.fields)
-      : ctx.fields || [];
-  return baseFields
-    .map((field) => ({ field, idx: firstAliasIndex(field, prompt) }))
-    .filter((m) => m.idx >= 0)
-    .sort((a, b) => a.idx - b.idx)
-    .map((m) => m.field);
-};
+// const mentionedFieldsByMode = (prompt, ctx) => {
+//   const baseFields =
+//     ctx.mode === "edit" || ctx.mode === "filter"
+//       ? preferEditableFields(ctx.fields)
+//       : ctx.fields || [];
+//   return baseFields
+//     .map((field) => ({ field, idx: firstAliasIndex(field, prompt) }))
+//     .filter((m) => m.idx >= 0)
+//     .sort((a, b) => a.idx - b.idx)
+//     .map((m) => m.field);
+// };
 
-const fieldsFromPromptByMode = (prompt, ctx, limit = 6) => {
-  const mentioned = mentionedFieldsByMode(prompt, ctx);
-  return mentioned.slice(0, limit);
-};
+// const fieldsFromPromptByMode = (prompt, ctx, limit = 6) => {
+//   const mentioned = mentionedFieldsByMode(prompt, ctx);
+//   return mentioned.slice(0, limit);
+// };
 
-const pickFirstActionMatching = (actions, regex) => {
-  if (!actions?.length) return undefined;
-  return actions.find((a) => regex.test(String(a || "")));
-};
+// const pickFirstActionMatching = (actions, regex) => {
+//   if (!actions?.length) return undefined;
+//   return actions.find((a) => regex.test(String(a || "")));
+// };
 
-const makeDisplayRow = (
-  field,
-  mode,
-  singleColumn = false,
-  requestedFieldview = null,
-) => {
-  const fieldview = pickFieldview(field, mode, requestedFieldview);
+// const makeDisplayRow = (
+//   field,
+//   mode,
+//   singleColumn = false,
+//   requestedFieldview = null,
+// ) => {
+//   const fieldview = pickFieldview(field, mode, requestedFieldview);
 
-  if (singleColumn) {
-    return {
-      above: [
-        {
-          type: "blank",
-          contents: field.label || field.name,
-          block: false,
-          inline: false,
-          textStyle: ["fw-bold"],
-          isFormula: {},
-        },
-        {
-          type: "field",
-          field_name: field.name,
-          fieldview,
-          textStyle: [],
-          block: false,
-          configuration: {},
-        },
-      ],
-    };
-  }
-  return {
-    besides: [
-      {
-        type: "blank",
-        contents: field.label || field.name,
-        block: false,
-        inline: false,
-        textStyle: ["fw-bold"],
-        isFormula: {},
-      },
-      {
-        type: "field",
-        field_name: field.name,
-        fieldview,
-        textStyle: [],
-        block: false,
-        configuration: {},
-      },
-    ],
-    aligns: ["end", "start"],
-    breakpoints: ["", ""],
-    style: { "margin-bottom": "1rem" },
-    widths: [3, 9],
-    setting_col_n: 0,
-  };
-};
+//   if (singleColumn) {
+//     return {
+//       above: [
+//         {
+//           type: "blank",
+//           contents: field.label || field.name,
+//           block: false,
+//           inline: false,
+//           textStyle: ["fw-bold"],
+//           isFormula: {},
+//         },
+//         {
+//           type: "field",
+//           field_name: field.name,
+//           fieldview,
+//           textStyle: [],
+//           block: false,
+//           configuration: {},
+//         },
+//       ],
+//     };
+//   }
+//   return {
+//     besides: [
+//       {
+//         type: "blank",
+//         contents: field.label || field.name,
+//         block: false,
+//         inline: false,
+//         textStyle: ["fw-bold"],
+//         isFormula: {},
+//       },
+//       {
+//         type: "field",
+//         field_name: field.name,
+//         fieldview,
+//         textStyle: [],
+//         block: false,
+//         configuration: {},
+//       },
+//     ],
+//     aligns: ["end", "start"],
+//     breakpoints: ["", ""],
+//     style: { "margin-bottom": "1rem" },
+//     widths: [3, 9],
+//     setting_col_n: 0,
+//   };
+// };
 
-const makeActionSegment = (actionName, actionStyle = "btn-primary") => {
-  if (!actionName) return null;
-  return {
-    type: "action",
-    block: false,
-    configuration: {},
-    action_name: actionName,
-    action_label: prettifyActionName(actionName),
-    action_style: actionStyle,
-    minRole: 100,
-    isFormula: {},
-    rndid: randomId(),
-  };
-};
+// const makeActionSegment = (actionName, actionStyle = "btn-primary") => {
+//   if (!actionName) return null;
+//   return {
+//     type: "action",
+//     block: false,
+//     configuration: {},
+//     action_name: actionName,
+//     action_label: prettifyActionName(actionName),
+//     action_style: actionStyle,
+//     minRole: 100,
+//     isFormula: {},
+//     rndid: randomId(),
+//   };
+// };
 
-const buildDeterministicShowLayout = (ctx, prompt) => {
-  const fields = fieldsFromPromptByMode(prompt, ctx, 8);
-  const singleColumn = isSingleColumnLayout(prompt);
-  const overrides = requestedFieldOverrides(prompt, ctx);
-  const rows = fields.map((field) => {
-    const requestedFieldview = findOverrideFieldview(
-      field,
-      overrides[field.name],
-    );
-    return makeDisplayRow(field, "show", singleColumn, requestedFieldview);
-  });
-  return { above: rows };
-};
+// const buildDeterministicShowLayout = (ctx, prompt) => {
+//   const fields = fieldsFromPromptByMode(prompt, ctx, 8);
+//   const singleColumn = isSingleColumnLayout(prompt);
+//   const overrides = requestedFieldOverrides(prompt, ctx);
+//   const rows = fields.map((field) => {
+//     const requestedFieldview = findOverrideFieldview(
+//       field,
+//       overrides[field.name],
+//     );
+//     return makeDisplayRow(field, "show", singleColumn, requestedFieldview);
+//   });
+//   return { above: rows };
+// };
 
-const buildDeterministicListLayout = (ctx, prompt) => {
-  const fields = fieldsFromPromptByMode(prompt, ctx, 4);
-  if (!fields.length) return { above: [] };
+// const buildDeterministicListLayout = (ctx, prompt) => {
+//   const fields = fieldsFromPromptByMode(prompt, ctx, 4);
+//   if (!fields.length) return { above: [] };
 
-  const overrides = requestedFieldOverrides(prompt, ctx);
-  const listRow = {
-    besides: fields.map((field) => ({
-      type: "field",
-      field_name: field.name,
-      fieldview: pickFieldview(
-        field,
-        "show",
-        findOverrideFieldview(field, overrides[field.name]),
-      ),
-      block: false,
-      configuration: {},
-    })),
-    widths: normalizeWidths([], fields.length),
-  };
+//   const overrides = requestedFieldOverrides(prompt, ctx);
+//   const listRow = {
+//     besides: fields.map((field) => ({
+//       type: "field",
+//       field_name: field.name,
+//       fieldview: pickFieldview(
+//         field,
+//         "show",
+//         findOverrideFieldview(field, overrides[field.name]),
+//       ),
+//       block: false,
+//       configuration: {},
+//     })),
+//     widths: normalizeWidths([], fields.length),
+//   };
 
-  return { above: [listRow] };
-};
+//   return { above: [listRow] };
+// };
 
-const buildDeterministicFilterLayout = (ctx, prompt) => {
-  const fields = fieldsFromPromptByMode(prompt, ctx, 6);
-  const rows = fields.map((field) => makeEditRow(field, prompt));
-  const runActionName =
-    pickFirstActionMatching(ctx.actions, /search|filter|apply|run|submit/i) ||
-    pickSaveActionName(ctx.actions) ||
-    ctx.actions[0];
-  const resetActionName = pickFirstActionMatching(ctx.actions, /reset|clear/i);
-  const actions = [
-    makeActionSegment(runActionName, "btn-primary"),
-    makeActionSegment(resetActionName, "btn-outline-secondary"),
-  ].filter(Boolean);
-  if (actions.length)
-    rows.push({ besides: [null, { above: actions }], widths: [2, 10] });
-  if (!rows.length)
-    return { above: [textFallback("No filter fields available")] };
-  return { above: rows };
-};
+// const buildDeterministicFilterLayout = (ctx, prompt) => {
+//   const fields = fieldsFromPromptByMode(prompt, ctx, 6);
+//   const rows = fields.map((field) => makeEditRow(field, prompt));
+//   const runActionName =
+//     pickFirstActionMatching(ctx.actions, /search|filter|apply|run|submit/i) ||
+//     pickSaveActionName(ctx.actions) ||
+//     ctx.actions[0];
+//   const resetActionName = pickFirstActionMatching(ctx.actions, /reset|clear/i);
+//   const actions = [
+//     makeActionSegment(runActionName, "btn-primary"),
+//     makeActionSegment(resetActionName, "btn-outline-secondary"),
+//   ].filter(Boolean);
+//   if (actions.length)
+//     rows.push({ besides: [null, { above: actions }], widths: [2, 10] });
+//   if (!rows.length)
+//     return { above: [textFallback("No filter fields available")] };
+//   return { above: rows };
+// };
 
-const buildDeterministicPageLayout = (ctx, prompt) => {
-  const lines = [];
-  const intent = parseWidgetIntent(prompt, ctx);
+// const buildDeterministicPageLayout = (ctx, prompt) => {
+//   const lines = [];
+//   const intent = parseWidgetIntent(prompt, ctx);
 
-  if (prompt && String(prompt).trim())
-    lines.push(textFallback(String(prompt).trim()));
+//   if (prompt && String(prompt).trim())
+//     lines.push(textFallback(String(prompt).trim()));
 
-  if (intent.hasAny) {
-    lines.push(...buildWidgetsFromIntent(intent, ctx));
-  } else if (ctx.viewNames.length) {
-    lines.push({ type: "view", view: ctx.viewNames[0], state: {} });
-  } else {
-    const fields = fieldsFromPromptByMode(prompt, ctx, 4);
-    lines.push(...fields.map((field) => makeDisplayRow(field, "show")));
-  }
+//   if (intent.hasAny) {
+//     lines.push(...buildWidgetsFromIntent(intent, ctx));
+//   } else if (ctx.viewNames.length) {
+//     lines.push({ type: "view", view: ctx.viewNames[0], state: {} });
+//   } else {
+//     const fields = fieldsFromPromptByMode(prompt, ctx, 4);
+//     lines.push(...fields.map((field) => makeDisplayRow(field, "show")));
+//   }
 
-  return { above: lines.filter(Boolean) };
-};
+//   return { above: lines.filter(Boolean) };
+// };
 
 // Deterministic layouts kept minimal; widgets/actions appended after
-const buildDeterministicLayout = (ctx, prompt) => {
-  let base;
-  switch (ctx.mode) {
-    case "edit":
-      base = buildDeterministicEditLayout(ctx, prompt);
-      break;
-    case "show":
-      base = buildDeterministicShowLayout(ctx, prompt);
-      break;
-    case "list":
-      base = buildDeterministicListLayout(ctx, prompt);
-      break;
-    case "filter":
-      base = buildDeterministicFilterLayout(ctx, prompt);
-      break;
-    case "page":
-      base = buildDeterministicPageLayout(ctx, prompt);
-      break;
-    default:
-      base = { above: [] };
-  }
-  const withWidgets = ensureRequestedWidgets(base, ctx, prompt);
-  const withActions = ensureRequestedActions(withWidgets, ctx, prompt);
-  return withActions;
-};
+// const buildDeterministicLayout = (ctx, prompt) => {
+//   let base;
+//   switch (ctx.mode) {
+//     case "edit":
+//       base = buildDeterministicEditLayout(ctx, prompt);
+//       break;
+//     case "show":
+//       base = buildDeterministicShowLayout(ctx, prompt);
+//       break;
+//     case "list":
+//       base = buildDeterministicListLayout(ctx, prompt);
+//       break;
+//     case "filter":
+//       base = buildDeterministicFilterLayout(ctx, prompt);
+//       break;
+//     case "page":
+//       base = buildDeterministicPageLayout(ctx, prompt);
+//       break;
+//     default:
+//       base = { above: [] };
+//   }
+//   const withWidgets = ensureRequestedWidgets(base, ctx, prompt);
+//   const withActions = ensureRequestedActions(withWidgets, ctx, prompt);
+//   return withActions;
+// };
 
 const sanitizeNoHtmlSegments = (segment) => {
   if (segment == null) return segment;
@@ -1485,349 +1456,142 @@ const sanitizeNoHtmlSegments = (segment) => {
   return clone;
 };
 
-const ensureRequestedActions = (layout, ctx, prompt) => {
-  const segments = collectSegments(layout, []);
-  const presentActions = new Set(
-    segments.filter((s) => s.type === "action").map((s) => s.action_name),
-  );
+// const ensureRequestedActions = (layout, ctx, prompt) => {
+//   const segments = collectSegments(layout, []);
+//   const presentActions = new Set(
+//     segments.filter((s) => s.type === "action").map((s) => s.action_name),
+//   );
 
-  const requested = extractRequestedActions(prompt, ctx.actions);
-  const missingActions = requested.filter((a) => !presentActions.has(a));
+//   const requested = extractRequestedActions(prompt, ctx.actions);
+//   const missingActions = requested.filter((a) => !presentActions.has(a));
 
-  if (!missingActions.length) return layout;
-  const newSegments = missingActions
-    .map((name, idx) =>
-      makeActionSegment(name, idx === 0 ? "btn-primary" : "btn-secondary"),
-    )
-    .filter(Boolean);
-  return appendSegments(layout, newSegments);
-};
+//   if (!missingActions.length) return layout;
+//   const newSegments = missingActions
+//     .map((name, idx) =>
+//       makeActionSegment(name, idx === 0 ? "btn-primary" : "btn-secondary"),
+//     )
+//     .filter(Boolean);
+//   return appendSegments(layout, newSegments);
+// };
 
-const ensureRequestedWidgets = (layout, ctx, prompt) => {
-  const intent = parseWidgetIntent(prompt, ctx);
-  if (!intent.hasAny) return layout;
+// const ensureRequestedWidgets = (layout, ctx, prompt) => {
+//   const intent = parseWidgetIntent(prompt, ctx);
+//   if (!intent.hasAny) return layout;
 
-  const segments = collectSegments(layout, []);
-  const countByType = (type) => segments.filter((s) => s.type === type).length;
-  const hasType = (type) => segments.some((s) => s.type === type);
+//   const segments = collectSegments(layout, []);
+//   const countByType = (type) => segments.filter((s) => s.type === type).length;
+//   const hasType = (type) => segments.some((s) => s.type === type);
 
-  const missingIntent = { ...intent };
-  missingIntent.cardCount = Math.max(0, intent.cardCount - countByType("card"));
-  if (hasType("view")) missingIntent.wantView = false;
-  if (hasType("view_link")) missingIntent.wantViewLink = false;
-  if (hasType("image")) missingIntent.wantImage = false;
-  if (hasType("tabs")) missingIntent.wantTabs = false;
-  if (segments.some((s) => s.type === "search_bar"))
-    missingIntent.wantSearch = false;
-  if (hasType("container")) missingIntent.wantContainer = false;
-  if (hasType("line_break")) missingIntent.wantLineBreak = false;
-  if (hasType("link")) missingIntent.wantLink = false;
+//   const missingIntent = { ...intent };
+//   missingIntent.cardCount = Math.max(0, intent.cardCount - countByType("card"));
+//   if (hasType("view")) missingIntent.wantView = false;
+//   if (hasType("view_link")) missingIntent.wantViewLink = false;
+//   if (hasType("image")) missingIntent.wantImage = false;
+//   if (hasType("tabs")) missingIntent.wantTabs = false;
+//   if (segments.some((s) => s.type === "search_bar"))
+//     missingIntent.wantSearch = false;
+//   if (hasType("container")) missingIntent.wantContainer = false;
+//   if (hasType("line_break")) missingIntent.wantLineBreak = false;
+//   if (hasType("link")) missingIntent.wantLink = false;
 
-  if (!missingIntent.hasAny && missingIntent.cardCount === 0) return layout;
+//   if (!missingIntent.hasAny && missingIntent.cardCount === 0) return layout;
 
-  // Update hasAny based on remaining missing items
-  missingIntent.hasAny =
-    missingIntent.cardCount > 0 ||
-    missingIntent.wantView ||
-    missingIntent.wantViewLink ||
-    missingIntent.wantImage ||
-    missingIntent.wantTabs ||
-    missingIntent.wantSearch ||
-    missingIntent.wantText ||
-    missingIntent.wantContainer ||
-    missingIntent.wantLineBreak ||
-    missingIntent.wantLink;
+//   // Update hasAny based on remaining missing items
+//   missingIntent.hasAny =
+//     missingIntent.cardCount > 0 ||
+//     missingIntent.wantView ||
+//     missingIntent.wantViewLink ||
+//     missingIntent.wantImage ||
+//     missingIntent.wantTabs ||
+//     missingIntent.wantSearch ||
+//     missingIntent.wantText ||
+//     missingIntent.wantContainer ||
+//     missingIntent.wantLineBreak ||
+//     missingIntent.wantLink;
 
-  if (!missingIntent.hasAny) return layout;
+//   if (!missingIntent.hasAny) return layout;
 
-  const extras = buildWidgetsFromIntent(missingIntent, ctx);
-  return extras.length ? appendSegments(layout, extras) : layout;
-};
+//   const extras = buildWidgetsFromIntent(missingIntent, ctx);
+//   return extras.length ? appendSegments(layout, extras) : layout;
+// };
 
-const ensureRequestedFields = (layout, ctx, prompt) => {
-  const requestedFields =
-    ctx.mode === "edit"
-      ? fieldsFromPrompt(prompt, ctx)
-      : fieldsFromPromptByMode(prompt, ctx, 12);
+// const ensureRequestedFields = (layout, ctx, prompt) => {
+//   const requestedFields =
+//     ctx.mode === "edit"
+//       ? fieldsFromPrompt(prompt, ctx)
+//       : fieldsFromPromptByMode(prompt, ctx, 12);
 
-  if (!requestedFields.length) return layout;
+//   if (!requestedFields.length) return layout;
 
-  const segments = collectSegments(layout, []);
-  const presentFields = new Set(
-    segments.filter((s) => s.type === "field").map((s) => s.field_name),
-  );
+//   const segments = collectSegments(layout, []);
+//   const presentFields = new Set(
+//     segments.filter((s) => s.type === "field").map((s) => s.field_name),
+//   );
 
-  const missing = requestedFields.filter(
-    (f) => f && !presentFields.has(f.name),
-  );
-  if (!missing.length) return layout;
+//   const missing = requestedFields.filter(
+//     (f) => f && !presentFields.has(f.name),
+//   );
+//   if (!missing.length) return layout;
 
-  const extras = missing.map((field) => {
-    if (ctx.mode === "edit") return makeEditRow(field, prompt);
-    const overrides = requestedFieldOverrides(prompt, { fields: [field] });
-    const requestedFieldview = findOverrideFieldview(
-      field,
-      overrides[field.name],
-    );
-    return makeDisplayRow(
-      field,
-      "show",
-      isSingleColumnLayout(prompt),
-      requestedFieldview,
-    );
-  });
+//   const extras = missing.map((field) => {
+//     if (ctx.mode === "edit") return makeEditRow(field, prompt);
+//     const overrides = requestedFieldOverrides(prompt, { fields: [field] });
+//     const requestedFieldview = findOverrideFieldview(
+//       field,
+//       overrides[field.name],
+//     );
+//     return makeDisplayRow(
+//       field,
+//       "show",
+//       isSingleColumnLayout(prompt),
+//       requestedFieldview,
+//     );
+//   });
 
-  return appendSegments(layout, extras);
-};
+//   return appendSegments(layout, extras);
+// };
 
-const enforceModeConsistency = (layout, ctx, prompt) => {
-  if (!layout) return layout;
-  const sanitized = sanitizeNoHtmlSegments(layout);
-  const withFields = ensureRequestedFields(sanitized, ctx, prompt);
-  const withWidgets = ensureRequestedWidgets(withFields, ctx, prompt);
-  const withActions = ensureRequestedActions(withWidgets, ctx, prompt);
-  return withActions;
-};
-
-const buildPromptText = (userPrompt, ctx) => {
+const buildPromptText = (userPrompt, ctx, schema) => {
   const parts = [
-    `You are Saltcorn's layout assistant. Build a layout for mode "${ctx.mode}". ${
-      ctx.modeGuidance || MODE_GUIDANCE.default
-    }`,
-    'Return ONLY valid JSON with no prose, no markdown fences, and no pseudo-markup. Output shape must be exactly: {"layout": <layout-object>}.',
+    `You are an expert Saltcorn layout builder assistant. Your task is to generate a layout for mode "${ctx.mode}" that precisely fulfills the user's request.`,
+    'CRITICAL: You must return ONLY a single valid JSON object. Do not include introductory text, explanations, markdown formatting (like ```json), or any pseudo-markup. The output must strictly follow this shape: {"layout": <layout-object>}.',
+    'The "layout" object MUST conform entirely to the provided JSON Schema. Do not invent properties, types, or structure not defined in the schema.',
   ];
-  if (ctx.table) {
-    const lines = ctx.fields.slice(0, 40).map((field) => {
-      const views = field.fieldviews.join(", ");
-      return `- ${field.name} (${field.type}${field.required ? ", required" : ""}) views: ${views}`;
-    });
-    if (ctx.fields.length > 40)
-      lines.push("- ... additional fields omitted for brevity");
-    parts.push(
-      `Table "${ctx.table.name}" fields:\n${lines.join("\n") || "- None"}`,
-    );
-  }
-  if (ctx.actions.length)
-    parts.push(
-      `Available actions: ${ctx.actions.join(", ")}. Use action segments for submits or workflows.`,
-    );
-  if (ctx.viewNames.length)
-    parts.push(`Views to embed or link: ${ctx.viewNames.join(", ")}.`);
+  // if (ctx.table) {
+  //   const lines = ctx.fields.slice(0, 40).map((field) => {
+  //     const views = field.fieldviews.join(", ");
+  //     return `- ${field.name} (${field.type}${field.required ? ", required" : ""}) views: ${views}`;
+  //   });
+  //   if (ctx.fields.length > 40)
+  //     lines.push("- ... additional fields omitted for brevity");
+  //   parts.push(
+  //     `Table "${ctx.table.name}" fields:\n${lines.join("\n") || "- None"}`,
+  //   );
+  // }
+  // if (ctx.actions.length)
+  //   parts.push(
+  //     `Available actions: ${ctx.actions.join(", ")}. Use action segments for submits or workflows.`,
+  //   );
+  // if (ctx.viewNames.length)
+  //   parts.push(`Views to embed or link: ${ctx.viewNames.join(", ")}.`);
+  // parts.push(
+  //   "Use Saltcorn layout primitives only. Prefer columns (besides) for multi-column sections, blank text for headings, and cards or containers for grouping. Do not return HTML, do not set isHTML, and do not use Markdown fences.",
+  // );
+  // parts.push(
+  //   "Honor explicit user constraints exactly whenever possible (requested fields, action names, column count, placement like 'at the bottom', and layout orientation such as single-column). Do not substitute requested actions with other actions.",
+  // );
+  // if (ctx.mode === "edit") {
+  //   parts.push(
+  //     "For edit mode, include field segments with edit-capable fieldview values and include a Save action row near the bottom.",
+  //   );
+  // }
   parts.push(
-    "Use Saltcorn layout primitives only. Prefer columns (besides) for multi-column sections, blank text for headings, and cards or containers for grouping. Do not return HTML, do not set isHTML, and do not use Markdown fences.",
+    `Here is the strict Saltcorn layout JSON schema you MUST follow to construct the layout. Do not deviate from these definitions:\n${JSON.stringify(schema)}`,
   );
   parts.push(
-    "Honor explicit user constraints exactly whenever possible (requested fields, action names, column count, placement like 'at the bottom', and layout orientation such as single-column). Do not substitute requested actions with other actions.",
+    `Based on the schema above, process the following user request and generate the layout JSON. Reminder: ONLY output valid JSON starting with { and ending with }, no markdown fences.\nUser request:\n"${userPrompt}"`,
   );
-  if (ctx.mode === "edit") {
-    parts.push(
-      "For edit mode, include field segments with edit-capable fieldview values and include a Save action row near the bottom.",
-    );
-  }
-  parts.push(`User request:\n${userPrompt}`);
   return parts.join("\n\n");
-};
-
-const buildLayoutSchema = (ctx) => {
-  const defs = {
-    segment: { anyOf: [] },
-    stack: {
-      type: "object",
-      required: ["above"],
-      properties: {
-        above: {
-          type: "array",
-          minItems: 1,
-          items: { $ref: "#/$defs/segment" },
-        },
-        class: { type: "string" },
-      },
-    },
-    columns: {
-      type: "object",
-      required: ["besides"],
-      properties: {
-        besides: {
-          type: "array",
-          minItems: 2,
-          items: { anyOf: [{ $ref: "#/$defs/segment" }, { type: "null" }] },
-        },
-        widths: {
-          type: "array",
-          items: { type: "integer", minimum: 1, maximum: 12 },
-        },
-        gx: { type: "integer", minimum: 0, maximum: 5 },
-        gy: { type: "integer", minimum: 0, maximum: 5 },
-      },
-    },
-    container: {
-      type: "object",
-      required: ["type", "contents"],
-      properties: {
-        type: { const: "container" },
-        contents: { $ref: "#/$defs/segment" },
-        customClass: { type: "string" },
-        style: { type: "string" },
-      },
-    },
-    card: {
-      type: "object",
-      required: ["type", "contents"],
-      properties: {
-        type: { const: "card" },
-        title: { type: "string" },
-        contents: { $ref: "#/$defs/segment" },
-      },
-    },
-    tabs: {
-      type: "object",
-      required: ["type", "tabs"],
-      properties: {
-        type: { const: "tabs" },
-        tabs: {
-          type: "array",
-          minItems: 1,
-          items: {
-            type: "object",
-            required: ["title", "contents"],
-            properties: {
-              title: { type: "string" },
-              contents: { $ref: "#/$defs/segment" },
-            },
-          },
-        },
-      },
-    },
-    blank: {
-      type: "object",
-      required: ["type", "contents"],
-      properties: {
-        type: { const: "blank" },
-        contents: { type: "string" },
-        textStyle: {
-          type: "array",
-          items: { type: "string", enum: TEXT_STYLES },
-        },
-      },
-    },
-    line_break: {
-      type: "object",
-      required: ["type"],
-      properties: { type: { const: "line_break" } },
-    },
-    image: {
-      type: "object",
-      required: ["type", "url"],
-      properties: {
-        type: { const: "image" },
-        url: { type: "string" },
-        alt: { type: "string" },
-      },
-    },
-    link: {
-      type: "object",
-      required: ["type", "url"],
-      properties: {
-        type: { const: "link" },
-        url: { type: "string" },
-        text: { type: "string" },
-        link_style: { type: "string", enum: ["", ...BUTTON_STYLES] },
-      },
-    },
-  };
-
-  const pushRef = (ref) => defs.segment.anyOf.push({ $ref: ref });
-  [
-    "#/$defs/stack",
-    "#/$defs/columns",
-    "#/$defs/container",
-    "#/$defs/card",
-    "#/$defs/tabs",
-    "#/$defs/blank",
-    "#/$defs/line_break",
-    "#/$defs/image",
-    "#/$defs/link",
-  ].forEach(pushRef);
-
-  if (ctx.viewNames.length) {
-    defs.view = {
-      type: "object",
-      required: ["type", "view"],
-      properties: {
-        type: { const: "view" },
-        view: { type: "string", enum: ctx.viewNames },
-        relation: { type: "string" },
-        state: { type: "object" },
-      },
-    };
-    defs.view_link = {
-      type: "object",
-      required: ["type", "view"],
-      properties: {
-        type: { const: "view_link" },
-        view: { type: "string", enum: ctx.viewNames },
-        view_label: { type: "string" },
-        link_style: { type: "string", enum: ["", ...BUTTON_STYLES] },
-      },
-    };
-    pushRef("#/$defs/view");
-    pushRef("#/$defs/view_link");
-  }
-
-  if (ctx.fields.length) {
-    defs.field = {
-      anyOf: ctx.fields.map((field) => {
-        const fieldview = field.fieldviews.length
-          ? { type: "string", enum: field.fieldviews }
-          : { type: "string" };
-        return {
-          type: "object",
-          required: ["type", "field_name"],
-          properties: {
-            type: { const: "field" },
-            field_name: { const: field.name },
-            fieldview,
-            textStyle: {
-              type: "array",
-              items: { type: "string", enum: TEXT_STYLES },
-            },
-          },
-        };
-      }),
-    };
-    pushRef("#/$defs/field");
-  }
-
-  if (ctx.actions.length) {
-    defs.action = {
-      anyOf: ctx.actions.map((action) => ({
-        type: "object",
-        required: ["type", "action_name"],
-        properties: {
-          type: { const: "action" },
-          action_name: { const: action },
-          action_label: { type: "string" },
-          action_style: { type: "string", enum: BUTTON_STYLES },
-          action_size: { type: "string", enum: ACTION_SIZES },
-          confirm: { type: "boolean" },
-        },
-      })),
-    };
-    pushRef("#/$defs/action");
-  }
-
-  return {
-    type: "object",
-    required: ["layout"],
-    properties: {
-      layout: { $ref: "#/$defs/segment" },
-      explanation: {
-        type: "string",
-        description: "Optional single sentence summary of the layout.",
-      },
-    },
-    $defs: defs,
-  };
 };
 
 const convertChildList = (children, ctx) => {
@@ -2015,39 +1779,39 @@ const splitNodeText = (text) => {
   return { attrs, text: body.join(" ").trim() };
 };
 
-const parseBracketMarkup = (text) => {
-  if (!text || !text.includes("[")) return [];
-  const root = { tag: "root", children: [], text: "" };
-  const stack = [root];
-  let i = 0;
-  while (i < text.length) {
-    if (text[i] === "[") {
-      const end = text.indexOf("]", i + 1);
-      if (end === -1) break;
-      const rawTag = text.slice(i + 1, end).trim();
-      if (rawTag.startsWith("/")) {
-        const closing = rawTag.slice(1).trim().toLowerCase();
-        while (stack.length > 1) {
-          const popped = stack.pop();
-          if (popped.tag === closing) break;
-        }
-      } else {
-        const tag = rawTag.toLowerCase();
-        const node = { tag, children: [], text: "" };
-        stack[stack.length - 1].children.push(node);
-        stack.push(node);
-      }
-      i = end + 1;
-    } else {
-      const next = text.indexOf("[", i);
-      const chunk = text.slice(i, next === -1 ? text.length : next);
-      const top = stack[stack.length - 1];
-      if (top) top.text = (top.text || "") + chunk;
-      i = next === -1 ? text.length : next;
-    }
-  }
-  return root.children;
-};
+// const parseBracketMarkup = (text) => {
+//   if (!text || !text.includes("[")) return [];
+//   const root = { tag: "root", children: [], text: "" };
+//   const stack = [root];
+//   let i = 0;
+//   while (i < text.length) {
+//     if (text[i] === "[") {
+//       const end = text.indexOf("]", i + 1);
+//       if (end === -1) break;
+//       const rawTag = text.slice(i + 1, end).trim();
+//       if (rawTag.startsWith("/")) {
+//         const closing = rawTag.slice(1).trim().toLowerCase();
+//         while (stack.length > 1) {
+//           const popped = stack.pop();
+//           if (popped.tag === closing) break;
+//         }
+//       } else {
+//         const tag = rawTag.toLowerCase();
+//         const node = { tag, children: [], text: "" };
+//         stack[stack.length - 1].children.push(node);
+//         stack.push(node);
+//       }
+//       i = end + 1;
+//     } else {
+//       const next = text.indexOf("[", i);
+//       const chunk = text.slice(i, next === -1 ? text.length : next);
+//       const top = stack[stack.length - 1];
+//       if (top) top.text = (top.text || "") + chunk;
+//       i = next === -1 ? text.length : next;
+//     }
+//   }
+//   return root.children;
+// };
 
 const buildBracketObject = (node) => {
   if (!node || !node.tag) return null;
@@ -2062,15 +1826,15 @@ const buildBracketObject = (node) => {
   return obj;
 };
 
-const convertBracketSyntax = (text, ctx) => {
-  const nodes = parseBracketMarkup(text);
-  if (!nodes.length) return null;
-  const objects = nodes.map((node) => buildBracketObject(node)).filter(Boolean);
-  if (!objects.length) return null;
-  const root =
-    objects.length === 1 ? objects[0] : { type: "group", children: objects };
-  return convertForeignLayout(root, ctx);
-};
+// const convertBracketSyntax = (text, ctx) => {
+//   const nodes = parseBracketMarkup(text);
+//   if (!nodes.length) return null;
+//   const objects = nodes.map((node) => buildBracketObject(node)).filter(Boolean);
+//   if (!objects.length) return null;
+//   const root =
+//     objects.length === 1 ? objects[0] : { type: "group", children: objects };
+//   return convertForeignLayout(root, ctx);
+// };
 
 const buildContext = async (mode, tableName) => {
   const normalizedMode = (mode || "show").toLowerCase();
@@ -2160,7 +1924,7 @@ const buildContext = async (mode, tableName) => {
   }
 
   const builtIns =
-    ctx.mode === "edit" || ctx.mode === "filter"        
+    ctx.mode === "edit" || ctx.mode === "filter"
       ? edit_build_in_actions || []
       : ["Delete", "GoBack"];
   const actions = Array.from(
@@ -2175,14 +1939,90 @@ const buildContext = async (mode, tableName) => {
   return ctx;
 };
 
+const fetchBuilderSchema = async (mode, table, req) => {
+  const baseUrl =
+    (getState().getConfig && getState().getConfig("base_url")) ||
+    "http://localhost:3000";
+  const url = new URL("/scapi/builder_schema/", baseUrl);
+  url.searchParams.set("mode", mode || "show");
+  if (table) url.searchParams.set("table", table);
+  const headers = {};
+  if (req?.headers?.cookie) headers.Cookie = req.headers.cookie;
+  if (req?.headers?.authorization)
+    headers.Authorization = req.headers.authorization;
+  if (typeof fetch !== "function") return null;
+  console.log({ url: url.toString(), headers });
+  const res = await fetch(url.toString(), { headers });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return json.success || null;
+};
+
+const buildErrorLayout = ({ message, mode, table }) => {
+  const trimmedMessage = String(message || "Unknown error").slice(0, 500);
+  const contextLine = table
+    ? `Mode: ${mode || "show"} | Table: ${table}`
+    : `Mode: ${mode || "show"}`;
+  return {
+    above: [
+      {
+        type: "container",
+        customClass: "p-3 border rounded",
+        style: {
+          backgroundColor: "#fff3cd",
+          borderColor: "#ffecb5",
+          color: "#000000",
+        },
+        contents: {
+          above: [
+            {
+              type: "blank",
+              contents: "Builder generation failed",
+              textStyle: ["h4", "fw-bold"],
+              block: true,
+              inline: false,
+            },
+            {
+              type: "blank",
+              contents: contextLine,
+              textStyle: ["small"],
+              block: true,
+              inline: false,
+            },
+            {
+              type: "blank",
+              contents:
+                "We could not generate a layout from your request. Please try rephrasing or simplifying the prompt.",
+              block: true,
+              inline: false,
+            },
+            {
+              type: "blank",
+              contents: `Error: ${trimmedMessage}`,
+              textStyle: ["font-monospace", "small"],
+              block: true,
+              inline: false,
+            },
+          ],
+        },
+      },
+    ],
+  };
+};
+
 module.exports = {
-  run: async (prompt, mode, table) => {
+  run: async (prompt, mode, table, req) => {
+    // Remove any leading "container:" or similar so as to remain with only the user prompt.
+    prompt = prompt.trim().replace(/^\[\w+\]:\s*/, "");
+
+    console.log({ prompt, mode, table });
+
     const ctx = await buildContext(mode, table);
-    const schema = buildLayoutSchema(ctx);
+    const schema = await fetchBuilderSchema(mode, table, req);
     const llm = getState().functions.llm_generate;
     if (!llm?.run) throw new Error("LLM generator not configured");
 
-    const llmPrompt = buildPromptText(prompt, ctx);
+    const llmPrompt = buildPromptText(prompt, ctx, schema);
     const options = {
       response_format: {
         type: "json_schema",
@@ -2193,84 +2033,31 @@ module.exports = {
       },
     };
 
-    const deterministicLayout = buildDeterministicLayout(ctx, prompt);
+    // const deterministicLayout = buildDeterministicLayout(ctx, prompt);
 
     let payload;
     let rawResponse;
     try {
+      if (!schema || !schema.schema) {
+        throw new Error("Builder schema unavailable");
+      }
+      // console.log(llmPrompt)
+      // console.log(JSON.stringify({ schema }, null, 2));
+      console.log(`llmPrompt: ${llmPrompt}`);
       rawResponse = await llm.run(llmPrompt, options);
+      console.log(JSON.stringify({ rawResponse }, null, 2));
       payload = parseJsonPayload(rawResponse);
+      console.log(JSON.stringify({ payload }, null, 2));
+      const candidate = payload.layout ?? payload;
+      return candidate;
     } catch (err) {
-      const salvaged = extractJsonStructure(rawResponse || err.message || "");
-      console.log({ salvaged });
-      if (salvaged) {
-        payload = salvaged.layout ? salvaged : { layout: salvaged };
-      } else {
-        console.warn(
-          "Copilot layout JSON parsing failed",
-          err?.message || String(err),
-        );
-        const bracketCandidate = convertBracketSyntax(
-          rawResponse || err.message || "",
-          ctx,
-        );
-        if (bracketCandidate) {
-          try {
-            const normalized = normalizeLayout(bracketCandidate, ctx);
-            const safeLayout = isSchemaTextLayout(normalized)
-              ? deterministicLayout
-              : normalized;
-            return enforceModeConsistency(safeLayout, ctx, prompt);
-          } catch (bracketErr) {
-            console.error(
-              "Copilot bracket layout normalization failed",
-              bracketErr,
-            );
-          }
-        }
-        // Minimal fallback: return prompt text as blank content or deterministic layout if prompt is schema text
-        const fallbackLayout = isSchemaTextLayout({
-          above: [textFallback(prompt || "")],
-        })
-          ? deterministicLayout
-          : { above: [textFallback(prompt || "")] };
-        return enforceModeConsistency(fallbackLayout, ctx, prompt);
-      }
-    }
-
-    const candidate = payload.layout ?? payload;
-    try {
-      const normalized = normalizeLayout(candidate, ctx);
-      const safeLayout = isSchemaTextLayout(normalized)
-        ? deterministicLayout
-        : normalized;
-      return enforceModeConsistency(safeLayout, ctx, prompt);
-    } catch (err) {
-      console.error("Copilot layout normalization failed", err);
-      const converted = convertForeignLayout(candidate, ctx);
-      if (converted) {
-        try {
-          const normalized = normalizeLayout(converted, ctx);
-          const safeLayout = isSchemaTextLayout(normalized)
-            ? deterministicLayout
-            : normalized;
-          return enforceModeConsistency(safeLayout, ctx, prompt);
-        } catch (innerErr) {
-          console.error(
-            "Copilot converted layout normalization failed",
-            innerErr,
-          );
-        }
-      } else {
-        console.error("Copilot foreign layout conversion failed", candidate);
-      }
-      // Minimal fallback: return prompt text to avoid overriding user intent
-      const fallbackLayout = isSchemaTextLayout({
-        above: [textFallback(prompt || "")],
-      })
-        ? deterministicLayout
-        : { above: [textFallback(prompt || "")] };
-      return enforceModeConsistency(fallbackLayout, ctx, prompt);
+      console.warn("Copilot layout generation failed", err);
+      const errorLayout = buildErrorLayout({
+        message: err?.message || String(err),
+        mode,
+        table,
+      });
+      return errorLayout;
     }
   },
   isAsync: true,

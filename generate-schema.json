@@ -1,0 +1,1393 @@
+{
+  "schema": {
+    "type": "object",
+    "required": [
+      "layout"
+    ],
+    "properties": {
+      "layout": {
+        "$ref": "#/$defs/segment"
+      }
+    },
+    "$defs": {
+      "segment": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/stack"
+          },
+          {
+            "$ref": "#/$defs/columns"
+          },
+          {
+            "$ref": "#/$defs/blank"
+          },
+          {
+            "$ref": "#/$defs/field"
+          },
+          {
+            "$ref": "#/$defs/line_break"
+          },
+          {
+            "$ref": "#/$defs/action"
+          },
+          {
+            "$ref": "#/$defs/container"
+          },
+          {
+            "$ref": "#/$defs/card"
+          },
+          {
+            "$ref": "#/$defs/tabs"
+          },
+          {
+            "$ref": "#/$defs/link"
+          },
+          {
+            "$ref": "#/$defs/image"
+          },
+          {
+            "$ref": "#/$defs/view"
+          },
+          {
+            "$ref": "#/$defs/join_field"
+          },
+          {
+            "$ref": "#/$defs/dropdown_menu"
+          },
+          {
+            "$ref": "#/$defs/table"
+          },
+          {
+            "$ref": "#/$defs/view_link"
+          },
+          {
+            "$ref": "#/$defs/prompt"
+          }
+        ]
+      },
+      "stack": {
+        "type": "object",
+        "required": [
+          "above"
+        ],
+        "properties": {
+          "above": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/segment"
+            }
+          }
+        }
+      },
+      "columns": {
+        "type": "object",
+        "required": [
+          "besides"
+        ],
+        "properties": {
+          "besides": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/segment"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "widths": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            }
+          }
+        }
+      },
+      "any_value": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "object",
+          "array",
+          "null"
+        ]
+      },
+      "field_name_enum": {
+        "type": "string",
+        "enum": [
+          "capital_city",
+          "country_name",
+          "id",
+          "official_language",
+          "population"
+        ]
+      },
+      "fieldview_enum": {
+        "type": "string",
+        "enum": [
+          "as_text",
+          "preFormatted",
+          "code",
+          "monospace_block",
+          "ellipsize",
+          "as_link",
+          "img_from_url",
+          "as_header",
+          "show_with_html",
+          "edit",
+          "fill_formula_btn",
+          "make_unique",
+          "textarea",
+          "code_editor",
+          "radio_group",
+          "checkbox_group",
+          "password",
+          "select_by_code",
+          "render_markdown",
+          "show",
+          "number_slider",
+          "range_interval",
+          "progress_bar",
+          "heat_cell",
+          "above_input",
+          "below_input",
+          "show_star_rating",
+          "edit_star_rating",
+          "to_locale_string",
+          "role_select"
+        ]
+      },
+      "action_name_enum": {
+        "type": "string",
+        "enum": [
+          "Save",
+          "SaveAndContinue",
+          "UpdateMatchingRows",
+          "SubmitWithAjax",
+          "Reset",
+          "GoBack",
+          "Delete",
+          "Cancel",
+          "blocks",
+          "emit_event",
+          "loop_rows",
+          "webhook",
+          "find_or_create_dm_room",
+          "send_email",
+          "insert_joined_row",
+          "duplicate_row",
+          "recalculate_stored_fields",
+          "insert_any_row",
+          "modify_row",
+          "delete_rows",
+          "navigate",
+          "step_control_flow",
+          "form_action",
+          "copy_to_clipboard",
+          "toast",
+          "run_js_code",
+          "run_js_code_in_field",
+          "duplicate_row_prefill_edit",
+          "set_user_language",
+          "sync_table_from_external",
+          "reload_embedded_view",
+          "progress_bar",
+          "sleep",
+          "refresh_user_session",
+          "notify_user",
+          "convert_session_to_user",
+          "train_model_instance",
+          "download_file_to_browser",
+          "install_progressive_web_app",
+          "run_sql_code",
+          "applepay_create_session",
+          "llm_function_call",
+          "llm_generate",
+          "llm_transcribe_audio",
+          "llm_generate_image",
+          "llm_generate_json",
+          "Agent",
+          "copilot_generate_page",
+          "toggle_material_dark_mode",
+          "Saltcorn Copilot"
+        ]
+      },
+      "view_name_enum": {
+        "type": "string",
+        "enum": [
+          "CountryEdit",
+          "CountryEdit2",
+          "CountryEdit3"
+        ]
+      },
+      "icon_enum": {
+        "type": "string",
+        "enum": [
+          "empty",
+          "fab fa-500px",
+          "fab fa-accessible-icon",
+          "fab fa-accusoft",
+          "fas fa-ad",
+          "fas fa-address-book",
+          "far fa-address-book",
+          "fas fa-address-card",
+          "far fa-address-card",
+          "fas fa-adjust",
+          "fab fa-adn",
+          "fab fa-adversal",
+          "fab fa-affiliatetheme",
+          "fas fa-air-freshener",
+          "fab fa-algolia"
+        ]
+      },
+      "text_style_enum": {
+        "type": "string",
+        "enum": [
+          "",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6",
+          "fw-bold",
+          "fst-italic",
+          "small",
+          "text-muted",
+          "text-underline",
+          "font-monospace"
+        ]
+      },
+      "blank": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "blank"
+          },
+          "block": {
+            "type": "boolean"
+          },
+          "inline": {
+            "type": "boolean"
+          },
+          "isFormula": {
+            "type": "object"
+          },
+          "textStyle": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/text_style_enum"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/text_style_enum"
+                }
+              }
+            ]
+          },
+          "labelFor": {
+            "$ref": "#/$defs/field_name_enum"
+          },
+          "font": {
+            "type": "string"
+          },
+          "style": {
+            "type": "object"
+          },
+          "customClass": {
+            "$ref": "#/$defs/any_value"
+          },
+          "icon": {
+            "$ref": "#/$defs/icon_enum"
+          },
+          "mobileFontSize": {
+            "$ref": "#/$defs/any_value"
+          },
+          "tabletFontSize": {
+            "$ref": "#/$defs/any_value"
+          },
+          "contents": {
+            "type": "string"
+          },
+          "isHTML": {
+            "type": "boolean"
+          }
+        }
+      },
+      "field": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "field"
+          },
+          "field_name": {
+            "$ref": "#/$defs/field_name_enum"
+          },
+          "fieldview": {
+            "$ref": "#/$defs/fieldview_enum"
+          },
+          "textStyle": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/text_style_enum"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/text_style_enum"
+                }
+              }
+            ]
+          },
+          "block": {
+            "$ref": "#/$defs/any_value"
+          },
+          "inline": {
+            "$ref": "#/$defs/any_value"
+          },
+          "click_to_edit": {
+            "$ref": "#/$defs/any_value"
+          },
+          "onchange_action": {
+            "$ref": "#/$defs/any_value"
+          },
+          "configuration": {
+            "type": "object"
+          },
+          "name": {
+            "$ref": "#/$defs/any_value"
+          }
+        }
+      },
+      "line_break": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "line_break"
+          },
+          "page_break_after": {
+            "type": "boolean"
+          },
+          "hr": {
+            "type": "boolean"
+          }
+        }
+      },
+      "action": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "action"
+          },
+          "setting_action_n": {
+            "type": "number"
+          },
+          "nsteps": {
+            "type": "number"
+          },
+          "action_row_variable": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_row_limit": {
+            "$ref": "#/$defs/any_value"
+          },
+          "block": {
+            "$ref": "#/$defs/any_value"
+          },
+          "minRole": {
+            "$ref": "#/$defs/any_value"
+          },
+          "confirm": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_label": {
+            "$ref": "#/$defs/any_value"
+          },
+          "configuration": {
+            "$ref": "#/$defs/any_value"
+          },
+          "isFormula": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_style": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_size": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_icon": {
+            "$ref": "#/$defs/icon_enum"
+          },
+          "action_title": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_bgcol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_bordercol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_textcol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_class": {
+            "$ref": "#/$defs/any_value"
+          },
+          "step_only_ifs": {
+            "$ref": "#/$defs/any_value"
+          },
+          "step_action_names": {
+            "$ref": "#/$defs/any_value"
+          },
+          "spinner": {
+            "$ref": "#/$defs/any_value"
+          },
+          "run_async": {
+            "$ref": "#/$defs/any_value"
+          },
+          "is_submit_action": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_name": {
+            "$ref": "#/$defs/action_name_enum"
+          },
+          "rndid": {
+            "$ref": "#/$defs/any_value"
+          }
+        }
+      },
+      "container": {
+        "type": "object",
+        "required": [
+          "type",
+          "contents"
+        ],
+        "properties": {
+          "type": {
+            "const": "container"
+          },
+          "contents": {
+            "$ref": "#/$defs/segment"
+          },
+          "gradStartColor": {
+            "type": "string"
+          },
+          "gradEndColor": {
+            "type": "string"
+          },
+          "gradDirection": {
+            "type": "string"
+          },
+          "rotate": {
+            "type": "number"
+          },
+          "animateName": {
+            "$ref": "#/$defs/any_value"
+          },
+          "animateDuration": {
+            "$ref": "#/$defs/any_value"
+          },
+          "animateDelay": {
+            "$ref": "#/$defs/any_value"
+          },
+          "animateInitialHide": {
+            "$ref": "#/$defs/any_value"
+          },
+          "customClass": {
+            "$ref": "#/$defs/any_value"
+          },
+          "customId": {
+            "$ref": "#/$defs/any_value"
+          },
+          "customCSS": {
+            "$ref": "#/$defs/any_value"
+          },
+          "overflow": {
+            "$ref": "#/$defs/any_value"
+          },
+          "margin": {
+            "type": "array"
+          },
+          "padding": {
+            "type": "array"
+          },
+          "minHeight": {
+            "type": "number"
+          },
+          "height": {
+            "$ref": "#/$defs/any_value"
+          },
+          "width": {
+            "$ref": "#/$defs/any_value"
+          },
+          "mobileWidth": {
+            "$ref": "#/$defs/any_value"
+          },
+          "tabletWidth": {
+            "$ref": "#/$defs/any_value"
+          },
+          "mobileHeight": {
+            "$ref": "#/$defs/any_value"
+          },
+          "tabletHeight": {
+            "$ref": "#/$defs/any_value"
+          },
+          "click_action": {
+            "$ref": "#/$defs/any_value"
+          },
+          "url": {
+            "$ref": "#/$defs/any_value"
+          },
+          "hoverColor": {
+            "$ref": "#/$defs/any_value"
+          },
+          "minHeightUnit": {
+            "type": "string"
+          },
+          "heightUnit": {
+            "type": "string"
+          },
+          "widthUnit": {
+            "type": "string"
+          },
+          "vAlign": {
+            "type": "string"
+          },
+          "hAlign": {
+            "type": "string"
+          },
+          "htmlElement": {
+            "type": "string"
+          },
+          "display": {
+            "type": "string"
+          },
+          "fullPageWidth": {
+            "type": "boolean"
+          },
+          "bgFileId": {
+            "type": "number"
+          },
+          "bgField": {
+            "type": "string"
+          },
+          "imageSize": {
+            "type": "string"
+          },
+          "imgResponsiveWidths": {
+            "$ref": "#/$defs/any_value"
+          },
+          "bgType": {
+            "type": "string"
+          },
+          "style": {
+            "type": "object"
+          },
+          "transform": {
+            "type": "object"
+          },
+          "bgColor": {
+            "type": "string"
+          },
+          "setTextColor": {
+            "type": "boolean"
+          },
+          "textColor": {
+            "type": "string"
+          },
+          "showIfFormula": {
+            "type": "string"
+          },
+          "showForRole": {
+            "type": "array"
+          },
+          "minScreenWidth": {
+            "type": "string"
+          },
+          "maxScreenWidth": {
+            "type": "string"
+          },
+          "show_for_owner": {
+            "type": "boolean"
+          },
+          "isFormula": {
+            "type": "object"
+          },
+          "borderColor": {
+            "type": "string"
+          },
+          "currentSettingsTab": {
+            "$ref": "#/$defs/any_value"
+          }
+        }
+      },
+      "card": {
+        "type": "object",
+        "required": [
+          "type",
+          "contents"
+        ],
+        "properties": {
+          "type": {
+            "const": "card"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string"
+          },
+          "shadow": {
+            "type": "boolean"
+          },
+          "hasFooter": {
+            "type": "boolean"
+          },
+          "titleAjaxIndicator": {
+            "type": "boolean"
+          },
+          "noPadding": {
+            "type": "boolean"
+          },
+          "contents": {
+            "$ref": "#/$defs/segment"
+          },
+          "titleRight": {
+            "$ref": "#/$defs/segment"
+          },
+          "footer": {
+            "$ref": "#/$defs/segment"
+          },
+          "style": {
+            "type": "object"
+          },
+          "mobileWidth": {
+            "$ref": "#/$defs/any_value"
+          },
+          "tabletWidth": {
+            "$ref": "#/$defs/any_value"
+          },
+          "mobileHeight": {
+            "$ref": "#/$defs/any_value"
+          },
+          "tabletHeight": {
+            "$ref": "#/$defs/any_value"
+          },
+          "hAlign": {
+            "$ref": "#/$defs/any_value"
+          },
+          "bgType": {
+            "$ref": "#/$defs/any_value"
+          },
+          "gradStartColor": {
+            "$ref": "#/$defs/any_value"
+          },
+          "gradEndColor": {
+            "$ref": "#/$defs/any_value"
+          },
+          "gradDirection": {
+            "$ref": "#/$defs/any_value"
+          },
+          "bgFileId": {
+            "$ref": "#/$defs/any_value"
+          },
+          "bgField": {
+            "$ref": "#/$defs/any_value"
+          },
+          "imageSize": {
+            "$ref": "#/$defs/any_value"
+          },
+          "imageLocation": {
+            "$ref": "#/$defs/any_value"
+          },
+          "bgColor": {
+            "$ref": "#/$defs/any_value"
+          },
+          "isFormula": {
+            "type": "object"
+          },
+          "currentSettingsTab": {
+            "$ref": "#/$defs/any_value"
+          }
+        }
+      },
+      "tabs": {
+        "type": "object",
+        "required": [
+          "type",
+          "contents"
+        ],
+        "properties": {
+          "type": {
+            "const": "tabs"
+          },
+          "titles": {
+            "type": "array"
+          },
+          "showif": {
+            "type": "array"
+          },
+          "acc_init_opens": {
+            "type": "array"
+          },
+          "tabsStyle": {
+            "type": "string"
+          },
+          "independent": {
+            "type": "boolean"
+          },
+          "startClosed": {
+            "type": "boolean"
+          },
+          "deeplink": {
+            "type": "boolean"
+          },
+          "disable_inactive": {
+            "type": "boolean"
+          },
+          "serverRendered": {
+            "type": "boolean"
+          },
+          "setting_tab_n": {
+            "type": "number"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "lazyLoadViews": {
+            "$ref": "#/$defs/any_value"
+          },
+          "field": {
+            "$ref": "#/$defs/field_name_enum"
+          },
+          "contents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/segment"
+            }
+          },
+          "ntabs": {
+            "type": "number"
+          }
+        }
+      },
+      "link": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "link"
+          },
+          "text": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "link_src": {
+            "type": "string"
+          },
+          "block": {
+            "type": "boolean"
+          },
+          "nofollow": {
+            "type": "boolean"
+          },
+          "target_blank": {
+            "type": "boolean"
+          },
+          "textStyle": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/text_style_enum"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/text_style_enum"
+                }
+              }
+            ]
+          },
+          "link_size": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_icon": {
+            "$ref": "#/$defs/icon_enum"
+          },
+          "link_style": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_title": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_class": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_bgcol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_bordercol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_textcol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "in_modal": {
+            "$ref": "#/$defs/any_value"
+          },
+          "transfer_state": {
+            "$ref": "#/$defs/any_value"
+          },
+          "view_state_fml": {
+            "$ref": "#/$defs/any_value"
+          },
+          "isFormula": {
+            "type": "object"
+          }
+        }
+      },
+      "image": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "image"
+          },
+          "alt": {
+            "type": "string"
+          },
+          "url": {
+            "$ref": "#/$defs/any_value"
+          },
+          "srctype": {
+            "type": "string"
+          },
+          "fileid": {
+            "type": "number"
+          },
+          "field": {
+            "$ref": "#/$defs/field_name_enum"
+          },
+          "customClass": {
+            "$ref": "#/$defs/any_value"
+          },
+          "block": {
+            "type": "boolean"
+          },
+          "imgResponsiveWidths": {
+            "$ref": "#/$defs/any_value"
+          },
+          "style": {
+            "type": "object"
+          },
+          "isFormula": {
+            "type": "object"
+          },
+          "filepath": {
+            "$ref": "#/$defs/any_value"
+          },
+          "currentSettingsTab": {
+            "$ref": "#/$defs/any_value"
+          }
+        }
+      },
+      "view": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "view"
+          },
+          "name": {
+            "$ref": "#/$defs/view_name_enum"
+          },
+          "view": {
+            "$ref": "#/$defs/view_name_enum"
+          },
+          "relation": {
+            "$ref": "#/$defs/any_value"
+          },
+          "order_field": {
+            "$ref": "#/$defs/any_value"
+          },
+          "state": {
+            "$ref": "#/$defs/any_value"
+          },
+          "extra_state_fml": {
+            "$ref": "#/$defs/any_value"
+          },
+          "configuration": {
+            "$ref": "#/$defs/any_value"
+          }
+        }
+      },
+      "join_field": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "join_field"
+          },
+          "join_field": {
+            "$ref": "#/$defs/field_name_enum"
+          },
+          "fieldview": {
+            "$ref": "#/$defs/fieldview_enum"
+          },
+          "textStyle": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/text_style_enum"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/text_style_enum"
+                }
+              }
+            ]
+          },
+          "click_to_edit": {
+            "$ref": "#/$defs/any_value"
+          },
+          "block": {
+            "$ref": "#/$defs/any_value"
+          },
+          "configuration": {
+            "type": "object"
+          },
+          "name": {
+            "$ref": "#/$defs/any_value"
+          }
+        }
+      },
+      "dropdown_menu": {
+        "type": "object",
+        "required": [
+          "type",
+          "contents"
+        ],
+        "properties": {
+          "type": {
+            "const": "dropdown_menu"
+          },
+          "contents": {
+            "$ref": "#/$defs/segment"
+          },
+          "label": {
+            "type": "string"
+          },
+          "block": {
+            "type": "boolean"
+          },
+          "action_style": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_size": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_icon": {
+            "$ref": "#/$defs/icon_enum"
+          },
+          "action_bgcol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_title": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_class": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_bordercol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "action_textcol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "menu_direction": {
+            "$ref": "#/$defs/any_value"
+          }
+        }
+      },
+      "table": {
+        "type": "object",
+        "required": [
+          "type",
+          "contents",
+          "rows",
+          "columns"
+        ],
+        "properties": {
+          "type": {
+            "const": "table"
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "columns": {
+            "type": "integer"
+          },
+          "customClass": {
+            "type": "string"
+          },
+          "bs_style": {
+            "type": "boolean"
+          },
+          "bs_small": {
+            "type": "boolean"
+          },
+          "bs_striped": {
+            "type": "boolean"
+          },
+          "bs_bordered": {
+            "type": "boolean"
+          },
+          "bs_borderless": {
+            "type": "boolean"
+          },
+          "bs_wauto": {
+            "type": "boolean"
+          },
+          "contents": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/segment"
+              }
+            }
+          }
+        }
+      },
+      "view_link": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "view_link"
+          },
+          "view": {
+            "$ref": "#/$defs/view_name_enum"
+          },
+          "relation": {
+            "$ref": "#/$defs/any_value"
+          },
+          "view_label": {
+            "$ref": "#/$defs/any_value"
+          },
+          "block": {
+            "$ref": "#/$defs/any_value"
+          },
+          "textStyle": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/text_style_enum"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/text_style_enum"
+                }
+              }
+            ]
+          },
+          "in_modal": {
+            "$ref": "#/$defs/any_value"
+          },
+          "minRole": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_style": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_icon": {
+            "$ref": "#/$defs/icon_enum"
+          },
+          "link_size": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_title": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_class": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_target_blank": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_bgcol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_bordercol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "link_textcol": {
+            "$ref": "#/$defs/any_value"
+          },
+          "extra_state_fml": {
+            "$ref": "#/$defs/any_value"
+          },
+          "isFormula": {
+            "type": "object"
+          },
+          "name": {
+            "$ref": "#/$defs/any_value"
+          },
+          "label": {
+            "$ref": "#/$defs/any_value"
+          },
+          "inModal": {
+            "$ref": "#/$defs/any_value"
+          }
+        }
+      },
+      "prompt": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "prompt"
+          },
+          "promptType": {
+            "type": "string"
+          },
+          "promptText": {
+            "type": "string"
+          },
+          "generateError": {
+            "$ref": "#/$defs/any_value"
+          }
+        }
+      }
+    }
+  },
+  "meta": {
+    "mode": "edit",
+    "table": {
+      "id": 24,
+      "name": "countries"
+    },
+    "allowedComponents": [
+      "Text",
+      "Columns",
+      "Field",
+      "LineBreak",
+      "Action",
+      "Container",
+      "Card",
+      "Tabs",
+      "Link",
+      "Image",
+      "HTMLCode",
+      "View",
+      "JoinField",
+      "DropMenu",
+      "Table",
+      "ViewLink",
+      "Prompt"
+    ],
+    "componentDefinitions": [
+      {
+        "component": "Text",
+        "segment_type": "blank",
+        "schema_ref": "#/$defs/blank"
+      },
+      {
+        "component": "Columns",
+        "segment_type": "columns",
+        "schema_ref": "#/$defs/columns"
+      },
+      {
+        "component": "Field",
+        "segment_type": "field",
+        "schema_ref": "#/$defs/field"
+      },
+      {
+        "component": "LineBreak",
+        "segment_type": "line_break",
+        "schema_ref": "#/$defs/line_break"
+      },
+      {
+        "component": "Action",
+        "segment_type": "action",
+        "schema_ref": "#/$defs/action"
+      },
+      {
+        "component": "Container",
+        "segment_type": "container",
+        "schema_ref": "#/$defs/container"
+      },
+      {
+        "component": "Card",
+        "segment_type": "card",
+        "schema_ref": "#/$defs/card"
+      },
+      {
+        "component": "Tabs",
+        "segment_type": "tabs",
+        "schema_ref": "#/$defs/tabs"
+      },
+      {
+        "component": "Link",
+        "segment_type": "link",
+        "schema_ref": "#/$defs/link"
+      },
+      {
+        "component": "Image",
+        "segment_type": "image",
+        "schema_ref": "#/$defs/image"
+      },
+      {
+        "component": "HTMLCode",
+        "segment_type": "blank",
+        "schema_ref": "#/$defs/blank"
+      },
+      {
+        "component": "View",
+        "segment_type": "view",
+        "schema_ref": "#/$defs/view"
+      },
+      {
+        "component": "JoinField",
+        "segment_type": "join_field",
+        "schema_ref": "#/$defs/join_field"
+      },
+      {
+        "component": "DropMenu",
+        "segment_type": "dropdown_menu",
+        "schema_ref": "#/$defs/dropdown_menu"
+      },
+      {
+        "component": "Table",
+        "segment_type": "table",
+        "schema_ref": "#/$defs/table"
+      },
+      {
+        "component": "ViewLink",
+        "segment_type": "view_link",
+        "schema_ref": "#/$defs/view_link"
+      },
+      {
+        "component": "Prompt",
+        "segment_type": "prompt",
+        "schema_ref": "#/$defs/prompt"
+      }
+    ],
+    "fields": [
+      {
+        "name": "capital_city",
+        "label": "Capital city"
+      },
+      {
+        "name": "country_name",
+        "label": "Country name"
+      },
+      {
+        "name": "id",
+        "label": "ID"
+      },
+      {
+        "name": "official_language",
+        "label": "Official language"
+      },
+      {
+        "name": "population",
+        "label": "Population"
+      }
+    ],
+    "actions": [
+      "Save",
+      "SaveAndContinue",
+      "UpdateMatchingRows",
+      "SubmitWithAjax",
+      "Reset",
+      "GoBack",
+      "Delete",
+      "Cancel",
+      "blocks",
+      "emit_event",
+      "loop_rows",
+      "webhook",
+      "find_or_create_dm_room",
+      "send_email",
+      "insert_joined_row",
+      "duplicate_row",
+      "recalculate_stored_fields",
+      "insert_any_row",
+      "modify_row",
+      "delete_rows",
+      "navigate",
+      "step_control_flow",
+      "form_action",
+      "copy_to_clipboard",
+      "toast",
+      "run_js_code",
+      "run_js_code_in_field",
+      "duplicate_row_prefill_edit",
+      "set_user_language",
+      "sync_table_from_external",
+      "reload_embedded_view",
+      "progress_bar",
+      "sleep",
+      "refresh_user_session",
+      "notify_user",
+      "convert_session_to_user",
+      "train_model_instance",
+      "download_file_to_browser",
+      "install_progressive_web_app",
+      "run_sql_code",
+      "applepay_create_session",
+      "llm_function_call",
+      "llm_generate",
+      "llm_transcribe_audio",
+      "llm_generate_image",
+      "llm_generate_json",
+      "Agent",
+      "copilot_generate_page",
+      "toggle_material_dark_mode",
+      "Saltcorn Copilot"
+    ],
+    "views": [
+      "CountryEdit",
+      "CountryEdit2",
+      "CountryEdit3"
+    ]
+  }
+}
