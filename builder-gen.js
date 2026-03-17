@@ -842,11 +842,9 @@ const buildErrorLayout = ({ message, mode, table }) => {
 };
 
 module.exports = {
-  run: async (prompt, mode, table) => {
+  run: async (prompt, mode, table, chat) => {
     // Remove any leading "container:" or similar so as to remain with only the user prompt.
     prompt = prompt.trim().replace(/^\[\w+\]:\s*/, "");
-
-    console.log({ prompt, mode, table });
 
     const ctx = await buildContext(mode, table);
     const schema = buildBuilderSchema({ mode, ctx });
@@ -863,6 +861,7 @@ module.exports = {
         },
       },
     };
+    if (Array.isArray(chat) && chat.length) options.chat = chat;
 
     // const deterministicLayout = buildDeterministicLayout(ctx, prompt);
 
@@ -872,11 +871,8 @@ module.exports = {
       if (!schema || !schema.schema) {
         throw new Error("Builder schema unavailable");
       }
-      // console.log(llmPrompt)
-      // console.log(JSON.stringify({ schema }, null, 2));
-      console.log(`llmPrompt: ${llmPrompt}`);
       rawResponse = await llm.run(llmPrompt, options);
-      console.log(JSON.stringify({ rawResponse }, null, 2));
+      console.log(JSON.stringify(rawResponse , null, 2));
       payload = parseJsonPayload(rawResponse);
       console.log(JSON.stringify({ payload }, null, 2));
       const candidate = payload.layout ?? payload;
@@ -897,5 +893,6 @@ module.exports = {
     { name: "prompt", type: "String" },
     { name: "mode", type: "String" },
     { name: "table", type: "String" },
+    { name: "chat", type: "JSON" },
   ],
 };

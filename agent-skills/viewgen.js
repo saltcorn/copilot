@@ -1,6 +1,7 @@
 const Table = require("@saltcorn/data/models/table");
 const View = require("@saltcorn/data/models/view");
 const { fieldProperties } = require("../common");
+const { initial_config_all_fields } = require("@saltcorn/data/plugin-helper");
 const { getState } = require("@saltcorn/data/db/state");
 const {
   div,
@@ -12,6 +13,7 @@ const {
   iframe,
   text_attr,
 } = require("@saltcorn/markup/tags");
+const builderGen = require("../builder-gen");
 
 class GenerateViewSkill {
   static skill_name = "Generate View";
@@ -38,11 +40,14 @@ a view generation mode. The tool call only requires high-level details to start 
         table,
         min_role,
       }) {
+        const normalizedRole = min_role || "public";
+        const tableRow = table ? Table.findOne({ name: table }) : null;
         await View.create({
           name,
           viewtemplate: viewpattern,
-          table: Table.findOne({ name: table }),
-          min_role: { admin: 1, public: 100, user: 80 }[min_role],
+          table_id: tableRow?.id,
+          table: tableRow,
+          min_role: { admin: 1, public: 100, user: 80 }[normalizedRole],
           configuration: wfctx,
         });
         setTimeout(() => getState().refresh_views(), 200);
@@ -63,6 +68,7 @@ a view generation mode. The tool call only requires high-level details to start 
         vts[vtnm].enable_copilot_viewgen ||
         vts[vtnm].copilot_generate_view_prompt,
     );
+    if (!enabled_vt_names.includes("Show")) enabled_vt_names.push("Show");
     //const roles = await User.get_roles();
     const tableless = enabled_vt_names.filter(
       (vtnm) => vts[vtnm].tableless === true,
@@ -107,70 +113,95 @@ a view generation mode. The tool call only requires high-level details to start 
       process: async (input) => {
         return "Metadata received";
       },
-      postProcess: async ({ tool_call, req, generate }) => {
+      postProcess: async ({ tool_call, req, generate, chat }) => {
         const state = getState();
         const vt = state.viewtemplates[tool_call.input.viewpattern];
         const table =
           vt.tableless === true
             ? null
             : Table.findOne({ name: tool_call.input.table });
-        const flow = vt.configuration_workflow(req);
-        const wfctx = { viewname: tool_call.input.name, table_id: table?.id };
-        let vt_prompt = "";
-        if (vt.copilot_generate_view_prompt) {
-          if (typeof vt.copilot_generate_view_prompt === "string")
-            vt_prompt = vt.copilot_generate_view_prompt;
-          else if (typeof vt.copilot_generate_view_prompt === "function")
-            vt_prompt = await vt.copilot_generate_view_prompt(tool_call.input);
-        }
 
-        for (const step of flow.steps) {
-          const form = await step.form(wfctx);
-          const properties = {};
-          //TODO onlyWhen
-          for (const field of form.fields) {
-            //TODO showIf
-            properties[field.name] = {
-              description:
-                field.copilot_description ||
-                `${field.label}.${field.sublabel ? ` ${field.sublabel}` : ""}`,
-              ...fieldProperties(field),
-            };
+        const wfctx = { viewname: tool_call.input.name, table_id: table?.id };
+        if (tool_call.input.viewpattern === "Show") {
+          const promptFromChat = Array.isArray(chat)
+            ? [...chat]
+                .reverse()
+                .find((item) => item?.role === "user" && item?.content)?.content
+            : "";
+          const layoutPrompt = promptFromChat || tool_call.input.name || "";
+          wfctx.layout = await builderGen.run(
+            layoutPrompt,
+            "show",
+            table?.name,
+            chat,
+          );
+          if (table) {
+            const baseCfg = await initial_config_all_fields(false)({
+              table_id: table.id,
+            });
+            if (baseCfg?.columns) wfctx.columns = baseCfg.columns;
+          }
+        } else {
+          const flow = vt.configuration_workflow(req);
+          let vt_prompt = "";
+          if (vt.copilot_generate_view_prompt) {
+            if (typeof vt.copilot_generate_view_prompt === "string")
+              vt_prompt = vt.copilot_generate_view_prompt;
+            else if (typeof vt.copilot_generate_view_prompt === "function")
+              vt_prompt = await vt.copilot_generate_view_prompt(
+                tool_call.input,
+              );
           }
 
-          const answer = await generate(
-            `${vt_prompt ? vt_prompt + "\n\n" : ""}Now generate the ${step.name} details of the view by calling the generate_view_details tool`,
-            {
-              tools: [
-                {
+          for (const step of flow.steps) {
+            const form = await step.form(wfctx);
+            const properties = {};
+            //TODO onlyWhen
+            for (const field of form.fields) {
+              //TODO showIf
+              properties[field.name] = {
+                description:
+                  field.copilot_description ||
+                  `${field.label}.${field.sublabel ? ` ${field.sublabel}` : ""}`,
+                ...fieldProperties(field),
+              };
+            }
+
+            const answer = await generate(
+              `${vt_prompt ? vt_prompt + "\n\n" : ""}Now generate the ${step.name} details of the view by calling the generate_view_details tool`,
+              {
+                tools: [
+                  {
+                    type: "function",
+                    function: {
+                      name: "generate_view_details",
+                      description: "Provide view details",
+                      parameters: {
+                        type: "object",
+                        properties,
+                      },
+                    },
+                  },
+                ],
+                tool_choice: {
                   type: "function",
                   function: {
                     name: "generate_view_details",
-                    description: "Provide view details",
-                    parameters: {
-                      type: "object",
-                      properties,
-                    },
                   },
                 },
-              ],
-              tool_choice: {
-                type: "function",
-                function: {
-                  name: "generate_view_details",
-                },
               },
-            },
-          );
-          const tc = answer.getToolCalls()[0];
-          Object.assign(wfctx, tc.input);
+            );
+            const tc = answer.getToolCalls()[0];
+            Object.assign(wfctx, tc.input);
+          }
         }
         const view = new View({
           name: tool_call.input.name,
           viewtemplate: tool_call.input.viewpattern,
           table,
+          table_id: table?.id,
           min_role: { admin: 1, public: 100, user: 80 }[
-            tool_call.input.min_role
+            tool_call.input.min_role || "public"
           ],
           configuration: wfctx,
         });
