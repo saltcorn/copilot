@@ -10,6 +10,7 @@ module.exports = {
         require("./chat-copilot"),
         require("./user-copilot"),
         require("./copilot-as-agent"),
+        require("./construction-manager/view.js"),
       ]
     : [require("./action-builder"), require("./database-designer")],
   functions: features.workflows
