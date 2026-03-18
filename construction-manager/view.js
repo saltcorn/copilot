@@ -125,7 +125,7 @@ const submit_specs = async (table_id, viewname, config, body, {req,res}) => {
   });
   
   if (existing)
-    await db.updateWhere("_sc_metadata", { body: spec }, existing.id);
+    await db.update("_sc_metadata", { body: spec }, existing.id);
   else
     await MetaData.create({
       type: "CopilotConstructMgr",
