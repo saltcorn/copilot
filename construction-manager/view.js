@@ -36,34 +36,13 @@ const get_state_fields = () => [];
 const sys_prompt = ``;
 const viewname = "Saltcorn construction manager";
 
-const get_agent_view = () => {
-  const agent_action = new Trigger({
-    action: "Agent",
-    when_trigger: "Never",
-    configuration: {
-      viewname,
-      sys_prompt,
-      skills: [
-        { skill_type: "Generate Page" },
-        { skill_type: "Database design" },
-        { skill_type: "Generate Workflow" },
-        { skill_type: "Generate View" },
-      ],
-    },
+const makeSpecForm = async (req) => {
+  const spec = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "spec",
   });
-  return new View({
-    viewtemplate: "Agent Chat",
-    name: viewname,
-    min_role: 1,
-    configuration: {
-      agent_action,
-      viewname,
-    },
-  });
-};
-
-const makeSpecForm = (req, values) =>
-  new Form({
+  
+  return new Form({
     blurb: "Provide a high-level description of the application",
     fields: [
       {
@@ -72,25 +51,44 @@ const makeSpecForm = (req, values) =>
         type: "String",
         fieldview: "textarea",
       },
+      {
+        name: "audience",
+        label: "Audience",
+        type: "String",
+        fieldview: "textarea",
+      },
+      {
+        name: "core_features",
+        label: "Core features",
+        type: "String",
+        fieldview: "textarea",
+      },
+      {
+        name: "out_of_scope",
+        label: "Out of scope",
+        type: "String",
+        fieldview: "textarea",
+      },
+      {
+        name: "visual_style",
+        label: "Visual style",
+        type: "String",
+        fieldview: "textarea",
+      },
     ],
     xhrSubmit: true,
     action: `/view/${encodeURIComponent("Saltcorn construction manager")}/submit_specs`,
-    values,
+    values: spec.body,
   });
+};
 
 const run = async (table_id, viewname, cfg, state, { req, res }) => {
-  const spec = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "spec",
-  });
-  
-  const specForm = makeSpecForm(req, spec.body);
-  
+  const specForm = await makeSpecForm(req);
+
   const layout = {
     type: "tabs",
     ntabs: 5,
     tabId: "",
-    showif: [],
     titles: ["Specification", "Requirements", "Tasks", "Feedback", "Errors"],
     contents: [
       {
@@ -101,12 +99,6 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
     ],
     deeplink: true,
     tabsStyle: "Tabs",
-    independent: false,
-    startClosed: false,
-    setting_tab_n: 4,
-    acc_init_opens: [],
-    serverRendered: false,
-    disable_inactive: false,
   };
   return renderLayout({
     blockDispatch: {},
@@ -117,15 +109,14 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
   });
 };
 
-const submit_specs = async (table_id, viewname, config, body, {req,res}) => {
+const submit_specs = async (table_id, viewname, config, body, { req, res }) => {
   const { _csrf, ...spec } = body;
   const existing = await MetaData.findOne({
     type: "CopilotConstructMgr",
     name: "spec",
   });
-  
-  if (existing)
-    await db.update("_sc_metadata", { body: spec }, existing.id);
+
+  if (existing) await db.update("_sc_metadata", { body: spec }, existing.id);
   else
     await MetaData.create({
       type: "CopilotConstructMgr",
