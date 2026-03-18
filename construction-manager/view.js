@@ -1,13 +1,14 @@
 const Field = require("@saltcorn/data/models/field");
 const Table = require("@saltcorn/data/models/table");
 const Form = require("@saltcorn/data/models/form");
+const MetaData = require("@saltcorn/data/models/metadata");
 const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
 const { findType } = require("@saltcorn/data/models/discovery");
 const { save_menu_items } = require("@saltcorn/data/models/config");
 const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
-const { localeDateTime } = require("@saltcorn/markup");
+const { localeDateTime, renderForm } = require("@saltcorn/markup");
 const {
   div,
   script,
@@ -60,7 +61,31 @@ const get_agent_view = () => {
     },
   });
 };
+
+const makeSpecForm = (req, values) =>
+  new Form({
+    blurb: "Provide a high-level description of the application",
+    fields: [
+      {
+        name: "description",
+        label: "Description",
+        type: "String",
+        fieldview: "textarea",
+      },
+    ],
+    xhrSubmit: true,
+    action: `/view/${encodeURIComponent("Saltcorn construction manager")}/submit_specs`,
+    values,
+  });
+
 const run = async (table_id, viewname, cfg, state, { req, res }) => {
+  const spec = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "spec",
+  });
+  
+  const specForm = makeSpecForm(req, spec.body);
+  
   const layout = {
     type: "tabs",
     ntabs: 5,
@@ -68,7 +93,10 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
     showif: [],
     titles: ["Specification", "Requirements", "Tasks", "Feedback", "Errors"],
     contents: [
-      { type: "blank", contents: "Hello spec" },
+      {
+        type: "blank",
+        contents: div({ class: "mt-2" }, renderForm(specForm, req.csrfToken())),
+      },
       { type: "blank", contents: "Hello reqs" },
     ],
     deeplink: true,
@@ -89,20 +117,22 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
   });
 };
 
-const interact = async (table_id, viewname, config, body, reqres) => {
-  const view = get_agent_view();
-  return await view.runRoute("interact", body, reqres.res, reqres);
-};
-
-const execute_user_action = async (
-  table_id,
-  viewname,
-  config,
-  body,
-  reqres,
-) => {
-  const view = get_agent_view();
-  return await view.runRoute("execute_user_action", body, reqres.res, reqres);
+const submit_specs = async (table_id, viewname, config, body, {req,res}) => {
+  const { _csrf, ...spec } = body;
+  const existing = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "spec",
+  });
+  
+  if (existing)
+    await db.updateWhere("_sc_metadata", { body: spec }, existing.id);
+  else
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: "spec",
+      user_id: req.user?.id || undefined,
+      body: spec,
+    });
 };
 
 module.exports = {
@@ -112,5 +142,5 @@ module.exports = {
   tableless: true,
   singleton: true,
   run,
-  routes: { interact, execute_user_action },
+  routes: { submit_specs },
 };
