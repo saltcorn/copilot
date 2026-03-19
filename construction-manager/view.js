@@ -36,7 +36,7 @@ const {
 const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
-const { requirementsList, gen_reqs } = require("./requirements");
+const { requirementsList, req_routes } = require("./requirements");
 
 const get_state_fields = () => [];
 
@@ -139,5 +139,5 @@ module.exports = {
   tableless: true,
   singleton: true,
   run,
-  routes: { submit_specs, gen_reqs },
+  routes: { submit_specs, ...req_routes },
 };

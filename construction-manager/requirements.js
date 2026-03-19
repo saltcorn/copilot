@@ -43,23 +43,33 @@ const requirementsList = async (req) => {
     name: "requirement",
   });
   if (rs.length) {
-    return mkTable(
-      [
-        { label: "Requirement", key: "requirement" },
-
+    return div(
+      { class: "mt-2" },
+      mkTable(
+        [
+          { label: "Requirement", key: (m) => m.body.requirement },
+          { label: "Priority", key: (m) => m.body.priority },
+          {
+            label: "Delete",
+            key: (r) =>
+              button(
+                {
+                  class: "btn btn-outline-danger btn-sm",
+                  onclick: `view_post("${viewname}", "del_req", {id:${r.id}})`,
+                },
+                i({ class: "fas fa-trash-alt" }),
+              ),
+          },
+        ],
+        rs,
+      ),
+      button(
         {
-          label: "Delete",
-          key: (r) =>
-            button(
-              {
-                class: "btn btn-outline-danger btn-sm",
-                onclick: `view_post("${viewname}", "del_req", {id:${r.id}})`,
-              },
-              i({ class: "fas fa-trash-alt" }),
-            ),
+          class: "btn btn-outline-danger",
+          onclick: `view_post("${viewname}", "del_all_reqs")`,
         },
-      ],
-      rs.map((m) => m.body),
+        "Delete all",
+      ),
     );
   } else {
     return div(
@@ -99,9 +109,9 @@ Now use the make_requirements tool to list the requirements for this software ap
         "You are a project manager. The user wants to build an application, and you must analyse their application description",
     },
   );
-  console.log("answer", answer);
+
   const tc = answer.getToolCalls()[0];
-  console.log("tool call", tc);
+
   for (const reqm of tc.input.requirements)
     await MetaData.create({
       type: "CopilotConstructMgr",
@@ -109,7 +119,26 @@ Now use the make_requirements tool to list the requirements for this software ap
       body: reqm,
       user_id: req.user?.id,
     });
-  return { reload_page: true };
+  return { json: { reload_page: true } };
+};
+
+const del_req = async (table_id, viewname, config, body, { req, res }) => {
+  const r = await MetaData.findOne({
+    id: body.id,
+  });
+  console.log("body", body);
+
+  if (!r) throw new Error("Requirement not found");
+  await r.delete();
+  return { json: { reload_page: true } };
+};
+const del_all_reqs = async (table_id, viewname, config, body, { req, res }) => {
+  const rs = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "requirement",
+  });
+  for (const r of rs) await r.delete();
+  return { json: { reload_page: true } };
 };
 
 const requirements_tool = {
@@ -156,4 +185,6 @@ const requirements_tool = {
   },
 };
 
-module.exports = { requirementsList, gen_reqs };
+const req_routes = { gen_reqs, del_req, del_all_reqs };
+
+module.exports = { requirementsList, req_routes };
