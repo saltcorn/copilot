@@ -41,7 +41,7 @@ const makeSpecForm = async (req) => {
     type: "CopilotConstructMgr",
     name: "spec",
   });
-  
+
   return new Form({
     blurb: "Provide a high-level description of the application",
     fields: [
@@ -77,14 +77,35 @@ const makeSpecForm = async (req) => {
       },
     ],
     xhrSubmit: true,
-    action: `/view/${encodeURIComponent("Saltcorn construction manager")}/submit_specs`,
+    action: `/view/${encodeURIComponent()}/submit_specs`,
     values: spec.body,
   });
 };
 
+const requirementsList = async (req) => {
+  const rs = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "requirement",
+  });
+  if (rs.length) {
+  } else {
+    return div(
+      { class: "mt-2" },
+      p("No requirements found"),
+      button(
+        {
+          class: "btn btn-primary",
+          onclick: `view_post("${viewname}", "gen_reqs")`,
+        },
+        "Generate requirements",
+      ),
+    );
+  }
+};
+
 const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const specForm = await makeSpecForm(req);
-
+  const reqList = await requirementsList(req);
   const layout = {
     type: "tabs",
     ntabs: 5,
@@ -95,7 +116,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
         type: "blank",
         contents: div({ class: "mt-2" }, renderForm(specForm, req.csrfToken())),
       },
-      { type: "blank", contents: "Hello reqs" },
+      { type: "blank", contents: reqList },
     ],
     deeplink: true,
     tabsStyle: "Tabs",
@@ -126,6 +147,10 @@ const submit_specs = async (table_id, viewname, config, body, { req, res }) => {
     });
 };
 
+const gen_reqs = async (table_id, viewname, config, body, { req, res }) => {
+  console.log("gen reqs");
+};
+
 module.exports = {
   name: viewname,
   display_state_form: false,
@@ -133,5 +158,5 @@ module.exports = {
   tableless: true,
   singleton: true,
   run,
-  routes: { submit_specs },
+  routes: { submit_specs, gen_reqs },
 };
