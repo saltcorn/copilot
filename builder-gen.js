@@ -110,6 +110,84 @@ const extractJsonStructure = (text) => {
   return null;
 };
 
+const getSchemaByRef = (root, ref) => {
+  if (!ref || typeof ref !== "string" || !ref.startsWith("#/")) return null;
+  const parts = ref
+    .slice(2)
+    .split("/")
+    .map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
+  let current = root;
+  for (const part of parts) {
+    if (!current || typeof current !== "object") return null;
+    current = current[part];
+  }
+  return current || null;
+};
+
+const validateSchemaRefs = (schema) => {
+  const missing = [];
+  const walk = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach((item) => walk(item));
+      return;
+    }
+    if (typeof node.$ref === "string") {
+      const target = getSchemaByRef(schema, node.$ref);
+      if (!target) missing.push(node.$ref);
+    }
+    for (const key of Object.keys(node)) walk(node[key]);
+  };
+  walk(schema);
+  if (missing.length) {
+    throw new Error(`Schema $ref targets not found: ${missing.join(", ")}`);
+  }
+};
+
+const schemaHasRef = (schema) => {
+  let found = false;
+  const walk = (node) => {
+    if (found || !node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach((item) => walk(item));
+      return;
+    }
+    if (typeof node.$ref === "string") {
+      found = true;
+      return;
+    }
+    Object.keys(node).forEach((key) => walk(node[key]));
+  };
+  walk(schema);
+  return found;
+};
+
+const derefSchema = (schema, maxDepth = 3) => {
+  const root = JSON.parse(JSON.stringify(schema));
+  const expand = (node, stack) => {
+    if (!node || typeof node !== "object") return node;
+    if (Array.isArray(node)) return node.map((item) => expand(item, stack));
+    if (typeof node.$ref === "string") {
+      if (stack.length >= maxDepth) {
+        return { $ref: node.$ref };
+      }
+      if (stack.includes(node.$ref)) {
+        return { $ref: node.$ref };
+      }
+      const target = getSchemaByRef(root, node.$ref);
+      if (!target) throw new Error(`Schema $ref not found: ${node.$ref}`);
+      return expand({ ...target }, [...stack, node.$ref]);
+    }
+    const out = {};
+    for (const key of Object.keys(node)) {
+      if (key === "$ref") continue;
+      out[key] = expand(node[key], stack);
+    }
+    return out;
+  };
+  return expand(root, []);
+};
+
 const randomId = () =>
   Math.floor(Math.random() * 0xffffff)
     .toString(16)
@@ -470,6 +548,22 @@ const sanitizeNoHtmlSegments = (segment) => {
   return clone;
 };
 
+const truncateText = (value, maxLen) => {
+  const str = String(value ?? "");
+  if (str.length <= maxLen) return str;
+  return `${str.slice(0, maxLen)}\n...truncated...`;
+};
+
+const normalizeLayoutCandidate = (candidate, ctx) => {
+  let normalized = normalizeSegment(candidate, ctx);
+  if (!normalized) {
+    normalized = convertForeignLayout(candidate, ctx);
+  }
+  if (!normalized) throw new Error("Empty layout after normalization");
+  const layout = Array.isArray(normalized) ? { above: normalized } : normalized;
+  return sanitizeNoHtmlSegments(layout);
+};
+
 const buildPromptText = (userPrompt, ctx, schema) => {
   const parts = [
     `You are an expert Saltcorn layout builder assistant. Your task is to generate a layout for mode "${ctx.mode}" that precisely fulfills the user's request.`,
@@ -486,6 +580,22 @@ const buildPromptText = (userPrompt, ctx, schema) => {
     `Based on the schema above, process the following user request and generate the layout JSON. Reminder: ONLY output valid JSON starting with { and ending with }, no markdown fences.\nUser request:\n"${userPrompt}"`,
   );
   return parts.join("\n\n");
+};
+
+const buildRepairPrompt = (rawOutput, schema) => {
+  const cleaned = truncateText(rawOutput, 6000);
+  return [
+    "You are repairing a JSON payload for Saltcorn. Return ONLY valid JSON.",
+    "Do not add explanations, markdown, or code fences.",
+    "If the JSON is incomplete, finish it. If it has extra text, remove it.",
+    `Schema (must conform):\n${JSON.stringify(schema)}`,
+    `Invalid output to fix:\n${cleaned}`,
+  ].join("\n\n");
+};
+
+const buildReducedPrompt = (userPrompt, ctx, schema) => {
+  const limitedPrompt = `${userPrompt}\n\nLimit the layout to at most 4 containers/cards and no more than 2 levels of nesting. Keep the output compact.`;
+  return buildPromptText(limitedPrompt, ctx, schema);
 };
 
 const convertChildList = (children, ctx) => {
@@ -852,15 +962,37 @@ module.exports = {
     if (!llm?.run) throw new Error("LLM generator not configured");
 
     const llmPrompt = buildPromptText(prompt, ctx, schema);
-    const options = {
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "saltcorn_layout",
-          schema,
-        },
-      },
-    };
+    console.log({ schema });
+    console.log({ llmPrompt: llmPrompt.slice(0, 1000) });
+    let responseFormat;
+    try {
+      if (!schema || !schema.schema) {
+        throw new Error("Builder schema unavailable");
+      }
+      validateSchemaRefs(schema.schema);
+      const deref = derefSchema(schema.schema);
+      if (schemaHasRef(deref)) {
+        console.warn(
+          "Builder response schema still contains $ref; skipping response_format",
+        );
+      } else {
+        responseFormat = {
+          type: "json_schema",
+          json_schema: {
+            name: "saltcorn_layout",
+            schema: deref,
+          },
+        };
+      }
+    } catch (err) {
+      console.warn("Builder response schema validation failed", err);
+      // responseFormat = null;
+    }
+
+    const options = {};
+    if (responseFormat) {
+      options.response_format = responseFormat;
+    }
     if (Array.isArray(chat) && chat.length) options.chat = chat;
 
     // const deterministicLayout = buildDeterministicLayout(ctx, prompt);
@@ -871,16 +1003,38 @@ module.exports = {
       if (!schema || !schema.schema) {
         throw new Error("Builder schema unavailable");
       }
+      console.log("¢¢¢¢", { options });
       rawResponse = await llm.run(llmPrompt, options);
-      console.log(JSON.stringify(rawResponse , null, 2));
+      console.log(JSON.stringify(rawResponse, null, 2));
       payload = parseJsonPayload(rawResponse);
       console.log(JSON.stringify({ payload }, null, 2));
       const candidate = payload.layout ?? payload;
-      return candidate;
+      return normalizeLayoutCandidate(candidate, ctx);
     } catch (err) {
-      console.warn("Copilot layout generation failed", err);
+      let lastError = err;
+      try {
+        const repairPrompt = buildRepairPrompt(rawResponse, schema);
+        rawResponse = await llm.run(repairPrompt, options);
+        payload = parseJsonPayload(rawResponse);
+        const candidate = payload.layout ?? payload;
+        return normalizeLayoutCandidate(candidate, ctx);
+      } catch (repairErr) {
+        lastError = repairErr;
+      }
+
+      try {
+        const reducedPrompt = buildReducedPrompt(prompt, ctx, schema);
+        rawResponse = await llm.run(reducedPrompt, options);
+        payload = parseJsonPayload(rawResponse);
+        const candidate = payload.layout ?? payload;
+        return normalizeLayoutCandidate(candidate, ctx);
+      } catch (reducedErr) {
+        lastError = reducedErr;
+      }
+
+      console.warn("Copilot layout generation failed", lastError);
       const errorLayout = buildErrorLayout({
-        message: err?.message || String(err),
+        message: lastError?.message || String(lastError),
         mode,
         table,
       });
