@@ -37,6 +37,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
 const { requirementsList, req_routes } = require("./requirements");
+const { makeTaskList, task_routes } = require("./tasks");
 
 const get_state_fields = () => [];
 
@@ -91,6 +92,7 @@ const makeSpecForm = async (req) => {
 const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const specForm = await makeSpecForm(req);
   const reqList = await requirementsList(req);
+  const taskList = await makeTaskList(req);
   const layout = {
     type: "tabs",
     ntabs: 5,
@@ -102,6 +104,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
         contents: div({ class: "mt-2" }, renderForm(specForm, req.csrfToken())),
       },
       { type: "blank", contents: reqList },
+      { type: "blank", contents: taskList },
     ],
     deeplink: true,
     tabsStyle: "Tabs",
@@ -139,5 +142,5 @@ module.exports = {
   tableless: true,
   singleton: true,
   run,
-  routes: { submit_specs, ...req_routes },
+  routes: { submit_specs, ...req_routes, ...task_routes },
 };

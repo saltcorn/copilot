@@ -37,25 +37,28 @@ const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
 
-const requirementsList = async (req) => {
+const makeTaskList = async (req) => {
   const rs = await MetaData.find({
     type: "CopilotConstructMgr",
-    name: "requirement",
+    name: "task",
   });
   if (rs.length) {
     return div(
       { class: "mt-2" },
       mkTable(
         [
-          { label: "Requirement", key: (m) => m.body.requirement },
+          { label: "Name", key: (m) => m.body.name },
+          { label: "Description", key: (m) => m.body.description },
+          { label: "Depends on", key: (m) => m.body.depends_on },
           { label: "Priority", key: (m) => m.body.priority },
+          { label: "Status", key: (m) => m.body.status || "To do" },
           {
             label: "Delete",
             key: (r) =>
               button(
                 {
                   class: "btn btn-outline-danger btn-sm",
-                  onclick: `view_post("${viewname}", "del_req", {id:${r.id}})`,
+                  onclick: `view_post("${viewname}", "del_task", {id:${r.id}})`,
                 },
                 i({ class: "fas fa-trash-alt" }),
               ),
@@ -66,7 +69,7 @@ const requirementsList = async (req) => {
       button(
         {
           class: "btn btn-outline-danger",
-          onclick: `view_post("${viewname}", "del_all_reqs")`,
+          onclick: `view_post("${viewname}", "del_all_tasks")`,
         },
         "Delete all",
       ),
@@ -74,26 +77,31 @@ const requirementsList = async (req) => {
   } else {
     return div(
       { class: "mt-2" },
-      p("No requirements found"),
+      p("No tasks found"),
       button(
         {
           class: "btn btn-primary",
-          onclick: `view_post("${viewname}", "gen_reqs")`,
+          onclick: `view_post("${viewname}", "gen_tasks")`,
         },
-        "Generate requirements",
+        "Plan tasks",
       ),
     );
   }
 };
 
-const gen_reqs = async (table_id, viewname, config, body, { req, res }) => {
+const gen_tasks = async (table_id, viewname, config, body, { req, res }) => {
   const spec = await MetaData.findOne({
     type: "CopilotConstructMgr",
     name: "spec",
   });
   if (!spec) throw new Error("Specification not found");
+  const rs = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "requirement",
+  });
+  if (!rs.length) throw new Error("No requirements found");
   const answer = await getState().functions.llm_generate.run(
-    `Generate the requirements for this application:
+    `Generate a plan for building this application:
 
 Description: ${spec.body.description}
 Audience: ${spec.body.audience}
@@ -101,10 +109,18 @@ Core features: ${spec.body.core_features}
 Out of scope: ${spec.body.out_of_scope}
 Visual style: ${spec.body.visual_style}
 
-Now use the make_requirements tool to list the requirements for this software application
+These are the requirements of the application: 
+
+${rs.map((r) => `* ${r.body.requirement}`).join("\n")}
+
+This application will be implemented in Saltcorn, a database application development
+environment. You should first design and build the database schema. Then build the 
+required views for implementing a CRUD user interface for the database tables.
+
+Now use the plan_tasks tool to make a plan of tasks for this software application
 `,
     {
-      ...requirements_tool,
+      ...task_tool,
       systemPrompt:
         "You are a project manager. The user wants to build an application, and you must analyse their application description",
     },
@@ -112,61 +128,79 @@ Now use the make_requirements tool to list the requirements for this software ap
 
   const tc = answer.getToolCalls()[0];
 
-  for (const reqm of tc.input.requirements)
+  for (const task of tc.input.tasks)
     await MetaData.create({
       type: "CopilotConstructMgr",
-      name: "requirement",
-      body: reqm,
+      name: "task",
+      body: task,
       user_id: req.user?.id,
     });
   return { json: { reload_page: true } };
 };
 
-const del_req = async (table_id, viewname, config, body, { req, res }) => {
+const del_task = async (table_id, viewname, config, body, { req, res }) => {
   const r = await MetaData.findOne({
     id: body.id,
   });
 
-  if (!r) throw new Error("Requirement not found");
+  if (!r) throw new Error("Task not found");
   await r.delete();
   return { json: { reload_page: true } };
 };
-const del_all_reqs = async (table_id, viewname, config, body, { req, res }) => {
+const del_all_tasks = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res },
+) => {
   const rs = await MetaData.find({
     type: "CopilotConstructMgr",
-    name: "requirement",
+    name: "task",
   });
   for (const r of rs) await r.delete();
   return { json: { reload_page: true } };
 };
 
-const requirements_tool = {
+const task_tool = {
   tools: [
     {
       type: "function",
       function: {
-        name: "make_requirements",
-        description: "Provide a list of requirements for the application",
+        name: "plan_tasks",
+        description: "Provide a series of tasks for building the application",
         parameters: {
           type: "object",
-          required: ["requirements"],
+          required: ["tasks"],
           additionalProperties: false,
           properties: {
-            requirements: {
+            tasks: {
               type: "array",
               items: {
                 type: "object",
                 required: ["requirement", "priority"],
                 additionalProperties: false,
                 properties: {
-                  requirement: {
+                  name: {
                     type: "string",
-                    description: "A statement of the requirement",
+                    description: "A short name for the task",
+                  },
+                  description: {
+                    type: "string",
+                    description: "A full description of the task",
                   },
                   priority: {
                     type: "number",
                     description:
                       "Priority 1-5. 5: Most important, 1: Least important",
+                  },
+                  depends_on: {
+                    type: "array",
+                    description:
+                      "The names of the tasks that must be completed before this tasks can be started",
+                    items: {
+                      type: "string",
+                    },
                   },
                 },
               },
@@ -184,6 +218,6 @@ const requirements_tool = {
   },
 };
 
-const req_routes = { gen_reqs, del_req, del_all_reqs };
+const task_routes = { gen_tasks, del_task, del_all_tasks };
 
-module.exports = { requirementsList, req_routes };
+module.exports = { makeTaskList, task_routes };
