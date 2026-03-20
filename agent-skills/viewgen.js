@@ -133,6 +133,7 @@ a view generation mode. The tool call only requires high-level details to start 
             layoutPrompt,
             "show",
             table?.name,
+            null,
             chat,
           );
           if (table) {
