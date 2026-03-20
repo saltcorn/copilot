@@ -10,6 +10,8 @@ const MODE_GUIDANCE = {
   edit: "Layout is a form for editing a single row. Include required inputs with edit fieldviews, group related inputs, and finish with a Save action.",
   show: "Layout displays one record read-only. Use show fieldviews, blank headings, and optional follow-up actions.",
   list: "Layout represents a single row in a list. Highlight key fields, keep actions compact, and support filtering if requested.",
+  listcolumns:
+    "Layout defines list columns for a list view. Use a list_columns wrapper with besides entries containing list_column segments. Each list_column should contain a field or action and include a header label when appropriate.",
   filter:
     "Layout lets users define filters. Provide appropriate filter inputs plus an action to run or reset filters.",
   page: "Layout builds a general app page. Combine hero text, cards, containers, and call-to-action buttons.",
@@ -249,7 +251,7 @@ const pickFieldview = (field, mode, requestedFieldview = null) => {
   }
 
   // Mode-based selection from available fieldviews
-  if (mode === "show" || mode === "list") {
+  if (mode === "show" || mode === "list" || mode === "listcolumns") {
     // For show mode, prefer simple text-based views, but only from available views
     const showPreferences = ["as_text", "show", "as_string", "text", "showas"];
     for (const pref of showPreferences) {
