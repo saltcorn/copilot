@@ -36,6 +36,7 @@ const {
 const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
+const { runTask } = require("./run_task");
 
 const makeTaskList = async (req) => {
   const rs = await MetaData.find({
@@ -52,6 +53,17 @@ const makeTaskList = async (req) => {
           { label: "Depends on", key: (m) => m.body.depends_on },
           { label: "Priority", key: (m) => m.body.priority },
           { label: "Status", key: (m) => m.body.status || "To do" },
+          {
+            label: "Delete",
+            key: (r) =>
+              button(
+                {
+                  class: "btn btn-outline-success btn-sm",
+                  onclick: `view_post("${viewname}", "run_task", {id:${r.id}})`,
+                },
+                i({ class: "fas fa-play" }),
+              ),
+          },
           {
             label: "Delete",
             key: (r) =>
@@ -147,6 +159,10 @@ const del_task = async (table_id, viewname, config, body, { req, res }) => {
   await r.delete();
   return { json: { reload_page: true } };
 };
+const run_task = async (table_id, viewname, config, body, { req, res }) => {
+  const tres = await runTask(body.id, req);
+  return { json: tres };
+};
 const del_all_tasks = async (
   table_id,
   viewname,
@@ -218,6 +234,6 @@ const task_tool = {
   },
 };
 
-const task_routes = { gen_tasks, del_task, del_all_tasks };
+const task_routes = { gen_tasks, del_task, del_all_tasks, run_task };
 
 module.exports = { makeTaskList, task_routes };
