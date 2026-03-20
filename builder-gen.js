@@ -952,8 +952,7 @@ const buildErrorLayout = ({ message, mode, table }) => {
 };
 
 module.exports = {
-  run: async (prompt, mode, table, chat) => {
-    // Remove any leading "container:" or similar so as to remain with only the user prompt.
+  run: async (prompt, mode, table, existing_layout, chat) => {
     prompt = prompt.trim().replace(/^\[\w+\]:\s*/, "");
 
     const ctx = await buildContext(mode, table);
@@ -961,9 +960,15 @@ module.exports = {
     const llm = getState().functions.llm_generate;
     if (!llm?.run) throw new Error("LLM generator not configured");
 
-    const llmPrompt = buildPromptText(prompt, ctx, schema);
-    console.log({ schema });
-    console.log({ llmPrompt: llmPrompt.slice(0, 1000) });
+    let llmPrompt = buildPromptText(prompt, ctx, schema);
+    if (existing_layout !== undefined && existing_layout !== null) {
+      const layoutJson =
+        typeof existing_layout === "string"
+          ? existing_layout
+          : JSON.stringify(existing_layout);
+      llmPrompt = `${llmPrompt}\n\nExisting layout (reproduce this with the requested changes applied):\n${layoutJson}`;
+    }
+
     let responseFormat;
     try {
       if (!schema || !schema.schema) {
@@ -1003,11 +1008,8 @@ module.exports = {
       if (!schema || !schema.schema) {
         throw new Error("Builder schema unavailable");
       }
-      console.log("¢¢¢¢", { options });
       rawResponse = await llm.run(llmPrompt, options);
-      console.log(JSON.stringify(rawResponse, null, 2));
       payload = parseJsonPayload(rawResponse);
-      console.log(JSON.stringify({ payload }, null, 2));
       const candidate = payload.layout ?? payload;
       return normalizeLayoutCandidate(candidate, ctx);
     } catch (err) {
@@ -1047,6 +1049,7 @@ module.exports = {
     { name: "prompt", type: "String" },
     { name: "mode", type: "String" },
     { name: "table", type: "String" },
+    { name: "existing_layout", type: "JSON" },
     { name: "chat", type: "JSON" },
   ],
 };
