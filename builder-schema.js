@@ -131,7 +131,6 @@ const buildSegmentDef = ({
 });
 
 const buildBuilderSchema = ({ mode, ctx }) => {
-  console.log({ ctx });
   const normalizedMode = (mode || ctx?.mode || "show").toLowerCase();
   const fields = ctx?.fields || [];
   const actions = ctx?.actions || [];
