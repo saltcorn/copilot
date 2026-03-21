@@ -50,6 +50,10 @@ a view generation mode. The tool call only requires high-level details to start 
           min_role: { admin: 1, public: 100, user: 80 }[normalizedRole],
           configuration: wfctx,
         });
+        const vt = getState().viewtemplates[viewpattern];
+        if (vt?.copilot_post_create) {
+          await vt.copilot_post_create({ name, configuration: wfctx });
+        }
         setTimeout(() => getState().refresh_views(), 200);
         return {
           notify: `View saved: <a target="_blank" href="/view/${name}">${name}</a>`,
