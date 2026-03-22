@@ -197,6 +197,11 @@ a view generation mode. The tool call only requires high-level details to start 
               },
             );
             const tc = answer.getToolCalls()[0];
+            chat.push({
+              role: "tool",
+              tool_call_id: tc.tool_call_id,
+              content: JSON.stringify({ type: "text", value: "Details provided" }),
+            });
             Object.assign(wfctx, tc.input);
           }
         }
