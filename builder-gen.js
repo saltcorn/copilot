@@ -4,6 +4,7 @@ const Trigger = require("@saltcorn/data/models/trigger");
 const View = require("@saltcorn/data/models/view");
 const { edit_build_in_actions } = require("@saltcorn/data/viewable_fields");
 const { buildBuilderSchema } = require("./builder-schema");
+const { getLlmConfigurationSafe, canUseResponseFormat } = require("./common");
 
 const ACTION_SIZES = ["btn-sm", "btn-lg"];
 const MODE_GUIDANCE = {
@@ -188,6 +189,28 @@ const derefSchema = (schema, maxDepth = 3) => {
     return out;
   };
   return expand(root, []);
+};
+
+const simplifySchemaForLlm = (schema) => {
+  const deref = derefSchema(schema, 6);
+  const scrub = (node) => {
+    if (!node || typeof node !== "object") return node;
+    if (Array.isArray(node)) return node.map((item) => scrub(item));
+    if (typeof node.$ref === "string") {
+      return {
+        type: "object",
+        description: "Simplified recursive segment.",
+        additionalProperties: true,
+      };
+    }
+    const out = {};
+    for (const [key, val] of Object.entries(node)) {
+      if (key === "$defs" || key === "definitions") continue;
+      out[key] = scrub(val);
+    }
+    return out;
+  };
+  return scrub(deref);
 };
 
 const randomId = () =>
@@ -962,6 +985,9 @@ module.exports = {
     const llm = getState().functions.llm_generate;
     if (!llm?.run) throw new Error("LLM generator not configured");
 
+    const llmConfig = await getLlmConfigurationSafe();
+    const allowResponseFormat = canUseResponseFormat(llmConfig);
+
     let llmPrompt = buildPromptText(prompt, ctx, schema);
     if (existing_layout !== undefined && existing_layout !== null) {
       const layoutJson =
@@ -976,20 +1002,24 @@ module.exports = {
       if (!schema || !schema.schema) {
         throw new Error("Builder schema unavailable");
       }
-      validateSchemaRefs(schema.schema);
-      const deref = derefSchema(schema.schema);
-      if (schemaHasRef(deref)) {
-        console.warn(
-          "Builder response schema still contains $ref; skipping response_format",
-        );
+      if (!allowResponseFormat) {
+        console.warn("LLM backend does not support response_format; skipping");
       } else {
-        responseFormat = {
-          type: "json_schema",
-          json_schema: {
-            name: "saltcorn_layout",
-            schema: deref,
-          },
-        };
+        validateSchemaRefs(schema.schema);
+        const simplified = simplifySchemaForLlm(schema.schema);
+        if (schemaHasRef(simplified)) {
+          console.warn(
+            "Builder response schema still contains $ref; skipping response_format",
+          );
+        } else {
+          responseFormat = {
+            type: "json_schema",
+            json_schema: {
+              name: "saltcorn_layout",
+              schema: simplified,
+            },
+          };
+        }
       }
     } catch (err) {
       console.warn("Builder response schema validation failed", err);
