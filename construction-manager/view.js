@@ -38,6 +38,7 @@ const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
 const { requirementsList, req_routes } = require("./requirements");
 const { makeTaskList, task_routes } = require("./tasks");
+const { errorList, error_routes } = require("./errors");
 
 const get_state_fields = () => [];
 
@@ -93,6 +94,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const specForm = await makeSpecForm(req);
   const reqList = await requirementsList(req);
   const taskList = await makeTaskList(req);
+  const errList = await errorList(req);
   const layout = {
     type: "tabs",
     ntabs: 5,
@@ -105,6 +107,8 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
       },
       { type: "blank", contents: reqList },
       { type: "blank", contents: taskList },
+      { type: "blank", contents: "" },
+      { type: "blank", contents: errList },
     ],
     deeplink: true,
     tabsStyle: "Tabs",
@@ -135,6 +139,28 @@ const submit_specs = async (table_id, viewname, config, body, { req, res }) => {
     });
 };
 
+const virtual_triggers = () => {
+  return [
+    {
+      when_trigger: "Error",
+      run: async (row) => {
+        const existing = await MetaData.find({
+          type: "CopilotConstructMgr",
+          name: "error",
+        });
+        const messages = new Set(existing.map((m) => m.body?.error?.stack));
+        if (!messages.has(row.stack))
+          await MetaData.create({
+            type: "CopilotConstructMgr",
+            name: "error",
+            body: { status: "New", error: row },
+            user_id: null,
+          });
+      },
+    },
+  ];
+};
+
 module.exports = {
   name: viewname,
   display_state_form: false,
@@ -143,4 +169,5 @@ module.exports = {
   singleton: true,
   run,
   routes: { submit_specs, ...req_routes, ...task_routes },
+  virtual_triggers,
 };
