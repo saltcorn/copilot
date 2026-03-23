@@ -20,7 +20,10 @@ module.exports = {
         copilot_generate_workflow: require("./workflow-gen"),
       }
     : {},
-  actions: { copilot_generate_page: require("./page-gen-action") },
+  actions: {
+    copilot_generate_page: require("./page-gen-action"),
+    construction_manager_feedback: require("./construction-manager/feedback-action"),
+  },
   exchange: {
     agent_skills: [
       require("./agent-skills/pagegen.js"),
