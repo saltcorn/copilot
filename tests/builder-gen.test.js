@@ -46,10 +46,11 @@ for (const nameconfig of configs) {
           mode,
           mode === "page" ? null : "books",
         );
-        expect(genres.type).toBe("container");
-        expect(genres.contents.type).toBe("blank");
-        expect(genres.contents.contents).toBe("Hello World");
-        expect(genres.contents.textStyle).toBe("h3");
+        const innerRes = genres.above ? genres.above[0] : genres;
+        expect(innerRes.type).toBe("container");
+        expect(innerRes.contents.type).toBe("blank");
+        expect(innerRes.contents.contents).toBe("Hello World");
+        expect(innerRes.contents.textStyle).toBe("h3");
       });
   });
 }
