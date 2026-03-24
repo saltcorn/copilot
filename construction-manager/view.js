@@ -39,6 +39,7 @@ const { viewname } = require("./common");
 const { requirementsList, req_routes } = require("./requirements");
 const { makeTaskList, task_routes } = require("./tasks");
 const { errorList, error_routes } = require("./errors");
+const { feedbackList, feedback_routes } = require("./feedback");
 
 const get_state_fields = () => [];
 
@@ -95,6 +96,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const reqList = await requirementsList(req);
   const taskList = await makeTaskList(req);
   const errList = await errorList(req);
+  const feedbacks = await feedbackList(req);
   const layout = {
     type: "tabs",
     ntabs: 5,
@@ -107,7 +109,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
       },
       { type: "blank", contents: reqList },
       { type: "blank", contents: taskList },
-      { type: "blank", contents: "" },
+      { type: "blank", contents: feedbacks },
       { type: "blank", contents: errList },
     ],
     deeplink: true,
@@ -168,6 +170,12 @@ module.exports = {
   tableless: true,
   singleton: true,
   run,
-  routes: { submit_specs, ...req_routes, ...task_routes },
+  routes: {
+    submit_specs,
+    ...req_routes,
+    ...task_routes,
+    ...error_routes,
+    ...feedback_routes,
+  },
   virtual_triggers,
 };
