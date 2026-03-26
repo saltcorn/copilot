@@ -279,7 +279,7 @@ class GenerateTablesSkill {
           ...warningLines,
         ].join("\n");
       },
-      postProcess: async ({ tool_call }) => {
+      postProcess: async ({ tool_call, req }) => {
         const payload = payloadFromToolCall(tool_call);
         const tables = payload.tables || [];
         const { newTables, skippedExisting, skippedDuplicates } =
@@ -321,6 +321,13 @@ class GenerateTablesSkill {
         const warningHtml = warningChunks.length
           ? `<div class="alert alert-warning">${warningChunks.join("<br/>")}</div>`
           : "";
+        if (this.yoloMode) {
+          this.userActions.apply_copilot_tables({
+            user: req?.user,
+            tables: validTables,
+          });
+          return { stop: true, add_response: `${warningHtml}${preview}` };
+        }
         return {
           stop: true,
           add_response: `${warningHtml}${preview}`,

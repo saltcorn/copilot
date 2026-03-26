@@ -59,7 +59,7 @@ const makeTaskList = async (req) => {
               button(
                 {
                   class: "btn btn-outline-success btn-sm",
-                  onclick: `view_post("${viewname}", "run_task", {id:${r.id}})`,
+                  onclick: `press_store_button(this);view_post("${viewname}", "run_task", {id:${r.id}})`,
                 },
                 i({ class: "fas fa-play" }),
               ),
@@ -128,6 +128,11 @@ ${rs.map((r) => `* ${r.body.requirement}`).join("\n")}
 This application will be implemented in Saltcorn, a database application development
 environment. You should first design and build the database schema. Then build the 
 required views for implementing a CRUD user interface for the database tables.
+
+Your plan should not include any clarification or questions to the product owner. The 
+information you have been given so far is all that is available. Every step in the plan 
+should be immediately implementable in Saltcorn. You are writing the steps in the plan
+for a person who is competent in using saltcorn but has no other business knowledge.
 
 Now use the plan_tasks tool to make a plan of tasks for this software application
 `,

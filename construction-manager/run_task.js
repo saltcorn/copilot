@@ -29,10 +29,10 @@ const runTask = async (md_id, req) => {
       sys_prompt: "",
       prompt: "{{prompt}}",
       skills: [
-        { skill_type: "Generate Page" },
-        { skill_type: "Database design" },
-        { skill_type: "Generate Workflow" },
-        { skill_type: "Generate View" },
+        { skill_type: "Generate Page", yoloMode: true },
+        { skill_type: "Database design", yoloMode: true },
+        { skill_type: "Generate Workflow", yoloMode: true },
+        { skill_type: "Generate View", yoloMode: true },
       ],
     },
   });
