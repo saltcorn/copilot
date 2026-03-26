@@ -193,30 +193,120 @@ const derefSchema = (schema, maxDepth = 3) => {
 
 const simplifySchemaForLlm = (schema) => {
   const deref = derefSchema(schema, 6);
-  const scrub = (node) => {
+  const scrub = (node, keyName) => {
     if (!node || typeof node !== "object") return node;
     if (Array.isArray(node)) return node.map((item) => scrub(item));
+    if (keyName === "style") {
+      return {
+        type: "string",
+        description: "CSS style string (e.g. background-color: red;).",
+      };
+    }
     if (typeof node.$ref === "string") {
       return {
         type: "object",
         description: "Simplified recursive segment.",
-        additionalProperties: true,
+        additionalProperties: false,
       };
     }
     const out = {};
     for (const [key, val] of Object.entries(node)) {
       if (key === "$defs" || key === "definitions") continue;
-      out[key] = scrub(val);
+      out[key] = scrub(val, key);
+    }
+    const nodeType = out.type;
+    const isObjectType =
+      nodeType === "object" ||
+      (Array.isArray(nodeType) && nodeType.includes("object")) ||
+      Object.prototype.hasOwnProperty.call(out, "properties");
+    const isArrayType =
+      nodeType === "array" ||
+      (Array.isArray(nodeType) && nodeType.includes("array")) ||
+      Object.prototype.hasOwnProperty.call(out, "items");
+    const isNumberType =
+      nodeType === "number" ||
+      nodeType === "integer" ||
+      (Array.isArray(nodeType) &&
+        (nodeType.includes("number") || nodeType.includes("integer")));
+    if (isObjectType) {
+      out.additionalProperties = false;
+    }
+    if (isArrayType && typeof out.minItems !== "undefined") {
+      const minItems = Number(out.minItems);
+      if (Number.isFinite(minItems) && minItems > 1) out.minItems = 1;
+    }
+    if (isNumberType) {
+      delete out.minimum;
+      delete out.maximum;
+      delete out.exclusiveMinimum;
+      delete out.exclusiveMaximum;
+      delete out.multipleOf;
     }
     return out;
   };
   return scrub(deref);
 };
 
+const countOptionalParams = (schema) => {
+  let count = 0;
+  const walk = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    const props = node.properties;
+    if (props && typeof props === "object") {
+      const required = Array.isArray(node.required) ? node.required : [];
+      const optional = Object.keys(props).filter(
+        (key) => !required.includes(key),
+      );
+      count += optional.length;
+      Object.values(props).forEach(walk);
+    }
+    if (node.items) walk(node.items);
+    if (node.anyOf) node.anyOf.forEach(walk);
+    if (node.oneOf) node.oneOf.forEach(walk);
+    if (node.allOf) node.allOf.forEach(walk);
+  };
+  walk(schema);
+  return count;
+};
+
 const randomId = () =>
   Math.floor(Math.random() * 0xffffff)
     .toString(16)
     .padStart(6, "0");
+
+const toCamelCaseStyle = (key) =>
+  key.replace(/-([a-z])/g, (_m, chr) => chr.toUpperCase());
+
+const parseStyleString = (styleStr) => {
+  if (typeof styleStr !== "string") return styleStr;
+  const trimmed = styleStr.trim();
+  if (!trimmed) return {};
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (err) {
+      // fall through to CSS parsing
+    }
+  }
+  const out = {};
+  trimmed.split(";").forEach((part) => {
+    const section = part.trim();
+    if (!section) return;
+    const idx = section.indexOf(":");
+    if (idx === -1) return;
+    const rawKey = section.slice(0, idx).trim();
+    const value = section.slice(idx + 1).trim();
+    if (!rawKey || !value) return;
+    if (rawKey.startsWith("--")) out[rawKey] = value;
+    else out[toCamelCaseStyle(rawKey)] = value;
+  });
+  return out;
+};
 
 const ensureArray = (value) =>
   Array.isArray(value) ? value : value == null ? [] : [value];
@@ -368,6 +458,9 @@ const normalizeSegment = (segment, ctx) => {
   if (typeof segment !== "object") return null;
 
   const clone = { ...segment };
+  if (typeof clone.style === "string") {
+    clone.style = parseStyleString(clone.style);
+  }
   if (clone.type === "prompt") return null;
 
   if (!clone.type && clone.above) {
@@ -1006,12 +1099,19 @@ module.exports = {
         console.warn("LLM backend does not support response_format; skipping");
       } else {
         validateSchemaRefs(schema.schema);
-        const simplified = simplifySchemaForLlm(schema.schema);
-        if (schemaHasRef(simplified)) {
+        let simplified = simplifySchemaForLlm(schema.schema);
+        const optionalCount = countOptionalParams(simplified);
+        if (optionalCount > 24) {
+          console.warn(
+            `Builder response schema has ${optionalCount} optional params; skipping response_format`,
+          );
+          simplified = null;
+        }
+        if (simplified && schemaHasRef(simplified)) {
           console.warn(
             "Builder response schema still contains $ref; skipping response_format",
           );
-        } else {
+        } else if (simplified) {
           responseFormat = {
             type: "json_schema",
             json_schema: {
