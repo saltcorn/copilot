@@ -78,7 +78,7 @@ const requirementsList = async (req) => {
       button(
         {
           class: "btn btn-primary",
-          onclick: `view_post("${viewname}", "gen_reqs")`,
+          onclick: `press_store_button(this);view_post("${viewname}", "gen_reqs")`,
         },
         "Generate requirements",
       ),

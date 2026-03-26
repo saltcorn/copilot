@@ -87,7 +87,7 @@ const makeSpecForm = async (req) => {
     ],
     xhrSubmit: true,
     action: `/view/${encodeURIComponent(viewname)}/submit_specs`,
-    values: spec.body,
+    values: spec?.body || {},
   });
 };
 
