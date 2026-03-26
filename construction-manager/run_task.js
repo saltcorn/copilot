@@ -54,8 +54,10 @@ ${md.body.description}`;
   });
   //console.log("actionres", actionres);
   const run_id = actionres.json.run_id;
-  const run = WorkflowRun.findOne({ id: run_id });
-  console.log("run context", run.context);
+  //const run = await WorkflowRun.findOne({ id: run_id });
+  //console.log("run", run);
+  await md.update({ body: { ...md.body, status: "Done", run_id } });
+  return { reload_page: true };
 };
 
 module.exports = { runTask };

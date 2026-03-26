@@ -30,7 +30,7 @@ const {
   p,
   span,
   small,
-  form,
+  a,
   textarea,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
@@ -56,13 +56,22 @@ const makeTaskList = async (req) => {
           {
             label: "Run",
             key: (r) =>
-              button(
-                {
-                  class: "btn btn-outline-success btn-sm",
-                  onclick: `press_store_button(this);view_post("${viewname}", "run_task", {id:${r.id}})`,
-                },
-                i({ class: "fas fa-play" }),
-              ),
+              r.body.run_id
+                ? a(
+                    //{ href: `javascript:view_run(${r.body.run_id})` },
+                    {
+                      target: "_blank",
+                      href: `/view/Saltcorn%20Agent%20copilot?run_id=${r.body.run_id}`,
+                    },
+                    i({ class: "fas fa-external-link-alt" }),
+                  )
+                : button(
+                    {
+                      class: "btn btn-outline-success btn-sm",
+                      onclick: `press_store_button(this);view_post("${viewname}", "run_task", {id:${r.id}})`,
+                    },
+                    i({ class: "fas fa-play" }),
+                  ),
           },
           {
             label: "Delete",
