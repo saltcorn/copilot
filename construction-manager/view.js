@@ -42,6 +42,7 @@ const { errorList, error_routes } = require("./errors");
 const { feedbackList, feedback_routes } = require("./feedback");
 const { progressList, progress_routes } = require("./progress");
 const { runNextTask } = require("./run_task");
+const { makeTaskChart } = require("./taskchart");
 
 const get_state_fields = () => [];
 
@@ -100,6 +101,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const errList = await errorList(req);
   const feedbacks = await feedbackList(req);
   const progress = await progressList(req);
+  const taskChart = await makeTaskChart(req); 
   const layout = {
     type: "tabs",
     ntabs: 5,
@@ -108,6 +110,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
       "Specification",
       "Requirements",
       "Tasks",
+      "Task chart",
       "Progress",
       "Feedback",
       "Errors",
@@ -119,6 +122,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
       },
       { type: "blank", contents: reqList },
       { type: "blank", contents: taskList },
+      { type: "blank", contents: taskChart },
       { type: "blank", contents: progress },
       { type: "blank", contents: feedbacks },
       { type: "blank", contents: errList },
@@ -173,7 +177,7 @@ const virtual_triggers = () => {
     },
     {
       when_trigger: "Often",
-      run: async () => {       
+      run: async () => {
         await runNextTask();
       },
     },
