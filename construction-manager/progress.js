@@ -38,10 +38,14 @@ const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
 
 const progressList = async (req) => {
-  const errs = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "progress",
-  });
+  const errs = await MetaData.find(
+    {
+      type: "CopilotConstructMgr",
+      name: "progress",
+    },
+    { orderBy: "written_at" },
+  );
+  const relDateFieldview = getState().types.Date.fieldviews.relative;
   if (errs.length) {
     return div(
       { class: "mt-2" },
@@ -49,7 +53,7 @@ const progressList = async (req) => {
         [
           {
             label: "Title",
-            key: (m) => m.written_at,
+            key: (m) => relDateFieldview.run(m.written_at, req),
           },
           {
             label: "Progress",
