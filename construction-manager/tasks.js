@@ -35,8 +35,9 @@ const {
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
-const { viewname } = require("./common");
+const { viewname, tool_choice } = require("./common");
 const { runTask, runNextTask } = require("./run_task");
+const { task_tool } = require("./tools");
 
 const makeTaskList = async (req) => {
   const rs = await MetaData.find(
@@ -123,14 +124,16 @@ const makeTaskList = async (req) => {
           },
         ],
         {
-          "To do": rs.filter((t) => !t.body.status || t.body.status === "To do"),
+          "To do": rs.filter(
+            (t) => !t.body.status || t.body.status === "To do",
+          ),
           Done: rs.filter((t) => t.body.status === "Done"),
         },
         { grouped: true },
       ),
       button(
         {
-          class: "btn btn-outline-danger",
+          class: "btn btn-outline-danger mb-4",
           onclick: `view_post("${viewname}", "del_all_tasks")`,
         },
         "Delete all",
@@ -187,7 +190,8 @@ for a person who is competent in using saltcorn but has no other business knowle
 Now use the plan_tasks tool to make a plan of tasks for this software application
 `,
     {
-      ...task_tool,
+      tools: [task_tool],
+      ...tool_choice("plan_tasks"),
       systemPrompt:
         "You are a project manager. The user wants to build an application, and you must analyse their application description",
     },
@@ -265,62 +269,6 @@ const del_all_tasks = async (
   });
   for (const r of rs) await r.delete();
   return { json: { reload_page: true } };
-};
-
-const task_tool = {
-  tools: [
-    {
-      type: "function",
-      function: {
-        name: "plan_tasks",
-        description: "Provide a series of tasks for building the application",
-        parameters: {
-          type: "object",
-          required: ["tasks"],
-          additionalProperties: false,
-          properties: {
-            tasks: {
-              type: "array",
-              items: {
-                type: "object",
-                required: ["requirement", "priority"],
-                additionalProperties: false,
-                properties: {
-                  name: {
-                    type: "string",
-                    description: "A short name for the task",
-                  },
-                  description: {
-                    type: "string",
-                    description: "A full description of the task",
-                  },
-                  priority: {
-                    type: "number",
-                    description:
-                      "Priority 1-5. 5: Most important, 1: Least important",
-                  },
-                  depends_on: {
-                    type: "array",
-                    description:
-                      "The names of the tasks that must be completed before this tasks can be started",
-                    items: {
-                      type: "string",
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  ],
-  tool_choice: {
-    type: "function",
-    function: {
-      name: "make_requirements",
-    },
-  },
 };
 
 const task_routes = {

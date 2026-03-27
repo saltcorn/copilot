@@ -35,20 +35,26 @@ const {
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
-const { viewname } = require("./common");
+const { viewname, tool_choice } = require("./common");
+const { requirements_tool } = require("./tools");
 
 const requirementsList = async (req) => {
   const rs = await MetaData.find({
     type: "CopilotConstructMgr",
     name: "requirement",
   });
+  const starFieldview = getState().types.Integer.fieldviews.show_star_rating;
+
   if (rs.length) {
     return div(
       { class: "mt-2" },
       mkTable(
         [
           { label: "Requirement", key: (m) => m.body.requirement },
-          { label: "Priority", key: (m) => m.body.priority },
+          {
+            label: "Priority",
+            key: (m) => starFieldview.run(m.body.priority, req, { min: 1, max: 5 }),
+          },
           {
             label: "Delete",
             key: (r) =>
@@ -65,7 +71,7 @@ const requirementsList = async (req) => {
       ),
       button(
         {
-          class: "btn btn-outline-danger",
+          class: "btn btn-outline-danger mb-4",
           onclick: `view_post("${viewname}", "del_all_reqs")`,
         },
         "Delete all",
@@ -104,7 +110,8 @@ Visual style: ${spec.body.visual_style}
 Now use the make_requirements tool to list the requirements for this software application
 `,
     {
-      ...requirements_tool,
+      tools: [requirements_tool],
+      ...tool_choice("make_requirements"),
       systemPrompt:
         "You are a project manager. The user wants to build an application, and you must analyse their application description",
     },
@@ -138,50 +145,6 @@ const del_all_reqs = async (table_id, viewname, config, body, { req, res }) => {
   });
   for (const r of rs) await r.delete();
   return { json: { reload_page: true } };
-};
-
-const requirements_tool = {
-  tools: [
-    {
-      type: "function",
-      function: {
-        name: "make_requirements",
-        description: "Provide a list of requirements for the application",
-        parameters: {
-          type: "object",
-          required: ["requirements"],
-          additionalProperties: false,
-          properties: {
-            requirements: {
-              type: "array",
-              items: {
-                type: "object",
-                required: ["requirement", "priority"],
-                additionalProperties: false,
-                properties: {
-                  requirement: {
-                    type: "string",
-                    description: "A statement of the requirement",
-                  },
-                  priority: {
-                    type: "number",
-                    description:
-                      "Priority 1-5. 5: Most important, 1: Least important",
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  ],
-  tool_choice: {
-    type: "function",
-    function: {
-      name: "make_requirements",
-    },
-  },
 };
 
 const req_routes = { gen_reqs, del_req, del_all_reqs };
