@@ -43,14 +43,40 @@ const makeTaskList = async (req) => {
     type: "CopilotConstructMgr",
     name: "task",
   });
+  const settings = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "settings",
+  });
+  const running = !!settings?.body?.running;
+  const status = div(
+    running ? "Currently running" : "Currently not running",
+    running
+      ? button(
+          {
+            class: "btn btn-danger ms-2",
+            onclick: `view_post("${viewname}", "stop", {})`,
+          },
+          i({ class: "fas fa-stop me-1" }),
+          "Stop running",
+        )
+      : button(
+          {
+            class: "btn btn-success ms-2",
+            onclick: `view_post("${viewname}", "start", {})`,
+          },
+          i({ class: "fas fa-play me-1" }),
+          "Start running now",
+        ),
+  );
   if (rs.length) {
     return div(
       { class: "mt-2" },
+      status,
       mkTable(
         [
           { label: "Name", key: (m) => m.body.name },
           { label: "Description", key: (m) => m.body.description },
-          { label: "Depends on", key: (m) => m.body.depends_on },
+          { label: "Depends on", key: (m) => m.body.depends_on.join(", ") },
           { label: "Priority", key: (m) => m.body.priority },
           { label: "Status", key: (m) => m.body.status || "To do" },
           {
@@ -177,6 +203,38 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
   const tres = await runTask(body.id, req);
   return { json: tres };
 };
+
+const start = async (table_id, viewname, config, body, { req, res }) => {
+  const settings = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "settings",
+  });
+  if (settings)
+    await settings.update({ body: { ...settings.body, running: true } });
+  else
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: "settings",
+      body: { running: true },
+    });
+  return { json: { reload_page: true } };
+};
+const stop = async (table_id, viewname, config, body, { req, res }) => {
+  const settings = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "settings",
+  });
+  if (settings)
+    await settings.update({ body: { ...settings.body, running: false } });
+  else
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: "settings",
+      body: { running: false },
+    });
+  return { json: { reload_page: true } };
+};
+
 const del_all_tasks = async (
   table_id,
   viewname,
@@ -248,6 +306,13 @@ const task_tool = {
   },
 };
 
-const task_routes = { gen_tasks, del_task, del_all_tasks, run_task };
+const task_routes = {
+  gen_tasks,
+  del_task,
+  del_all_tasks,
+  run_task,
+  start,
+  stop,
+};
 
 module.exports = { makeTaskList, task_routes };

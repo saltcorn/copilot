@@ -170,6 +170,20 @@ const virtual_triggers = () => {
           });
       },
     },
+     {
+      when_trigger: "Often",
+      run: async (row) => {
+        console.log("Copilot often tick");
+        
+      },
+    },
+      {
+      when_trigger: "Hourly",
+      run: async (row) => {
+        console.log("Copilot hourly tick");
+        
+      },
+    },
   ];
 };
 
