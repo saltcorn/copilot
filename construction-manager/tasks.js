@@ -122,7 +122,11 @@ const makeTaskList = async (req) => {
               ),
           },
         ],
-        rs,
+        {
+          "To do": rs.filter((t) => !t.body.status || t.body.status === "To do"),
+          Done: rs.filter((t) => t.body.status === "Done"),
+        },
+        { grouped: true },
       ),
       button(
         {
