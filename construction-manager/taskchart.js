@@ -57,6 +57,8 @@ const makeTaskChart = async (req) => {
       `flowchart LR
 ${rs.map((md) => `  task${md.id}["${md.body.name}"]`).join("\n")}
 ${rs.map((md) => md.body.depends_on.map((depon) => `  task${taskIds[depon]} --> task${md.id}`).join("\n")).join("\n")}
+${rs.filter(m=>m.body.status==="Done").map((md) => `  style task${md.id} fill:#777`).join("\n")}
+
          `,
     ),
     script(
