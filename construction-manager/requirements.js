@@ -39,10 +39,13 @@ const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
 
 const requirementsList = async (req) => {
-  const rs = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "requirement",
-  });
+  const rs = await MetaData.find(
+    {
+      type: "CopilotConstructMgr",
+      name: "requirement",
+    },
+    { orderBy: "written_at" },
+  );
   const starFieldview = getState().types.Integer.fieldviews.show_star_rating;
 
   if (rs.length) {
@@ -53,7 +56,8 @@ const requirementsList = async (req) => {
           { label: "Requirement", key: (m) => m.body.requirement },
           {
             label: "Priority",
-            key: (m) => starFieldview.run(m.body.priority, req, { min: 1, max: 5 }),
+            key: (m) =>
+              starFieldview.run(m.body.priority, req, { min: 1, max: 5 }),
           },
           {
             label: "Delete",
