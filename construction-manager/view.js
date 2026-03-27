@@ -40,6 +40,7 @@ const { requirementsList, req_routes } = require("./requirements");
 const { makeTaskList, task_routes } = require("./tasks");
 const { errorList, error_routes } = require("./errors");
 const { feedbackList, feedback_routes } = require("./feedback");
+const { progressList, progress_routes } = require("./progress");
 
 const get_state_fields = () => [];
 
@@ -97,11 +98,19 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const taskList = await makeTaskList(req);
   const errList = await errorList(req);
   const feedbacks = await feedbackList(req);
+  const progress = await progressList(req);
   const layout = {
     type: "tabs",
     ntabs: 5,
     tabId: "",
-    titles: ["Specification", "Requirements", "Tasks", "Feedback", "Errors"],
+    titles: [
+      "Specification",
+      "Requirements",
+      "Tasks",
+      "Progress",
+      "Feedback",
+      "Errors",
+    ],
     contents: [
       {
         type: "blank",
@@ -109,6 +118,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
       },
       { type: "blank", contents: reqList },
       { type: "blank", contents: taskList },
+      { type: "blank", contents: progress },
       { type: "blank", contents: feedbacks },
       { type: "blank", contents: errList },
     ],
@@ -176,6 +186,7 @@ module.exports = {
     ...task_routes,
     ...error_routes,
     ...feedback_routes,
+    ...progress_routes,
   },
   virtual_triggers,
 };

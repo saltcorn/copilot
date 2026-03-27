@@ -54,7 +54,33 @@ ${md.body.description}`;
   });
   //console.log("actionres", actionres);
   const run_id = actionres.json.run_id;
-  //const run = await WorkflowRun.findOne({ id: run_id });
+  const run = await WorkflowRun.findOne({ id: run_id });
+  await agent_action.runWithoutRow({
+    row: {
+      prompt:
+        "Write a description of what you did, for the purposes of a progress report. Write 1-4 sentences. Do not use any tools or write any code",
+    },
+    req,
+    run,
+    user: req.user,
+  });
+  const lastInteraction =
+    run.context.interactions[run.context.interactions.length - 1];
+  const lastText =
+    typeof lastInteraction.content === "string"
+      ? lastInteraction.content
+      : lastInteraction.content.text
+        ? lastInteraction.content.text
+        : Array.isArray(lastInteraction.content)
+          ? lastInteraction.content[0].text
+          : lastInteraction.content;
+  await MetaData.create({
+    type: "CopilotConstructMgr",
+    name: "progress",
+    body: { text: lastText, run_id, task_id: md.id },
+    user_id: req.user?.id,
+  });
+
   //console.log("run", run);
   await md.update({ body: { ...md.body, status: "Done", run_id } });
   return { reload_page: true };
