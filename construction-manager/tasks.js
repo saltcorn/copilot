@@ -36,13 +36,16 @@ const {
 const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
-const { runTask } = require("./run_task");
+const { runTask, runNextTask } = require("./run_task");
 
 const makeTaskList = async (req) => {
-  const rs = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "task",
-  });
+  const rs = await MetaData.find(
+    {
+      type: "CopilotConstructMgr",
+      name: "task",
+    },
+    { orderBy: "written_at" },
+  );
   const settings = await MetaData.findOne({
     type: "CopilotConstructMgr",
     name: "settings",
@@ -67,6 +70,14 @@ const makeTaskList = async (req) => {
           i({ class: "fas fa-play me-1" }),
           "Start running now",
         ),
+    button(
+      {
+        class: "btn btn-outline-success ms-2",
+        onclick: `press_store_button(this);view_post("${viewname}", "run_task", {})`,
+      },
+      i({ class: "fas fa-play me-1" }),
+      "Run next task",
+    ),
   );
   if (rs.length) {
     return div(
@@ -200,8 +211,10 @@ const del_task = async (table_id, viewname, config, body, { req, res }) => {
   return { json: { reload_page: true } };
 };
 const run_task = async (table_id, viewname, config, body, { req, res }) => {
-  const tres = await runTask(body.id, req);
-  return { json: tres };
+  if (body.id) await runTask(body.id, req);
+  else await runNextTask(true);
+
+  return { json: { reload_page: true } };
 };
 
 const start = async (table_id, viewname, config, body, { req, res }) => {

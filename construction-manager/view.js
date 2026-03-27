@@ -41,6 +41,7 @@ const { makeTaskList, task_routes } = require("./tasks");
 const { errorList, error_routes } = require("./errors");
 const { feedbackList, feedback_routes } = require("./feedback");
 const { progressList, progress_routes } = require("./progress");
+const { runNextTask } = require("./run_task");
 
 const get_state_fields = () => [];
 
@@ -170,18 +171,10 @@ const virtual_triggers = () => {
           });
       },
     },
-     {
+    {
       when_trigger: "Often",
-      run: async (row) => {
-        console.log("Copilot often tick");
-        
-      },
-    },
-      {
-      when_trigger: "Hourly",
-      run: async (row) => {
-        console.log("Copilot hourly tick");
-        
+      run: async () => {       
+        await runNextTask();
       },
     },
   ];

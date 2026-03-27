@@ -10,6 +10,39 @@ const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
 const { viewname } = require("./common");
 
+const runNextTask = async (alwaysRun) => {
+  if (!alwaysRun) {
+    const settings = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: "settings",
+    });
+    if (!settings?.body?.running) return;
+  }
+  const tasks = await MetaData.find(
+    {
+      type: "CopilotConstructMgr",
+      name: "task",
+    },
+    { orderBy: "id" },
+  );
+  const todos = tasks.filter(
+    (t) => !t.body.status || t.body.status === "To do",
+  );
+  const done = tasks.filter((t) => t.body.status === "Done");
+  const done_names = new Set(done.map((t) => t.body.name));
+ 
+  const startable = todos.filter((t) =>
+    t.body.depends_on.every((nm) => done_names.has(nm)),
+  );
+ 
+  if (startable[0]) {
+    console.log("running task", startable[0]);
+
+    return await runTask(startable[0].id, {});
+  }
+  //not done
+};
+
 const runTask = async (md_id, req) => {
   const md = await MetaData.findOne({
     id: md_id,
@@ -50,7 +83,7 @@ ${md.body.description}`;
   const actionres = await agent_action.runWithoutRow({
     row: { prompt },
     req,
-    user: req.user,
+    user: req?.user,
   });
   //console.log("actionres", actionres);
   const run_id = actionres.json.run_id;
@@ -62,7 +95,7 @@ ${md.body.description}`;
     },
     req,
     run,
-    user: req.user,
+    user: req?.user,
   });
   const lastInteraction =
     run.context.interactions[run.context.interactions.length - 1];
@@ -78,12 +111,11 @@ ${md.body.description}`;
     type: "CopilotConstructMgr",
     name: "progress",
     body: { text: lastText, run_id, task_id: md.id },
-    user_id: req.user?.id,
+    user_id: req?.user?.id,
   });
 
   //console.log("run", run);
   await md.update({ body: { ...md.body, status: "Done", run_id } });
-  return { reload_page: true };
 };
 
-module.exports = { runTask };
+module.exports = { runTask, runNextTask };
