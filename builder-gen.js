@@ -192,10 +192,23 @@ const derefSchema = (schema, maxDepth = 3) => {
 };
 
 const simplifySchemaForLlm = (schema) => {
-  const deref = derefSchema(schema, 6);
-  const scrub = (node, keyName) => {
-    if (!node || typeof node !== "object") return node;
-    if (Array.isArray(node)) return node.map((item) => scrub(item));
+  const deref = derefSchema(schema, 2); // Reduced maxDepth
+  const scrub = (node, keyName, depth = 0) => {
+    if (!node || typeof node !== "object" || depth > 4) {
+      // Added depth limit
+      if (
+        keyName === "contents" ||
+        keyName === "besides" ||
+        keyName === "above"
+      )
+        return {
+          type: "string",
+          description: "Simplified content: a string or a basic segment.",
+        };
+      return node;
+    }
+    if (Array.isArray(node))
+      return node.map((item) => scrub(item, undefined, depth + 1));
     if (keyName === "style") {
       return {
         type: "string",
@@ -212,7 +225,7 @@ const simplifySchemaForLlm = (schema) => {
     const out = {};
     for (const [key, val] of Object.entries(node)) {
       if (key === "$defs" || key === "definitions") continue;
-      out[key] = scrub(val, key);
+      out[key] = scrub(val, key, depth + 1);
     }
     const nodeType = out.type;
     const isObjectType =
@@ -271,6 +284,70 @@ const countOptionalParams = (schema) => {
   };
   walk(schema);
   return count;
+};
+
+const trimOptionalProperties = (schema, maxOptional) => {
+  if (!schema || typeof schema !== "object") return schema;
+
+  const clonedSchema = JSON.parse(JSON.stringify(schema));
+  let optionalCount = countOptionalParams(clonedSchema);
+  if (optionalCount <= maxOptional) {
+    return clonedSchema;
+  }
+
+  const optionalPropsByNode = new Map();
+
+  const findOptional = (node, path = []) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach((item, i) => findOptional(item, [...path, i]));
+      return;
+    }
+
+    const props = node.properties;
+    if (props && typeof props === "object") {
+      const required = new Set(node.required || []);
+      const optionalKeys = Object.keys(props).filter((k) => !required.has(k));
+      if (optionalKeys.length > 0) {
+        optionalPropsByNode.set(node, optionalKeys);
+      }
+      Object.values(props).forEach((propNode) => findOptional(propNode));
+    }
+
+    if (node.items) findOptional(node.items, [...path, "items"]);
+    if (node.anyOf)
+      node.anyOf.forEach((item, i) =>
+        findOptional(item, [...path, "anyOf", i]),
+      );
+    if (node.oneOf)
+      node.oneOf.forEach((item, i) =>
+        findOptional(item, [...path, "oneOf", i]),
+      );
+    if (node.allOf)
+      node.allOf.forEach((item, i) =>
+        findOptional(item, [...path, "allOf", i]),
+      );
+  };
+
+  findOptional(clonedSchema);
+
+  const nodesWithOptionals = Array.from(optionalPropsByNode.keys());
+  let nodeIndex = 0;
+
+  while (optionalCount > maxOptional && nodeIndex < nodesWithOptionals.length) {
+    const node = nodesWithOptionals[nodeIndex];
+    const optionalKeys = optionalPropsByNode.get(node);
+
+    if (optionalKeys && optionalKeys.length > 0) {
+      const keyToRemove = optionalKeys.pop();
+      delete node.properties[keyToRemove];
+      optionalCount--;
+    } else {
+      nodeIndex++;
+    }
+  }
+
+  return clonedSchema;
 };
 
 const randomId = () =>
@@ -677,7 +754,7 @@ const normalizeLayoutCandidate = (candidate, ctx) => {
   if (!normalized) {
     normalized = convertForeignLayout(candidate, ctx);
   }
-  if (!normalized) throw new Error("Empty layout after normalization");
+  if (!normalized) return null;
   const layout = Array.isArray(normalized) ? { above: normalized } : normalized;
   return sanitizeNoHtmlSegments(layout);
 };
@@ -1101,11 +1178,9 @@ module.exports = {
         validateSchemaRefs(schema.schema);
         let simplified = simplifySchemaForLlm(schema.schema);
         const optionalCount = countOptionalParams(simplified);
+        console.log({ optionalCount });
         if (optionalCount > 24) {
-          console.warn(
-            `Builder response schema has ${optionalCount} optional params; skipping response_format`,
-          );
-          simplified = null;
+          simplified = trimOptionalProperties(simplified, 24);
         }
         if (simplified && schemaHasRef(simplified)) {
           console.warn(
@@ -1143,7 +1218,9 @@ module.exports = {
       rawResponse = await llm.run(llmPrompt, options);
       payload = parseJsonPayload(rawResponse);
       const candidate = payload.layout ?? payload;
-      return normalizeLayoutCandidate(candidate, ctx);
+      const result = normalizeLayoutCandidate(candidate, ctx);
+      if (!result) throw new Error("Empty layout after normalization");
+      return result;
     } catch (err) {
       let lastError = err;
       try {
@@ -1151,7 +1228,9 @@ module.exports = {
         rawResponse = await llm.run(repairPrompt, options);
         payload = parseJsonPayload(rawResponse);
         const candidate = payload.layout ?? payload;
-        return normalizeLayoutCandidate(candidate, ctx);
+        const result = normalizeLayoutCandidate(candidate, ctx);
+        if (!result) throw new Error("Empty layout after normalization");
+        return result;
       } catch (repairErr) {
         lastError = repairErr;
       }
@@ -1161,7 +1240,9 @@ module.exports = {
         rawResponse = await llm.run(reducedPrompt, options);
         payload = parseJsonPayload(rawResponse);
         const candidate = payload.layout ?? payload;
-        return normalizeLayoutCandidate(candidate, ctx);
+        const result = normalizeLayoutCandidate(candidate, ctx);
+        if (!result) throw new Error("Empty layout after normalization");
+        return result;
       } catch (reducedErr) {
         lastError = reducedErr;
       }
