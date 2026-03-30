@@ -2,6 +2,7 @@ const Trigger = require("@saltcorn/data/models/trigger");
 const Page = require("@saltcorn/data/models/page");
 const View = require("@saltcorn/data/models/view");
 const Table = require("@saltcorn/data/models/table");
+const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 
 class RegistryEditorSkill {
   static skill_name = "Registry editor";
@@ -161,7 +162,7 @@ with both the entity type and name, and the new JSON definition as a string as a
         function: {
           name: "set_entity",
           description:
-            "Save a new JSON definition for an entity. Overwrites an existing entity",
+            "Save a new JSON definition for an entity. Creates a new entity or overwrites an existing entity, depending on whether an entity with this name and type already exists",
           parameters: {
             type: "object",
             required: ["entity_type", "entity_name"],
@@ -186,40 +187,69 @@ with both the entity type and name, and the new JSON definition as a string as a
         process: async (input) => {
           console.log("set entity", input);
           //return "Done";
-
+          const entityValue = JSON.parse(input.entity_definition);
           const tables = await Table.find({}, { cached: true });
           const tableNames = {};
           for (const table of tables) tableNames[table.id] = table.name;
           switch (input.entity_type) {
-            case "view":
-              const view = await View.findOne({ name: input.entity_name });
-              if (!view) return `view not found`;
-              await View.update(viewNoTable, existing.id);
-
+            case "view": {
+              const {
+                table,
+                on_menu,
+                menu_label,
+                on_root_page,
+                ...viewNoTable
+              } = entityValue;
+              if (table && !entityValue.table_id) {
+                const thetable = Table.findOne(table);
+                entityValue.table_id = thetable.id;
+              }
+              const existing = await View.findOne({ name: input.entity_name });
+              if (existing?.id) {
+                await View.update(viewNoTable, existing.id);
+              } else {
+                await View.create(viewNoTable);
+              }
               break;
-            case "table":
+
+              // cache
+            }
+
+            case "page":
+              const { root_page_for_roles, menu_label, ...pageSpec } =
+                entityValue;
+              const existing = Page.findOne({ name: input.entity_name });
+              if (existing?.id) await Page.update(existing.id, pageSpec);
+              else await Page.create(pageSpec);
+
+            case "trigger": {
+              const existing = await Trigger.findOne({
+                name: entityValue.name,
+              });
+              const { table, table_name, steps, ...tsNoTableName } =
+                entityValue;
+              if (table || table_name)
+                tsNoTableName.table_id = Table.findOne(table || table_name)?.id;
+              if (existing) {
+                await Trigger.update(existing.id, tsNoTableName);
+                id = existing.id;
+              } else {
+                const newTrigger = await Trigger.create(tsNoTableName);
+                id = newTrigger.id;
+              }
+              if (entityValue.action === "Workflow" && entityValue.steps) {
+                await WorkflowStep.deleteForTrigger(id);
+                for (const step of entityValue.steps) {
+                  await WorkflowStep.create({ ...step, trigger_id: id });
+                }
+              }
+            }
+
+            case "table": {
               const table = Table.findOne({ name: input.entity_name });
               if (!table) return `table not found`;
               return table.to_json;
-            case "page":
-              const page = Page.findOne({ name: input.entity_name });
-              if (!page) return `page not found`;
-              const root_page_for_roles = await page.is_root_page_for_roles();
-              return {
-                name: page.name,
-                title: page.title,
-                description: page.description,
-                min_role: page.min_role,
-                layout: page.layout,
-                fixed_states: page.fixed_states,
-                menu_label: page.menu_label,
-                attributes: page.attributes,
-                root_page_for_roles,
-              };
-            case "trigger":
-              const trigger = Trigger.findOne({ name: input.entity_name });
-              if (!trigger) return `trigger not found`;
-              return trigger.toJson;
+            }
           }
         },
       },
