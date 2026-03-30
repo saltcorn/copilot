@@ -192,28 +192,31 @@ with both the entity type and name, and the new JSON definition as a string as a
           const tableNames = {};
           for (const table of tables) tableNames[table.id] = table.name;
           switch (input.entity_type) {
-            case "view": {
-              const {
-                table,
-                on_menu,
-                menu_label,
-                on_root_page,
-                ...viewNoTable
-              } = entityValue;
-              if (table && !entityValue.table_id) {
-                const thetable = Table.findOne(table);
-                entityValue.table_id = thetable.id;
-              }
-              const existing = await View.findOne({ name: input.entity_name });
-              if (existing?.id) {
-                await View.update(viewNoTable, existing.id);
-              } else {
-                await View.create(viewNoTable);
+            case "view":
+              {
+                const {
+                  table,
+                  on_menu,
+                  menu_label,
+                  on_root_page,
+                  ...viewNoTable
+                } = entityValue;
+                if (table && !entityValue.table_id) {
+                  const thetable = Table.findOne(table);
+                  entityValue.table_id = thetable.id;
+                }
+                const existing = await View.findOne({
+                  name: input.entity_name,
+                });
+                if (existing?.id) {
+                  await View.update(viewNoTable, existing.id);
+                } else {
+                  await View.create(viewNoTable);
+                }
+
+                await getState().refresh_views();
               }
               break;
-
-              // cache
-            }
 
             case "page":
               const { root_page_for_roles, menu_label, ...pageSpec } =
@@ -221,34 +224,41 @@ with both the entity type and name, and the new JSON definition as a string as a
               const existing = Page.findOne({ name: input.entity_name });
               if (existing?.id) await Page.update(existing.id, pageSpec);
               else await Page.create(pageSpec);
+              await getState().refresh_pages();
 
-            case "trigger": {
-              const existing = await Trigger.findOne({
-                name: entityValue.name,
-              });
-              const { table, table_name, steps, ...tsNoTableName } =
-                entityValue;
-              if (table || table_name)
-                tsNoTableName.table_id = Table.findOne(table || table_name)?.id;
-              if (existing) {
-                await Trigger.update(existing.id, tsNoTableName);
-                id = existing.id;
-              } else {
-                const newTrigger = await Trigger.create(tsNoTableName);
-                id = newTrigger.id;
-              }
-              if (entityValue.action === "Workflow" && entityValue.steps) {
-                await WorkflowStep.deleteForTrigger(id);
-                for (const step of entityValue.steps) {
-                  await WorkflowStep.create({ ...step, trigger_id: id });
+              break;
+
+            case "trigger":
+              {
+                const existing = await Trigger.findOne({
+                  name: entityValue.name,
+                });
+                const { table, table_name, steps, ...tsNoTableName } =
+                  entityValue;
+                if (table || table_name)
+                  tsNoTableName.table_id = Table.findOne(
+                    table || table_name,
+                  )?.id;
+                if (existing) {
+                  await Trigger.update(existing.id, tsNoTableName);
+                  id = existing.id;
+                } else {
+                  const newTrigger = await Trigger.create(tsNoTableName);
+                  id = newTrigger.id;
+                }
+                if (entityValue.action === "Workflow" && entityValue.steps) {
+                  await WorkflowStep.deleteForTrigger(id);
+                  for (const step of entityValue.steps) {
+                    await WorkflowStep.create({ ...step, trigger_id: id });
+                  }
                 }
               }
-            }
+              await getState().refresh_triggers();
+              break;
 
             case "table": {
-              const table = Table.findOne({ name: input.entity_name });
-              if (!table) return `table not found`;
-              return table.to_json;
+              await getState().refresh_tables();
+              break;
             }
           }
         },
@@ -258,3 +268,23 @@ with both the entity type and name, and the new JSON definition as a string as a
 }
 
 module.exports = RegistryEditorSkill;
+
+
+/* todo
+
+get-registry more entity types:
+
+* types
+* modules
+* configuration
+* roles
+
+set-registry
+
+* module cfg
+* config value
+* role
+
+install module tool
+
+*/
