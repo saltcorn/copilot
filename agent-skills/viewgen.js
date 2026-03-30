@@ -15,6 +15,74 @@ const {
 } = require("@saltcorn/markup/tags");
 const builderGen = require("../builder-gen");
 
+const findFilterFieldSegment = (segment) => {
+  if (!segment || typeof segment !== "object") return null;
+  if (segment.type === "field") return segment;
+  if (segment.type === "dropdown_filter" || segment.type === "toggle_filter") {
+    return { field_name: segment.field_name, fieldview: "edit" };
+  }
+  if (Array.isArray(segment.above)) {
+    for (const item of segment.above) {
+      const found = findFilterFieldSegment(item);
+      if (found) return found;
+    }
+  }
+  if (Array.isArray(segment.besides)) {
+    for (const item of segment.besides) {
+      const found = findFilterFieldSegment(item);
+      if (found) return found;
+    }
+  }
+  if (segment.contents) {
+    if (Array.isArray(segment.contents)) {
+      for (const item of segment.contents) {
+        const found = findFilterFieldSegment(item);
+        if (found) return found;
+      }
+    } else {
+      const found = findFilterFieldSegment(segment.contents);
+      if (found) return found;
+    }
+  }
+  if (Array.isArray(segment.tabs)) {
+    for (const tab of segment.tabs) {
+      if (tab?.contents) {
+        const found = findFilterFieldSegment(tab.contents);
+        if (found) return found;
+      }
+    }
+  }
+  if (Array.isArray(segment.contents) && Array.isArray(segment.contents[0])) {
+    for (const row of segment.contents) {
+      if (Array.isArray(row)) {
+        for (const cell of row) {
+          const found = findFilterFieldSegment(cell);
+          if (found) return found;
+        }
+      }
+    }
+  }
+  return null;
+};
+
+const normalizeFilterField = (segment) => ({
+  type: "field",
+  field_name: segment.field_name,
+  fieldview: segment.fieldview || "edit",
+  textStyle: segment.textStyle || "",
+  block: segment.block ?? false,
+  configuration: segment.configuration || {},
+});
+
+const toFilterColumn = (segment) => ({
+  type: "Field",
+  field_name: segment.field_name,
+  fieldview: segment.fieldview || "edit",
+  textStyle: segment.textStyle || "",
+  block: segment.block ?? false,
+  configuration: segment.configuration || {},
+});
+
 class GenerateViewSkill {
   static skill_name = "Generate View";
 
@@ -73,6 +141,9 @@ a view generation mode. The tool call only requires high-level details to start 
         vts[vtnm].copilot_generate_view_prompt,
     );
     if (!enabled_vt_names.includes("Show")) enabled_vt_names.push("Show");
+    if (!enabled_vt_names.includes("Edit")) enabled_vt_names.push("Edit");
+    if (!enabled_vt_names.includes("List")) enabled_vt_names.push("List");
+    if (!enabled_vt_names.includes("Filter")) enabled_vt_names.push("Filter");
     //const roles = await User.get_roles();
     const tableless = enabled_vt_names.filter(
       (vtnm) => vts[vtnm].tableless === true,
@@ -126,7 +197,15 @@ a view generation mode. The tool call only requires high-level details to start 
             : Table.findOne({ name: tool_call.input.table });
 
         const wfctx = { viewname: tool_call.input.name, table_id: table?.id };
-        if (tool_call.input.viewpattern === "Show") {
+        const viewpattern = tool_call.input.viewpattern;
+        const builderModeByPattern = {
+          Show: "show",
+          Edit: "edit",
+          List: "listcolumns",
+          Filter: "filter",
+        };
+        const builderMode = builderModeByPattern[viewpattern];
+        if (builderMode) {
           const promptFromChat = Array.isArray(chat)
             ? [...chat]
                 .reverse()
@@ -135,17 +214,33 @@ a view generation mode. The tool call only requires high-level details to start 
           const layoutPrompt = promptFromChat || tool_call.input.name || "";
           wfctx.layout = await builderGen.run(
             layoutPrompt,
-            "show",
+            builderMode,
             table?.name,
             null,
             chat,
           );
-          if (table) {
+          if (table && viewpattern !== "Filter") {
             const baseCfg = await initial_config_all_fields(false)({
               table_id: table.id,
             });
             if (baseCfg?.columns) wfctx.columns = baseCfg.columns;
           }
+          if (viewpattern === "Filter") {
+            const filterFieldSegment = findFilterFieldSegment(wfctx.layout);
+            if (filterFieldSegment) {
+              const normalized = normalizeFilterField(filterFieldSegment);
+              wfctx.layout = normalized;
+              wfctx.columns = [toFilterColumn(normalized)];
+            }
+          }
+        }
+
+        if (
+          viewpattern === "Show" ||
+          viewpattern === "Edit" ||
+          viewpattern === "Filter"
+        ) {
+          // No extra configuration steps for these modes.
         } else {
           const flow = vt.configuration_workflow(req);
           let vt_prompt = "";
@@ -158,11 +253,17 @@ a view generation mode. The tool call only requires high-level details to start 
               );
           }
 
+          const prefilledFields = new Set();
+          if (wfctx.layout !== undefined) prefilledFields.add("layout");
+          if (wfctx.columns !== undefined) prefilledFields.add("columns");
+
           for (const step of flow.steps) {
+            if (typeof step.form !== "function") continue;
             const form = await step.form(wfctx);
             const properties = {};
             //TODO onlyWhen
             for (const field of form.fields) {
+              if (prefilledFields.has(field.name)) continue;
               //TODO showIf
               properties[field.name] = {
                 description:
@@ -170,7 +271,12 @@ a view generation mode. The tool call only requires high-level details to start 
                   `${field.label}.${field.sublabel ? ` ${field.sublabel}` : ""}`,
                 ...fieldProperties(field),
               };
+              if (!properties[field.name].type) {
+                properties[field.name].type = "string";
+              }
             }
+
+            if (!Object.keys(properties).length) continue;
 
             const answer = await generate(
               `${vt_prompt ? vt_prompt + "\n\n" : ""}Now generate the ${step.name} details of the view by calling the generate_view_details tool`,
