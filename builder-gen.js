@@ -4,12 +4,15 @@ const Trigger = require("@saltcorn/data/models/trigger");
 const View = require("@saltcorn/data/models/view");
 const { edit_build_in_actions } = require("@saltcorn/data/viewable_fields");
 const { buildBuilderSchema } = require("./builder-schema");
+const { getLlmConfigurationSafe, canUseResponseFormat } = require("./common");
 
 const ACTION_SIZES = ["btn-sm", "btn-lg"];
 const MODE_GUIDANCE = {
   edit: "Layout is a form for editing a single row. Include required inputs with edit fieldviews, group related inputs, and finish with a Save action.",
   show: "Layout displays one record read-only. Use show fieldviews, blank headings, and optional follow-up actions.",
   list: "Layout represents a single row in a list. Highlight key fields, keep actions compact, and support filtering if requested.",
+  listcolumns:
+    "Layout defines list columns for a list view. Use a list_columns wrapper with besides entries containing list_column segments. Each list_column should contain a field or action and include a header label when appropriate.",
   filter:
     "Layout lets users define filters. Provide appropriate filter inputs plus an action to run or reset filters.",
   page: "Layout builds a general app page. Combine hero text, cards, containers, and call-to-action buttons.",
@@ -188,10 +191,199 @@ const derefSchema = (schema, maxDepth = 3) => {
   return expand(root, []);
 };
 
+const simplifySchemaForLlm = (schema) => {
+  const deref = derefSchema(schema, 2); // Reduced maxDepth
+  const scrub = (node, keyName, depth = 0) => {
+    if (!node || typeof node !== "object" || depth > 4) {
+      // Added depth limit
+      if (
+        keyName === "contents" ||
+        keyName === "besides" ||
+        keyName === "above"
+      )
+        return {
+          type: "string",
+          description: "Simplified content: a string or a basic segment.",
+        };
+      return node;
+    }
+    if (Array.isArray(node))
+      return node.map((item) => scrub(item, undefined, depth + 1));
+    if (keyName === "style") {
+      return {
+        type: "string",
+        description: "CSS style string (e.g. background-color: red;).",
+      };
+    }
+    if (typeof node.$ref === "string") {
+      return {
+        type: "object",
+        description: "Simplified recursive segment.",
+        additionalProperties: false,
+      };
+    }
+    const out = {};
+    for (const [key, val] of Object.entries(node)) {
+      if (key === "$defs" || key === "definitions") continue;
+      out[key] = scrub(val, key, depth + 1);
+    }
+    const nodeType = out.type;
+    const isObjectType =
+      nodeType === "object" ||
+      (Array.isArray(nodeType) && nodeType.includes("object")) ||
+      Object.prototype.hasOwnProperty.call(out, "properties");
+    const isArrayType =
+      nodeType === "array" ||
+      (Array.isArray(nodeType) && nodeType.includes("array")) ||
+      Object.prototype.hasOwnProperty.call(out, "items");
+    const isNumberType =
+      nodeType === "number" ||
+      nodeType === "integer" ||
+      (Array.isArray(nodeType) &&
+        (nodeType.includes("number") || nodeType.includes("integer")));
+    if (isObjectType) {
+      out.additionalProperties = false;
+    }
+    if (isArrayType && typeof out.minItems !== "undefined") {
+      const minItems = Number(out.minItems);
+      if (Number.isFinite(minItems) && minItems > 1) out.minItems = 1;
+    }
+    if (isNumberType) {
+      delete out.minimum;
+      delete out.maximum;
+      delete out.exclusiveMinimum;
+      delete out.exclusiveMaximum;
+      delete out.multipleOf;
+    }
+    return out;
+  };
+  return scrub(deref);
+};
+
+const countOptionalParams = (schema) => {
+  let count = 0;
+  const walk = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    const props = node.properties;
+    if (props && typeof props === "object") {
+      const required = Array.isArray(node.required) ? node.required : [];
+      const optional = Object.keys(props).filter(
+        (key) => !required.includes(key),
+      );
+      count += optional.length;
+      Object.values(props).forEach(walk);
+    }
+    if (node.items) walk(node.items);
+    if (node.anyOf) node.anyOf.forEach(walk);
+    if (node.oneOf) node.oneOf.forEach(walk);
+    if (node.allOf) node.allOf.forEach(walk);
+  };
+  walk(schema);
+  return count;
+};
+
+const trimOptionalProperties = (schema, maxOptional) => {
+  if (!schema || typeof schema !== "object") return schema;
+
+  const clonedSchema = JSON.parse(JSON.stringify(schema));
+  let optionalCount = countOptionalParams(clonedSchema);
+  if (optionalCount <= maxOptional) {
+    return clonedSchema;
+  }
+
+  const optionalPropsByNode = new Map();
+
+  const findOptional = (node, path = []) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach((item, i) => findOptional(item, [...path, i]));
+      return;
+    }
+
+    const props = node.properties;
+    if (props && typeof props === "object") {
+      const required = new Set(node.required || []);
+      const optionalKeys = Object.keys(props).filter((k) => !required.has(k));
+      if (optionalKeys.length > 0) {
+        optionalPropsByNode.set(node, optionalKeys);
+      }
+      Object.values(props).forEach((propNode) => findOptional(propNode));
+    }
+
+    if (node.items) findOptional(node.items, [...path, "items"]);
+    if (node.anyOf)
+      node.anyOf.forEach((item, i) =>
+        findOptional(item, [...path, "anyOf", i]),
+      );
+    if (node.oneOf)
+      node.oneOf.forEach((item, i) =>
+        findOptional(item, [...path, "oneOf", i]),
+      );
+    if (node.allOf)
+      node.allOf.forEach((item, i) =>
+        findOptional(item, [...path, "allOf", i]),
+      );
+  };
+
+  findOptional(clonedSchema);
+
+  const nodesWithOptionals = Array.from(optionalPropsByNode.keys());
+  let nodeIndex = 0;
+
+  while (optionalCount > maxOptional && nodeIndex < nodesWithOptionals.length) {
+    const node = nodesWithOptionals[nodeIndex];
+    const optionalKeys = optionalPropsByNode.get(node);
+
+    if (optionalKeys && optionalKeys.length > 0) {
+      const keyToRemove = optionalKeys.pop();
+      delete node.properties[keyToRemove];
+      optionalCount--;
+    } else {
+      nodeIndex++;
+    }
+  }
+
+  return clonedSchema;
+};
+
 const randomId = () =>
   Math.floor(Math.random() * 0xffffff)
     .toString(16)
     .padStart(6, "0");
+
+const toCamelCaseStyle = (key) =>
+  key.replace(/-([a-z])/g, (_m, chr) => chr.toUpperCase());
+
+const parseStyleString = (styleStr) => {
+  if (typeof styleStr !== "string") return styleStr;
+  const trimmed = styleStr.trim();
+  if (!trimmed) return {};
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (err) {
+      // fall through to CSS parsing
+    }
+  }
+  const out = {};
+  trimmed.split(";").forEach((part) => {
+    const section = part.trim();
+    if (!section) return;
+    const idx = section.indexOf(":");
+    if (idx === -1) return;
+    const rawKey = section.slice(0, idx).trim();
+    const value = section.slice(idx + 1).trim();
+    if (!rawKey || !value) return;
+    if (rawKey.startsWith("--")) out[rawKey] = value;
+    else out[toCamelCaseStyle(rawKey)] = value;
+  });
+  return out;
+};
 
 const ensureArray = (value) =>
   Array.isArray(value) ? value : value == null ? [] : [value];
@@ -249,7 +441,7 @@ const pickFieldview = (field, mode, requestedFieldview = null) => {
   }
 
   // Mode-based selection from available fieldviews
-  if (mode === "show" || mode === "list") {
+  if (mode === "show" || mode === "list" || mode === "listcolumns") {
     // For show mode, prefer simple text-based views, but only from available views
     const showPreferences = ["as_text", "show", "as_string", "text", "showas"];
     for (const pref of showPreferences) {
@@ -343,6 +535,9 @@ const normalizeSegment = (segment, ctx) => {
   if (typeof segment !== "object") return null;
 
   const clone = { ...segment };
+  if (typeof clone.style === "string") {
+    clone.style = parseStyleString(clone.style);
+  }
   if (clone.type === "prompt") return null;
 
   if (!clone.type && clone.above) {
@@ -559,7 +754,7 @@ const normalizeLayoutCandidate = (candidate, ctx) => {
   if (!normalized) {
     normalized = convertForeignLayout(candidate, ctx);
   }
-  if (!normalized) throw new Error("Empty layout after normalization");
+  if (!normalized) return null;
   const layout = Array.isArray(normalized) ? { above: normalized } : normalized;
   return sanitizeNoHtmlSegments(layout);
 };
@@ -960,6 +1155,9 @@ module.exports = {
     const llm = getState().functions.llm_generate;
     if (!llm?.run) throw new Error("LLM generator not configured");
 
+    const llmConfig = await getLlmConfigurationSafe();
+    const allowResponseFormat = canUseResponseFormat(llmConfig);
+
     let llmPrompt = buildPromptText(prompt, ctx, schema);
     if (existing_layout !== undefined && existing_layout !== null) {
       const layoutJson =
@@ -974,20 +1172,29 @@ module.exports = {
       if (!schema || !schema.schema) {
         throw new Error("Builder schema unavailable");
       }
-      validateSchemaRefs(schema.schema);
-      const deref = derefSchema(schema.schema);
-      if (schemaHasRef(deref)) {
-        console.warn(
-          "Builder response schema still contains $ref; skipping response_format",
-        );
+      if (!allowResponseFormat) {
+        console.warn("LLM backend does not support response_format; skipping");
       } else {
-        responseFormat = {
-          type: "json_schema",
-          json_schema: {
-            name: "saltcorn_layout",
-            schema: deref,
-          },
-        };
+        validateSchemaRefs(schema.schema);
+        let simplified = simplifySchemaForLlm(schema.schema);
+        const optionalCount = countOptionalParams(simplified);
+        console.log({ optionalCount });
+        if (optionalCount > 24) {
+          simplified = trimOptionalProperties(simplified, 24);
+        }
+        if (simplified && schemaHasRef(simplified)) {
+          console.warn(
+            "Builder response schema still contains $ref; skipping response_format",
+          );
+        } else if (simplified) {
+          responseFormat = {
+            type: "json_schema",
+            json_schema: {
+              name: "saltcorn_layout",
+              schema: simplified,
+            },
+          };
+        }
       }
     } catch (err) {
       console.warn("Builder response schema validation failed", err);
@@ -1011,7 +1218,9 @@ module.exports = {
       rawResponse = await llm.run(llmPrompt, options);
       payload = parseJsonPayload(rawResponse);
       const candidate = payload.layout ?? payload;
-      return normalizeLayoutCandidate(candidate, ctx);
+      const result = normalizeLayoutCandidate(candidate, ctx);
+      if (!result) throw new Error("Empty layout after normalization");
+      return result;
     } catch (err) {
       let lastError = err;
       try {
@@ -1019,7 +1228,9 @@ module.exports = {
         rawResponse = await llm.run(repairPrompt, options);
         payload = parseJsonPayload(rawResponse);
         const candidate = payload.layout ?? payload;
-        return normalizeLayoutCandidate(candidate, ctx);
+        const result = normalizeLayoutCandidate(candidate, ctx);
+        if (!result) throw new Error("Empty layout after normalization");
+        return result;
       } catch (repairErr) {
         lastError = repairErr;
       }
@@ -1029,7 +1240,9 @@ module.exports = {
         rawResponse = await llm.run(reducedPrompt, options);
         payload = parseJsonPayload(rawResponse);
         const candidate = payload.layout ?? payload;
-        return normalizeLayoutCandidate(candidate, ctx);
+        const result = normalizeLayoutCandidate(candidate, ctx);
+        if (!result) throw new Error("Empty layout after normalization");
+        return result;
       } catch (reducedErr) {
         lastError = reducedErr;
       }

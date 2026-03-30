@@ -14,6 +14,24 @@ const MarkdownIt = require("markdown-it"),
   md = new MarkdownIt();
 const HTMLParser = require("node-html-parser");
 
+const getLlmConfigurationSafe = async () => {
+  const fn = getState().functions?.llm_get_configuration;
+  if (!fn?.run) return null;
+  try {
+    return await fn.run();
+  } catch (err) {
+    return null;
+  }
+};
+
+const canUseResponseFormat = (llmConfig) => {
+  const backend = llmConfig?.backend;
+  if (!backend) return false;
+  if (backend === "AI SDK") return true;
+  if (backend === "OpenAI") return !!llmConfig?.responses_api;
+  return false;
+};
+
 const boxHandledStyles = new Set([
   "margin",
   "margin-top",
@@ -364,4 +382,6 @@ module.exports = {
   splitContainerStyle,
   walk_response,
   parseHTML,
+  getLlmConfigurationSafe,
+  canUseResponseFormat,
 };
