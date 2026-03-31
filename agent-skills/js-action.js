@@ -1,5 +1,4 @@
 const GenerateJsAction = require("../actions/generate-js-action");
-const Trigger = require("@saltcorn/data/models/trigger");
 
 class GenerateJsActionSkill {
   static skill_name = "Javascript Action";
@@ -23,7 +22,7 @@ class GenerateJsActionSkill {
         const code = input.code;
         const description = input.description;
         const when_trigger = input.when_trigger;
-        const trigger_table = input.trigger_table || input.table_name;
+        const trigger_table = input.trigger_table;
         const user = input.user;
         if (!name || !code) {
           return {
@@ -41,7 +40,6 @@ class GenerateJsActionSkill {
           },
           { user },
         );
-        // Always output canonical field names
         return {
           notify: result?.postExec || `Javascript action saved: ${name}`,
           name,
@@ -52,18 +50,11 @@ class GenerateJsActionSkill {
     };
   }
 
-  provideTools = async () => {
-    // log a trigger
-    console.log(await Trigger.findOne({ name: "treops" }));
-    const parameters = GenerateJsAction.json_schema();
-    console.log("£££££ Providing Javascript Action tool to agent", {
-      parameters,
-    });
+  provideTools = () => {
     return {
       type: "function",
       process: async (input) => {
         console.log({ input });
-        // Map all possible variants to canonical names, but only output canonical
         const name = input.name;
         const code = input.code;
         const description = input.description;
@@ -79,26 +70,12 @@ class GenerateJsActionSkill {
           .join("\n");
       },
       postProcess: async ({ tool_call }) => {
-        // Map all possible variants to canonical names, but only output canonical
         const input = tool_call.input || {};
-        const name =
-          input.name ||
-          input.input_name ||
-          input.action_name ||
-          input.js_action_name ||
-          input.actionName ||
-          input.jsName ||
-          input.table_name;
-        const code =
-          input.code ||
-          input.js_code ||
-          input.js_action_code ||
-          input.action_javascript_code ||
-          input.actionCode;
-        const description =
-          input.description ||
-          input.action_description ||
-          input.js_action_description;
+        const name = input.name;
+        const code = input.code;
+        const description = input.description;
+        const when_trigger = input.when_trigger;
+        const trigger_table = input.trigger_table;
         if (!name || !code) {
           return {
             stop: true,
@@ -106,7 +83,6 @@ class GenerateJsActionSkill {
               "Cannot create Javascript action: name and code are required.",
           };
         }
-        // Always output canonical field names in user action
         return {
           stop: true,
           add_response: `<pre><b>${name}</b>\n${description ? description + "\n" : ""}${code}</pre>`,
@@ -114,7 +90,7 @@ class GenerateJsActionSkill {
             name: "build_copilot_js_action",
             type: "button",
             label: `Save Javascript action (${name})`,
-            input: { name, code, description },
+            input: { name, code, description, when_trigger, trigger_table },
           },
         };
       },
@@ -139,11 +115,14 @@ class GenerateJsActionSkill {
             },
             when_trigger: {
               type: "string",
-              description: "When the action should trigger.",
+              enum: ["Insert", "Update", "Delete", "Daily", "Hourly", "Weekly"],
+              description:
+                "The event that fires this action. Only set if the user explicitly wants this trigger to run on a table row event or schedule. Leave unset if the user has not specified when it should run.",
             },
             trigger_table: {
               type: "string",
-              description: "Table to trigger the action.",
+              description:
+                "The table whose row events (Insert/Update/Delete) should fire this action. Only set if the user explicitly says this action should be triggered by changes to that table. Do NOT set just because the code reads data from a table.",
             },
           },
         },

@@ -85,6 +85,7 @@ class GenerateJsAction {
     }
     const trigger = await Trigger.create({
       name: action_name,
+      description: action_description,
       when_trigger: when_trigger || "Never",
       table_id,
       action: "run_js_code",
