@@ -54,7 +54,6 @@ class GenerateJsActionSkill {
     return {
       type: "function",
       process: async (input) => {
-        console.log({ input });
         const name = input.name;
         const code = input.code;
         const description = input.description;
@@ -85,7 +84,13 @@ class GenerateJsActionSkill {
         }
         return {
           stop: true,
-          add_response: `<pre><b>${name}</b>\n${description ? description + "\n" : ""}${code}</pre>`,
+          add_response: GenerateJsAction.render_html({
+            action_javascript_code: code,
+            action_name: name,
+            action_description: description,
+            when_trigger,
+            trigger_table,
+          }),
           add_user_action: {
             name: "build_copilot_js_action",
             type: "button",
