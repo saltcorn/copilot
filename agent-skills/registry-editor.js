@@ -2,6 +2,7 @@ const Trigger = require("@saltcorn/data/models/trigger");
 const Page = require("@saltcorn/data/models/page");
 const View = require("@saltcorn/data/models/view");
 const Table = require("@saltcorn/data/models/table");
+const User = require("@saltcorn/data/models/user");
 const Plugin = require("@saltcorn/data/models/plugin");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const { getState } = require("@saltcorn/data/db/state");
@@ -57,6 +58,7 @@ with both the entity type and name, and the new JSON definition as a string as a
                   "available-plugins",
                   "installed-plugins",
                   "system-configuration-keys",
+                  "roles",
                 ],
               },
             },
@@ -67,8 +69,10 @@ with both the entity type and name, and the new JSON definition as a string as a
           const tableNames = {};
           for (const table of tables) tableNames[table.id] = table.name;
           switch (input.entity_type) {
+            case "roles":
+              return await User.get_roles();
             case "system-configuration-keys": {
-              const cfgs = getState().configs;              
+              const cfgs = getState().configs;
               return Object.keys(cfgs).map((k) => ({
                 key: k,
                 description: cfgs[k].description,
@@ -343,7 +347,6 @@ get-entity should explain the json schema and perhaps have a longer explanation
 set_entity
 
 * module cfg
-* config value
 * role
 
 set-entity view should run a config check, try to run and report error
