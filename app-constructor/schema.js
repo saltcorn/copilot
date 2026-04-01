@@ -37,6 +37,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
+const { saltcorn_description } = require("./prompts");
 
 const showSchema = async (req) => {
   const schema = await MetaData.findOne({
@@ -77,8 +78,17 @@ const gen_schema = async (table_id, viewname, config, body, { req, res }) => {
     name: "spec",
   });
   if (!spec) throw new Error("Specification not found");
+  const rs = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "requirement",
+  });
+  if (!rs.length) throw new Error("No requirements found");
+
+  const GenerateTablesSkill = require("../agent-skills/database-design");
+  const databaseDesignTool = new GenerateTablesSkill({}).provideTools();
+
   const answer = await getState().functions.llm_generate.run(
-    `Generate the requirements for this application:
+    `Generate the database schema for this application:
 
 Description: ${spec.body.description}
 Audience: ${spec.body.audience}
@@ -86,25 +96,27 @@ Core features: ${spec.body.core_features}
 Out of scope: ${spec.body.out_of_scope}
 Visual style: ${spec.body.visual_style}
 
-Now use the make_requirements tool to list the requirements for this software application
+These are the requirements of the application: 
+
+${rs.map((r) => `* ${r.body.requirement}`).join("\n")}
+
+${saltcorn_description}
+
+Now use the ${databaseDesignTool.function.name} tool to generate the database schema for this software application
 `,
     {
-      tools: [requirements_tool],
-      ...tool_choice("make_requirements"),
+      tools: [databaseDesignTool],
+      ...tool_choice(databaseDesignTool.function.name),
       systemPrompt:
-        "You are a project manager. The user wants to build an application, and you must analyse their application description",
+        "You are a database designer. The user wants to build an application, and you must analyse their application description and the requirements and come up with a good database design",
     },
   );
 
   const tc = answer.getToolCalls()[0];
 
-  for (const reqm of tc.input.requirements)
-    await MetaData.create({
-      type: "CopilotConstructMgr",
-      name: "requirement",
-      body: reqm,
-      user_id: req.user?.id,
-    });
+  console.log("schema", tc);
+  
+
   return { json: { reload_page: true } };
 };
 
