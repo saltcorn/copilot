@@ -129,7 +129,7 @@ with both the entity type and name, and the new JSON definition as a string as a
               entity_type: {
                 type: "string",
                 description: "The type of the entity to retrieve",
-                enum: ["view", "table", "page", "trigger"],
+                enum: ["view", "table", "page", "trigger", "plugin"],
               },
               entity_name: {
                 type: "string",
@@ -163,6 +163,12 @@ with both the entity type and name, and the new JSON definition as a string as a
               const table = Table.findOne({ name: input.entity_name });
               if (!table) return `table not found`;
               return table.to_json;
+            case "plugin":
+              const plugin = await Plugin.findOne({
+                name: input.entity_name,
+              });
+              if (!plugin) return `plugin not found`;
+              return plugin;
             case "page":
               const page = Page.findOne({ name: input.entity_name });
               if (!page) return `page not found`;
