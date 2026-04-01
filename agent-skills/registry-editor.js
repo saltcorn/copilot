@@ -4,6 +4,7 @@ const View = require("@saltcorn/data/models/view");
 const Table = require("@saltcorn/data/models/table");
 const Plugin = require("@saltcorn/data/models/plugin");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
+const { getState } = require("@saltcorn/data/db/state");
 
 class RegistryEditorSkill {
   static skill_name = "Registry editor";
@@ -55,6 +56,7 @@ with both the entity type and name, and the new JSON definition as a string as a
                   "trigger",
                   "available-plugins",
                   "installed-plugins",
+                  "system-configuration-keys",
                 ],
               },
             },
@@ -65,6 +67,13 @@ with both the entity type and name, and the new JSON definition as a string as a
           const tableNames = {};
           for (const table of tables) tableNames[table.id] = table.name;
           switch (input.entity_type) {
+            case "system-configuration-keys": {
+              const cfgs = getState().configs;              
+              return Object.keys(cfgs).map((k) => ({
+                key: k,
+                description: cfgs[k].description,
+              }));
+            }
             case "available-plugins": {
               const store_plugins = await Plugin.store_plugins_available();
               const installed_plugins = await Plugin.find({});
@@ -129,7 +138,14 @@ with both the entity type and name, and the new JSON definition as a string as a
               entity_type: {
                 type: "string",
                 description: "The type of the entity to retrieve",
-                enum: ["view", "table", "page", "trigger", "plugin"],
+                enum: [
+                  "view",
+                  "table",
+                  "page",
+                  "trigger",
+                  "plugin",
+                  "system-configuration-value",
+                ],
               },
               entity_name: {
                 type: "string",
@@ -163,6 +179,9 @@ with both the entity type and name, and the new JSON definition as a string as a
               const table = Table.findOne({ name: input.entity_name });
               if (!table) return `table not found`;
               return table.to_json;
+            case "system-configuration-value":
+              const v = getState().getConfig(input.entity_name);
+              return v;
             case "plugin":
               const plugin = await Plugin.findOne({
                 name: input.entity_name,
@@ -203,12 +222,18 @@ with both the entity type and name, and the new JSON definition as a string as a
             properties: {
               entity_type: {
                 type: "string",
-                description: "The type of the entity to retrieve",
-                enum: ["view", "table", "page", "trigger"],
+                description: "The type of the entity to set",
+                enum: [
+                  "view",
+                  "table",
+                  "page",
+                  "trigger",
+                  "system-configuration-value",
+                ],
               },
               entity_name: {
                 type: "string",
-                description: "The name of the entity to retrieve",
+                description: "The name of the entity to set",
               },
               entity_definition: {
                 type: "string",
@@ -251,7 +276,10 @@ with both the entity type and name, and the new JSON definition as a string as a
                 await getState().refresh_views();
               }
               break;
-
+            case "system-configuration-value":
+              await getState().setConfig(input.entity_name, entityValue);
+              await getState().refresh_config();
+              break;
             case "page":
               const { root_page_for_roles, menu_label, ...pageSpec } =
                 entityValue;
@@ -305,15 +333,9 @@ module.exports = RegistryEditorSkill;
 
 /* todo
 
-list_entities
-
-* available-modules
-* installed-modules
-
 get_entity more entity types:
 
 * types
-* configuration
 * roles
 
 get-entity should explain the json schema and perhaps have a longer explanation
