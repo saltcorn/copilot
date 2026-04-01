@@ -37,6 +37,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
 const { requirementsList, req_routes } = require("./requirements");
+const { showSchema, schema_routes } = require("./schema");
 const { makeTaskList, task_routes } = require("./tasks");
 const { errorList, error_routes } = require("./errors");
 const { feedbackList, feedback_routes } = require("./feedback");
@@ -101,7 +102,8 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const errList = await errorList(req);
   const feedbacks = await feedbackList(req);
   const progress = await progressList(req);
-  const taskChart = await makeTaskChart(req); 
+  const taskChart = await makeTaskChart(req);
+  const schema = await showSchema(req);
   const layout = {
     type: "tabs",
     ntabs: 5,
@@ -109,6 +111,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
     titles: [
       "Specification",
       "Requirements",
+      "Schema",
       "Tasks",
       "Task chart",
       "Progress",
@@ -121,6 +124,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
         contents: div({ class: "mt-2" }, renderForm(specForm, req.csrfToken())),
       },
       { type: "blank", contents: reqList },
+      { type: "blank", contents: schema },
       { type: "blank", contents: taskList },
       { type: "blank", contents: taskChart },
       { type: "blank", contents: progress },
@@ -198,6 +202,7 @@ module.exports = {
     ...error_routes,
     ...feedback_routes,
     ...progress_routes,
+    ...schema_routes,
   },
   virtual_triggers,
 };
