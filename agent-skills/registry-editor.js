@@ -428,6 +428,11 @@ module.exports = RegistryEditorSkill;
 
 /* todo
 
+list entities
+
+* view templates
+* types
+
 get_entity more entity types:
 
 * types
