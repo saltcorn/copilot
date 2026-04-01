@@ -6,7 +6,7 @@ const { requirements_tool, task_tool } = require("./tools");
 const { tool_choice } = require("./common");
 
 module.exports = {
-  description: "Provide user feedback to the construction manager",
+  description: "Provide user feedback to the AppConstructor",
   configFields: ({ table, mode }) => {
     if (mode === "workflow") {
       return [

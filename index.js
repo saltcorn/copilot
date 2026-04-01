@@ -10,7 +10,7 @@ module.exports = {
         require("./chat-copilot"),
         require("./user-copilot"),
         require("./copilot-as-agent"),
-        require("./construction-manager/view.js"),
+        require("./app-constructor/view.js"),
       ]
     : [require("./action-builder"), require("./database-designer")],
   functions: features.workflows
@@ -22,7 +22,7 @@ module.exports = {
     : {},
   actions: {
     copilot_generate_page: require("./page-gen-action"),
-    construction_manager_feedback: require("./construction-manager/feedback-action"),
+    app_constructor_feedback: require("./app-constructor/feedback-action.js"),
   },
   exchange: {
     agent_skills: [

@@ -1,4 +1,4 @@
-const viewname = "Saltcorn construction manager";
+const viewname = "Saltcorn AppConstructor";
 
 const tool_choice = (tool_name) => ({
   tool_choice: {
