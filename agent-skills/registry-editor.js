@@ -2,6 +2,7 @@ const Trigger = require("@saltcorn/data/models/trigger");
 const Page = require("@saltcorn/data/models/page");
 const View = require("@saltcorn/data/models/view");
 const Table = require("@saltcorn/data/models/table");
+const Plugin = require("@saltcorn/data/models/plugin");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 
 class RegistryEditorSkill {
@@ -47,7 +48,14 @@ with both the entity type and name, and the new JSON definition as a string as a
               entity_type: {
                 type: "string",
                 description: "The entity type of which to list all entities",
-                enum: ["view", "table", "page", "trigger"],
+                enum: [
+                  "view",
+                  "table",
+                  "page",
+                  "trigger",
+                  "available-plugins",
+                  "installed-plugins",
+                ],
               },
             },
           },
@@ -57,6 +65,26 @@ with both the entity type and name, and the new JSON definition as a string as a
           const tableNames = {};
           for (const table of tables) tableNames[table.id] = table.name;
           switch (input.entity_type) {
+            case "available-plugins": {
+              const store_plugins = await Plugin.store_plugins_available();
+              const installed_plugins = await Plugin.find({});
+              const installed_names = new Set(
+                installed_plugins.map((p) => p.name),
+              );
+              return store_plugins.map((p) => ({
+                name: p.name,
+                description: p.description,
+                documentation_link: p.documentation_link,
+                installed: installed_names.has(p.name),
+              }));
+            }
+            case "installed-plugins":
+              const installed_plugins = await Plugin.find({});
+              return installed_plugins.map((p) => ({
+                name: p.name,
+                description: p.description,
+                documentation_link: p.documentation_link,
+              }));
             case "view":
               const allViews = await View.find();
               return allViews.map((v) => ({
@@ -269,22 +297,30 @@ with both the entity type and name, and the new JSON definition as a string as a
 
 module.exports = RegistryEditorSkill;
 
-
 /* todo
 
-get-registry more entity types:
+list_entities
+
+* available-modules
+* installed-modules
+
+get_entity more entity types:
 
 * types
-* modules
 * configuration
 * roles
 
-set-registry
+get-entity should explain the json schema and perhaps have a longer explanation
+
+set_entity
 
 * module cfg
 * config value
 * role
 
+set-entity view should run a config check, try to run and report error
+
 install module tool
+
 
 */
