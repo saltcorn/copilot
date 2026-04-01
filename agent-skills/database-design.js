@@ -1,5 +1,6 @@
 const GenerateTables = require("../actions/generate-tables");
 const Table = require("@saltcorn/data/models/table");
+const Field = require("@saltcorn/data/models/field");
 
 const normalizeTablesPayload = (rawPayload) => {
   if (!rawPayload) return { tables: [] };
@@ -79,6 +80,39 @@ const collectTableWarnings = (tables) => {
     });
   });
   return warnings;
+};
+
+const fetchExistingFieldNamesForTable = async (tableName) => {
+  const table = Table.findOne({ name: tableName });
+  if (!table) return null;
+  const names = new Set();
+  (table.fields || []).forEach((f) => {
+    if (f?.name) names.add(f.name.toLowerCase());
+  });
+  return names;
+};
+
+const partitionFieldsByValidity = (fields = []) => {
+  const validFields = [];
+  const skippedMissingNames = [];
+  const seenNames = new Set();
+  const skippedDuplicates = [];
+  fields.forEach((field, idx) => {
+    const rawName =
+      typeof field?.name === "string" ? field.name.trim() : "";
+    const fallbackLabel = rawName || `Field #${idx + 1}`;
+    if (!rawName) {
+      skippedMissingNames.push(fallbackLabel);
+      return;
+    }
+    if (seenNames.has(rawName.toLowerCase())) {
+      skippedDuplicates.push(rawName);
+      return;
+    }
+    seenNames.add(rawName.toLowerCase());
+    validFields.push(field);
+  });
+  return { validFields, skippedMissingNames, skippedDuplicates };
 };
 
 const fetchExistingTableNameSet = async () => {
@@ -161,6 +195,27 @@ class GenerateTablesSkill {
 
   get userActions() {
     return {
+      async apply_copilot_add_fields({ user, table_name, fields }) {
+        if (!table_name || !fields?.length)
+          return { notify: "Nothing to add." };
+        const existingNames = await fetchExistingFieldNamesForTable(table_name);
+        if (!existingNames)
+          return { notify: `Table "${table_name}" not found.` };
+        const newFields = fields.filter(
+          (f) => f?.name && !existingNames.has(f.name.toLowerCase())
+        );
+        if (!newFields.length)
+          return { notify: "All fields already exist in the table." };
+        await GenerateTables.execute_add_fields(
+          { table_name, fields: newFields },
+          { user }
+        );
+        return {
+          notify: `Added fields to ${table_name}: ${newFields
+            .map((f) => f.name)
+            .join(", ")}`,
+        };
+      },
       async apply_copilot_tables({ user, tables }) {
         if (!tables?.length) return { notify: "Nothing to create." };
         const { newTables, skippedExisting, skippedDuplicates } =
@@ -221,8 +276,7 @@ class GenerateTablesSkill {
   }
 
   provideTools = () => {
-    const parameters = GenerateTables.json_schema();
-    return {
+    const generateTablesTool = {
       type: "function",
       process: async (input) => {
         const payload = normalizeTablesPayload(input);
@@ -340,9 +394,98 @@ class GenerateTablesSkill {
       function: {
         name: GenerateTables.function_name,
         description: GenerateTables.description,
-        parameters,
+        parameters: GenerateTables.json_schema(),
       },
     };
+
+    const addFieldsTool = {
+      type: "function",
+      process: async (input) => {
+        const table_name =
+          typeof input?.table_name === "string" ? input.table_name.trim() : "";
+        const fields = Array.isArray(input?.fields) ? input.fields : [];
+        if (!table_name) return "add_fields_to_table: table_name is required.";
+        const existingNames = await fetchExistingFieldNamesForTable(table_name);
+        if (!existingNames)
+          return `add_fields_to_table: table "${table_name}" does not exist. Use generate_tables to create it first.`;
+        const { validFields, skippedMissingNames, skippedDuplicates } =
+          partitionFieldsByValidity(fields);
+        const newFields = validFields.filter(
+          (f) => !existingNames.has(f.name.toLowerCase())
+        );
+        const skippedExistingFields = validFields
+          .filter((f) => existingNames.has(f.name.toLowerCase()))
+          .map((f) => f.name);
+        const warnings = [];
+        if (skippedExistingFields.length)
+          warnings.push(
+            `Fields already in table: ${skippedExistingFields.join(", ")}`,
+          );
+        if (skippedMissingNames.length)
+          warnings.push(`Fields missing name: ${skippedMissingNames.join(", ")}`);
+        if (skippedDuplicates.length)
+          warnings.push(`Duplicate field names: ${skippedDuplicates.join(", ")}`);
+        const summarySection = newFields.length
+          ? [`Ready to add ${newFields.length} field(s) to "${table_name}":`,
+             ...newFields.map((f) => `- ${f.name} (${f.type_and_configuration?.data_type || "Unknown"}${f.calculated ? ", calculated" : ""})`)]
+          : [`No new fields to add to "${table_name}".`];
+        return [
+          ...summarySection,
+          ...(warnings.length ? ["Warnings:", ...warnings.map((w) => `- ${w}`)] : []),
+        ].join("\n");
+      },
+      postProcess: async ({ tool_call }) => {
+        const input = tool_call?.input || tool_call?.function?.arguments || {};
+        const parsed = typeof input === "string" ? (() => { try { return JSON.parse(input); } catch { return {}; } })() : input;
+        const table_name =
+          typeof parsed?.table_name === "string" ? parsed.table_name.trim() : "";
+        const fields = Array.isArray(parsed?.fields) ? parsed.fields : [];
+        const existingNames = table_name
+          ? await fetchExistingFieldNamesForTable(table_name)
+          : null;
+        const { validFields } = partitionFieldsByValidity(fields);
+        const newFields = existingNames
+          ? validFields.filter((f) => !existingNames.has(f.name.toLowerCase()))
+          : validFields;
+        let preview = "";
+        try {
+          if (table_name && newFields.length) {
+            preview = GenerateTables.render_add_fields_html({
+              table_name,
+              fields: newFields,
+            });
+          } else if (!existingNames) {
+            preview = `<div class="alert alert-danger">Table "${table_name}" does not exist.</div>`;
+          } else {
+            preview = `<div class="alert alert-info">No new fields to add to "${table_name}".</div>`;
+          }
+        } catch (e) {
+          console.log("add_fields_to_table postProcess render failed", { e });
+          preview = `<pre>${JSON.stringify(parsed, null, 2)}</pre>`;
+        }
+        return {
+          stop: true,
+          add_response: preview,
+          add_user_action:
+            table_name && newFields.length > 0
+              ? {
+                  name: "apply_copilot_add_fields",
+                  type: "button",
+                  label: `Add ${newFields.length} field(s) to ${table_name}`,
+                  input: { table_name, fields: newFields },
+                }
+              : undefined,
+        };
+      },
+      function: {
+        name: "add_fields_to_table",
+        description:
+          "Add one or more fields to an existing database table. Use this instead of generate_tables when the table already exists.",
+        parameters: GenerateTables.add_fields_json_schema(),
+      },
+    };
+
+    return [generateTablesTool, addFieldsTool];
   };
 }
 

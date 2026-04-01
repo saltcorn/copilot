@@ -13,7 +13,7 @@ class GenerateTables {
   static function_name = "generate_tables";
   static description = "Generate database tables";
 
-  static json_schema() {
+  static field_type_config_schema() {
     const types = Object.values(getState().types);
     const fieldTypeCfg = types.map((ty) => {
       const properties = {
@@ -55,6 +55,61 @@ class GenerateTables {
         data_type: { type: "string", enum: ["File"] },
       },
     });
+    return fieldTypeCfg;
+  }
+
+  static field_item_schema() {
+    const fieldTypeCfg = this.field_type_config_schema();
+    return {
+      type: "object",
+      required: ["name", "label", "type_and_configuration", "importance"],
+      properties: {
+        name: {
+          type: "string",
+          description:
+            "The field name. Must be a valid identifier in both SQL and JavaScript, all lower case, snake_case (underscore instead of spaces)",
+        },
+        label: {
+          type: "string",
+          description:
+            "A human-readable label for the field. Should be short, 1-4 words, can have spaces and mixed case.",
+        },
+        not_null: {
+          type: "boolean",
+          description:
+            "A value is required and the field will be NOT NULL in the database",
+        },
+        unique: {
+          type: "boolean",
+          description:
+            "The value is unique - different rows must have different values for this field",
+        },
+        type_and_configuration: { anyOf: fieldTypeCfg },
+        importance: {
+          type: "number",
+          description:
+            "How important is this field if only some fields can be displayed to the user. From 1 (least important) to 10 (most important).",
+        },
+        calculated: {
+          type: "boolean",
+          description:
+            "Whether this is a calculated field. Calculated fields derive their value from a JavaScript expression rather than being entered directly. Set to true to make this a calculated field, then provide expression. Use stored=false for virtual fields computed on-the-fly, or stored=true for materialized fields persisted in the database.",
+        },
+        stored: {
+          type: "boolean",
+          description:
+            "For calculated fields only: true means the value is stored/materialized in the database; false (default) means computed on-the-fly. Stored calculated fields support joinfield syntax in expressions. Only set when calculated=true.",
+        },
+        expression: {
+          type: "string",
+          description:
+            "For calculated fields: a JavaScript expression returning the field value. References other fields in the same row by name (e.g. 'price * quantity'). For stored calculated fields, use joinfield syntax to access related-table fields: 'foreignKeyField.targetField' (e.g. 'author_id.full_name') or two-level: 'fkField.throughFkField.deepField'. Only set when calculated=true.",
+        },
+      },
+    };
+  }
+
+  static json_schema() {
     return {
       type: "object",
       required: ["tables"],
@@ -71,46 +126,27 @@ class GenerateTables {
               },
               fields: {
                 type: "array",
-                items: {
-                  type: "object",
-                  required: [
-                    "name",
-                    "label",
-                    "type_and_configuration",
-                    "importance",
-                  ],
-                  properties: {
-                    name: {
-                      type: "string",
-                      description:
-                        "The field name. Must be a valid identifier in both SQL and JavaScript, all lower case, snake_case (underscore instead of spaces)",
-                    },
-                    label: {
-                      type: "string",
-                      description:
-                        "A human-readable label for the field. Should be short, 1-4 words, can have spaces and mixed case.",
-                    },
-                    not_null: {
-                      type: "boolean",
-                      description:
-                        "A value is required and the field will be NOT NULL in the database",
-                    },
-                    unique: {
-                      type: "boolean",
-                      description:
-                        "The value is unique - different rows must have different values for this field",
-                    },
-                    type_and_configuration: { anyOf: fieldTypeCfg },
-                    importance: {
-                      type: "number",
-                      description:
-                        "How important is this field if only some fields can be displayed to the user. From 1 (least important) to 10 (most important).",
-                    },
-                  },
-                },
+                items: this.field_item_schema(),
               },
             },
           },
+        },
+      },
+    };
+  }
+
+  static add_fields_json_schema() {
+    return {
+      type: "object",
+      required: ["table_name", "fields"],
+      properties: {
+        table_name: {
+          type: "string",
+          description: "The name of the existing table to add fields to",
+        },
+        fields: {
+          type: "array",
+          items: this.field_item_schema(),
         },
       },
     };
@@ -133,21 +169,51 @@ class GenerateTables {
         } Contains the following fields:\n${fieldLines.join("\n")}`
       );
     });
-    return `Use the generate_tables tool to construct one or more database tables.
+    return `Use the generate_tables tool to construct one or more new database tables, or the add_fields_to_table tool to add fields to an existing table.
 
-    Do not call this tool more than once. It should only be called once. If you are
-    building more than one table, use one call to the generate_tables tool to build all the 
+    Do not call generate_tables more than once. It should only be called once. If you are
+    building more than one table, use one call to the generate_tables tool to build all the
     tables.
 
     The argument to generate_tables is an array of tables, each with an array of fields. You do not
     need to specify a primary key, a primary key called id with autoincrementing integers is
-    autmatically generated. 
+    automatically generated.
 
-    Only include brand-new tables in the generate_tables arguments. If the user references a table
-    that already exists, explain that generate_tables can only add new tables (not modify existing
-    ones) and omit those tables from the tool call.
+    Only include brand-new tables in the generate_tables arguments. If the user wants to add fields
+    to a table that already exists, use add_fields_to_table instead. Do not include existing tables
+    in the generate_tables call.
 
-    The database already contains the following tables: 
+    If a table has a ForeignKey field that references another table which does not yet exist in the
+    database, you must include that referenced table in the same generate_tables call. Do not leave
+    a ForeignKey pointing at a non-existent table. Infer reasonable fields for the referenced table
+    based on context, then include both tables together in one generate_tables call.
+
+    ## Calculated fields
+
+    Both generate_tables and add_fields_to_table support calculated fields. Use calculated fields
+    when the value should be derived from an expression rather than entered directly.
+
+    Set calculated=true and provide an expression. The expression is a JavaScript expression
+    evaluated in the context of the row (field names are available as variables).
+
+    Examples: 'price * quantity', 'first_name + " " + last_name', 'year - birth_year'
+
+    Choose between stored and non-stored:
+    - stored=false (default): value computed on-the-fly when accessed; no database column created.
+      Good for simple derivations from fields in the same table.
+    - stored=true: value persisted in the database and updated on writes. Required if you need to
+      sort/filter by the calculated value or if the expression references joined (related) tables.
+
+    For stored calculated fields, joinfield syntax lets expressions reference related-table fields:
+    - Single join: 'foreignKeyField.targetField'  (e.g. 'author_id.full_name')
+    - Two-level join: 'fkField.throughFkField.deepField'  (e.g. 'order_id.customer_id.country')
+
+    The type_and_configuration.data_type for a calculated field should reflect the return type of
+    the expression (e.g. Integer, Float, String, Bool).
+
+    ## Existing tables
+
+    The database already contains the following tables:
 
     ${tableLines.join("\n\n")}
 
@@ -184,6 +250,41 @@ class GenerateTables {
     });
   }
 
+  static process_field(f, allTablesList = []) {
+    const { data_type, reference_table, ...attributes } =
+      f.type_and_configuration || { data_type: "String" };
+    let type = data_type;
+    const scattributes = { ...attributes, importance: f.importance };
+    if (data_type === "ForeignKey") {
+      type = `Key to ${reference_table}`;
+      const refTableHere = allTablesList.find(
+        (t) => t.table_name === reference_table
+      );
+      if (refTableHere) {
+        const strFields = (refTableHere.fields || []).filter(
+          (rf) => rf.type_and_configuration?.data_type === "String"
+        );
+        if (strFields.length) {
+          const maxImp = strFields.reduce((prev, current) =>
+            prev && prev.importance > current.importance ? prev : current
+          );
+          if (maxImp) scattributes.summary_field = maxImp.name;
+        }
+      } else if (reference_table === "users") {
+        scattributes.summary_field = "email";
+      }
+    }
+    return {
+      ...f,
+      type,
+      required: f.not_null,
+      calculated: f.calculated || false,
+      stored: f.stored || false,
+      expression: f.expression,
+      attributes: scattributes,
+    };
+  }
+
   static process_tables(tables) {
     return tables.map((table) => {
       const sanitizedFields = Array.isArray(table.fields)
@@ -193,42 +294,54 @@ class GenerateTables {
         : [];
       return new Table({
         name: table.table_name,
-        fields: sanitizedFields.map((f) => {
-          const { data_type, reference_table, ...attributes } =
-            f.type_and_configuration;
-          let type = data_type;
-          const scattributes = { ...attributes, importance: f.importance };
-          if (data_type === "ForeignKey") {
-            type = `Key to ${reference_table}`;
-            let refTableHere = tables.find(
-              (t) => t.table_name === reference_table
-            );
-            if (refTableHere) {
-              const strFields = refTableHere.fields.filter(
-                (f) => f.type_and_configuration.data_type === "String"
-              );
-              if (strFields.length) {
-                const maxImp = strFields.reduce(function (prev, current) {
-                  return prev && prev.importance > current.importance
-                    ? prev
-                    : current;
-                });
-                if (maxImp) scattributes.summary_field = maxImp.name;
-              }
-            } else if (reference_table === "users") {
-              scattributes.summary_field = "email";
-            }
-          }
-
-          return {
-            ...f,
-            type,
-            required: f.not_null,
-            attributes: scattributes,
-          };
-        }),
+        fields: sanitizedFields.map((f) =>
+          this.process_field(f, tables)
+        ),
       });
     });
+  }
+
+  static async execute_add_fields({ table_name, fields }, req) {
+    const table = Table.findOne({ name: table_name });
+    if (!table) throw new Error(`Table "${table_name}" not found`);
+    const sanitizedFields = Array.isArray(fields)
+      ? fields.filter((f) => (f?.name || "").toLowerCase() !== "id")
+      : [];
+    for (const f of sanitizedFields) {
+      const processed = this.process_field(f, []);
+      processed.table = table;
+      await Field.create(processed);
+    }
+    Trigger.emitEvent("AppChange", `Fields added to ${table_name}`, req?.user, {
+      entity_type: "Table",
+      entity_names: [table_name],
+    });
+  }
+
+  static render_add_fields_html({ table_name, fields }) {
+    const { table: tagTable, thead, tbody, tr, th, td, div: tagDiv, b } =
+      require("@saltcorn/markup/tags");
+    const rows = (fields || []).map((f) => {
+      const cfg = f.type_and_configuration || {};
+      const typeParts = [cfg.data_type || "Unknown"];
+      if (cfg.reference_table) typeParts.push(`→ ${cfg.reference_table}`);
+      if (f.calculated) typeParts.push(f.stored ? "stored calc" : "calc");
+      return tr(
+        td(f.name || ""),
+        td(f.label || ""),
+        td(typeParts.join(" ")),
+        td(f.expression || ""),
+        td(f.not_null ? "✓" : ""),
+      );
+    });
+    return tagDiv(
+      b(`Add fields to table: ${table_name}`),
+      tagTable(
+        { class: "table table-sm mt-2" },
+        thead(tr(th("Name"), th("Label"), th("Type"), th("Expression"), th("Required"))),
+        tbody(...rows),
+      ),
+    );
   }
 }
 
