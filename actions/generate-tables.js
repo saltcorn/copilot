@@ -1,4 +1,5 @@
 const { getState } = require("@saltcorn/data/db/state");
+const db = require("@saltcorn/data/db");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");
 const Table = require("@saltcorn/data/models/table");
@@ -11,7 +12,7 @@ const { fieldProperties } = require("../common");
 class GenerateTables {
   static title = "Generate Tables";
   static function_name = "generate_tables";
-  static description = "Generate database tables";
+  static description = "Generate or update database tables";
 
   static field_type_config_schema() {
     const types = Object.values(getState().types);
@@ -135,23 +136,6 @@ class GenerateTables {
     };
   }
 
-  static add_fields_json_schema() {
-    return {
-      type: "object",
-      required: ["table_name", "fields"],
-      properties: {
-        table_name: {
-          type: "string",
-          description: "The name of the existing table to add fields to",
-        },
-        fields: {
-          type: "array",
-          items: this.field_item_schema(),
-        },
-      },
-    };
-  }
-
   static async system_prompt() {
     const tableLines = [];
     const tables = await Table.find({});
@@ -160,46 +144,48 @@ class GenerateTables {
         (f) =>
           `  * ${f.name} with type: ${f.pretty_type.replace(
             "Key to",
-            "ForeignKey referencing"
-          )}.${f.description ? ` ${f.description}` : ""}`
+            "ForeignKey referencing",
+          )}.${f.description ? ` ${f.description}` : ""}`,
       );
       tableLines.push(
         `${table.name}${
           table.description ? `: ${table.description}.` : "."
-        } Contains the following fields:\n${fieldLines.join("\n")}`
+        } Contains the following fields:\n${fieldLines.join("\n")}`,
       );
     });
-    return `Use the generate_tables tool to construct one or more new database tables, or the add_fields_to_table tool to add fields to an existing table.
+    return `Use the generate_tables tool to create new database tables or to add/update fields on existing ones.
 
-    Do not call generate_tables more than once. It should only be called once. If you are
-    building more than one table, use one call to the generate_tables tool to build all the
-    tables.
+    Do not call generate_tables more than once. Use a single call even when working with multiple
+    tables. Include all tables — new and existing — in that one call.
 
     The argument to generate_tables is an array of tables, each with an array of fields. You do not
-    need to specify a primary key, a primary key called id with autoincrementing integers is
+    need to specify a primary key; a primary key called id with auto-incrementing integers is
     automatically generated.
 
-    Only include brand-new tables in the generate_tables arguments. If the user wants to add fields
-    to a table that already exists, use add_fields_to_table instead. Do not include existing tables
-    in the generate_tables call.
+    ## New vs existing tables
+
+    If a table does not yet exist it will be created with all the specified fields.
+
+    If a table already exists, include it in the generate_tables call anyway with the fields you
+    want to add or update. The system will automatically add new fields and update the settings of
+    existing fields — it will not recreate or drop the table.
+
+    If a user requests creating a table with certain fields and the table already exists, automatically add any missing fields to that table. Do not ask the user for confirmation or prompt them again—just proceed with the table update.
 
     If a table has a ForeignKey field that references another table which does not yet exist in the
-    database, you must include that referenced table in the same generate_tables call. Do not leave
-    a ForeignKey pointing at a non-existent table. Infer reasonable fields for the referenced table
-    based on context, then include both tables together in one generate_tables call.
+    database, include that referenced table in the same generate_tables call. Infer reasonable
+    fields for it from context.
 
     ## Calculated fields
 
-    Both generate_tables and add_fields_to_table support calculated fields. Use calculated fields
-    when the value should be derived from an expression rather than entered directly.
-
-    Set calculated=true and provide an expression. The expression is a JavaScript expression
-    evaluated in the context of the row (field names are available as variables).
+    Use calculated fields when the value should be derived from an expression rather than entered
+    directly. Set calculated=true and provide an expression (a JavaScript expression evaluated in
+    the context of the row — field names are available as variables).
 
     Examples: 'price * quantity', 'first_name + " " + last_name', 'year - birth_year'
 
     Choose between stored and non-stored:
-    - stored=false (default): value computed on-the-fly when accessed; no database column created.
+    - stored=false (default): value computed on-the-fly; no database column created.
       Good for simple derivations from fields in the same table.
     - stored=true: value persisted in the database and updated on writes. Required if you need to
       sort/filter by the calculated value or if the expression references joined (related) tables.
@@ -219,6 +205,7 @@ class GenerateTables {
 
     `;
   }
+
   static render_html({ tables }) {
     const sctables = this.process_tables(tables);
     const mmdia = buildMermaidMarkup(sctables);
@@ -231,7 +218,7 @@ class GenerateTables {
           mermaid.run({ querySelector: ".mermaid" });
         });
       `),
-      ) 
+      )
     );
   }
 
@@ -250,6 +237,57 @@ class GenerateTables {
     });
   }
 
+  static async execute_add_or_update_fields({ table_name, fields }, req) {
+    const table = Table.findOne({ name: table_name });
+    if (!table) throw new Error(`Table "${table_name}" not found`);
+
+    const existingFieldMap = new Map();
+    (table.fields || []).forEach((f) => {
+      if (f?.name) existingFieldMap.set(f.name.toLowerCase(), f);
+    });
+
+    const sanitized = Array.isArray(fields)
+      ? fields.filter((f) => (f?.name || "").toLowerCase() !== "id")
+      : [];
+
+    const added = [];
+    const updated = [];
+
+    for (const f of sanitized) {
+      const fname = (f?.name || "").toLowerCase();
+      if (!fname) continue;
+      const processed = this.process_field(f, []);
+      const existing = existingFieldMap.get(fname);
+      if (!existing) {
+        processed.table = table;
+        await Field.create(processed);
+        added.push(f.name);
+      } else {
+        // Only update non-structural properties; skip if type would change
+        const existingType = existing.type?.name ?? existing.type;
+        if (existingType === processed.type) {
+          const fieldUpdates = {
+            label: f.label,
+            attributes: processed.attributes,
+          };
+          if (f.calculated !== undefined) fieldUpdates.calculated = !!f.calculated;
+          if (f.stored !== undefined) fieldUpdates.stored = !!f.stored;
+          if (f.expression !== undefined) fieldUpdates.expression = f.expression;
+          await db.update("_sc_fields", fieldUpdates, existing.id);
+          updated.push(f.name);
+        }
+      }
+    }
+
+    Trigger.emitEvent(
+      "AppChange",
+      `Fields updated on ${table_name}`,
+      req?.user,
+      { entity_type: "Table", entity_names: [table_name] },
+    );
+    return { added, updated };
+  }
+
   static process_field(f, allTablesList = []) {
     const { data_type, reference_table, ...attributes } =
       f.type_and_configuration || { data_type: "String" };
@@ -258,15 +296,15 @@ class GenerateTables {
     if (data_type === "ForeignKey") {
       type = `Key to ${reference_table}`;
       const refTableHere = allTablesList.find(
-        (t) => t.table_name === reference_table
+        (t) => t.table_name === reference_table,
       );
       if (refTableHere) {
         const strFields = (refTableHere.fields || []).filter(
-          (rf) => rf.type_and_configuration?.data_type === "String"
+          (rf) => rf.type_and_configuration?.data_type === "String",
         );
         if (strFields.length) {
           const maxImp = strFields.reduce((prev, current) =>
-            prev && prev.importance > current.importance ? prev : current
+            prev && prev.importance > current.importance ? prev : current,
           );
           if (maxImp) scattributes.summary_field = maxImp.name;
         }
@@ -288,60 +326,13 @@ class GenerateTables {
   static process_tables(tables) {
     return tables.map((table) => {
       const sanitizedFields = Array.isArray(table.fields)
-        ? table.fields.filter(
-            (f) => (f?.name || "").toLowerCase() !== "id"
-          )
+        ? table.fields.filter((f) => (f?.name || "").toLowerCase() !== "id")
         : [];
       return new Table({
         name: table.table_name,
-        fields: sanitizedFields.map((f) =>
-          this.process_field(f, tables)
-        ),
+        fields: sanitizedFields.map((f) => this.process_field(f, tables)),
       });
     });
-  }
-
-  static async execute_add_fields({ table_name, fields }, req) {
-    const table = Table.findOne({ name: table_name });
-    if (!table) throw new Error(`Table "${table_name}" not found`);
-    const sanitizedFields = Array.isArray(fields)
-      ? fields.filter((f) => (f?.name || "").toLowerCase() !== "id")
-      : [];
-    for (const f of sanitizedFields) {
-      const processed = this.process_field(f, []);
-      processed.table = table;
-      await Field.create(processed);
-    }
-    Trigger.emitEvent("AppChange", `Fields added to ${table_name}`, req?.user, {
-      entity_type: "Table",
-      entity_names: [table_name],
-    });
-  }
-
-  static render_add_fields_html({ table_name, fields }) {
-    const { table: tagTable, thead, tbody, tr, th, td, div: tagDiv, b } =
-      require("@saltcorn/markup/tags");
-    const rows = (fields || []).map((f) => {
-      const cfg = f.type_and_configuration || {};
-      const typeParts = [cfg.data_type || "Unknown"];
-      if (cfg.reference_table) typeParts.push(`→ ${cfg.reference_table}`);
-      if (f.calculated) typeParts.push(f.stored ? "stored calc" : "calc");
-      return tr(
-        td(f.name || ""),
-        td(f.label || ""),
-        td(typeParts.join(" ")),
-        td(f.expression || ""),
-        td(f.not_null ? "✓" : ""),
-      );
-    });
-    return tagDiv(
-      b(`Add fields to table: ${table_name}`),
-      tagTable(
-        { class: "table table-sm mt-2" },
-        thead(tr(th("Name"), th("Label"), th("Type"), th("Expression"), th("Required"))),
-        tbody(...rows),
-      ),
-    );
   }
 }
 
@@ -355,7 +346,7 @@ const buildTableMarkup = (table) => {
   const members = fields
     // .filter((f) => !f.reftable_name)
     .map((f) =>
-      indentString(`${removeAllWhiteSpace(f.type_name)} ${f.name}`, 6)
+      indentString(`${removeAllWhiteSpace(f.type_name)} ${f.name}`, 6),
     )
     .join(EOL);
   const keys = table
@@ -365,8 +356,8 @@ const buildTableMarkup = (table) => {
         `"${table.name}"${srcCardinality(f)}--|| "${f.reftable_name}" : "${
           f.name
         }"`,
-        2
-      )
+        2,
+      ),
     )
     .join(EOL);
   return `${keys}
