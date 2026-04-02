@@ -38,6 +38,7 @@ const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
 const { saltcorn_description, existing_tables_list } = require("./prompts");
+const GenerateTables = require("../actions/generate-tables");
 
 const showSchema = async (req) => {
   const schema = await MetaData.findOne({
@@ -46,12 +47,14 @@ const showSchema = async (req) => {
   });
 
   if (schema) {
+    const preview = GenerateTables.render_html({ tables: schema.body.tables }, true);
+    
     return div(
       { class: "mt-2" },
-      "There is a schema",
+      preview,
       button(
         {
-          class: "btn btn-outline-danger mb-4",
+          class: "btn btn-outline-danger mb-4 d-block mt-3",
           onclick: `view_post("${viewname}", "del_schema")`,
         },
         "Delete schema",
@@ -115,9 +118,13 @@ Now use the ${databaseDesignTool.function.name} tool to generate the database sc
   );
 
   const tc = answer.getToolCalls()[0];
-
-  console.log("schema", tc);
-
+  
+  await MetaData.create({
+    type: "CopilotConstructMgr",
+    name: "schema",
+    body: { tables: tc.input.tables, implemented: false },
+    user_id: req.user?.id,
+  });
   return { json: { reload_page: true } };
 };
 

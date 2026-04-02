@@ -1,9 +1,19 @@
 const Workflow = require("@saltcorn/data/models/workflow");
 const Form = require("@saltcorn/data/models/form");
 const { features } = require("@saltcorn/data/db/state");
+const db = require("@saltcorn/data/db");
+const { viewname } = require("./app-constructor/common.js");
+
+const headers = [
+  {
+    script: `/static_assets/${db.connectObj.version_tag}/mermaid.min.js`,
+    onlyViews: [viewname],
+  },
+];
 
 module.exports = {
   sc_plugin_api_version: 1,
+  headers,
   dependencies: ["@saltcorn/large-language-model", "@saltcorn/agents"],
   viewtemplates: features.workflows
     ? [

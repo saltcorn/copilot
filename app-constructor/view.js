@@ -108,6 +108,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
     type: "tabs",
     ntabs: 5,
     tabId: "",
+    lazyLoadViews: true,
     titles: [
       "Specification",
       "Requirements",

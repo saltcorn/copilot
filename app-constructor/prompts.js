@@ -38,6 +38,7 @@ for that plugin. Layout themes is Saltcorn are plugin modules.
 `;
 
 const existing_tables_list = (tables) => {
+  const tableLines = [];
   tables.forEach((table) => {
     const fieldLines = table.fields.map(
       (f) =>
