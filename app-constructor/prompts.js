@@ -37,4 +37,21 @@ they need to be installed before they can be used. A plugin may also have a conf
 for that plugin. Layout themes is Saltcorn are plugin modules.
 `;
 
-module.exports = { saltcorn_description };
+const existing_tables_list = (tables) => {
+  tables.forEach((table) => {
+    const fieldLines = table.fields.map(
+      (f) =>
+        `  * ${f.name} with type: ${f.pretty_type}.${f.description ? ` ${f.description}` : ""}`,
+    );
+    tableLines.push(
+      `${table.name}${
+        table.description ? `: ${table.description}.` : "."
+      } Contains the following fields:\n${fieldLines.join("\n")}`,
+    );
+  });
+  return `The database already contains the following tables: 
+
+${tableLines.join("\n\n")}`;
+};
+
+module.exports = { saltcorn_description, existing_tables_list };

@@ -37,7 +37,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
-const { saltcorn_description } = require("./prompts");
+const { saltcorn_description, existing_tables_list } = require("./prompts");
 
 const showSchema = async (req) => {
   const schema = await MetaData.findOne({
@@ -86,7 +86,7 @@ const gen_schema = async (table_id, viewname, config, body, { req, res }) => {
 
   const GenerateTablesSkill = require("../agent-skills/database-design");
   const databaseDesignTool = new GenerateTablesSkill({}).provideTools();
-
+  const existing_tables = await Table.find({});
   const answer = await getState().functions.llm_generate.run(
     `Generate the database schema for this application:
 
@@ -102,6 +102,8 @@ ${rs.map((r) => `* ${r.body.requirement}`).join("\n")}
 
 ${saltcorn_description}
 
+${existing_tables_list(existing_tables)}
+
 Now use the ${databaseDesignTool.function.name} tool to generate the database schema for this software application
 `,
     {
@@ -115,7 +117,6 @@ Now use the ${databaseDesignTool.function.name} tool to generate the database sc
   const tc = answer.getToolCalls()[0];
 
   console.log("schema", tc);
-  
 
   return { json: { reload_page: true } };
 };
