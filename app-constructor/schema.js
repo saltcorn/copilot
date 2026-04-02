@@ -39,6 +39,7 @@ const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
 const { saltcorn_description, existing_tables_list } = require("./prompts");
 const GenerateTables = require("../actions/generate-tables");
+const GenerateTablesSkill = require("../agent-skills/database-design");
 
 const showSchema = async (req) => {
   const schema = await MetaData.findOne({
@@ -47,18 +48,32 @@ const showSchema = async (req) => {
   });
 
   if (schema) {
-    const preview = GenerateTables.render_html({ tables: schema.body.tables }, true);
-    
+    const preview = GenerateTables.render_html(
+      { tables: schema.body.tables },
+      true,
+    );
+
     return div(
       { class: "mt-2" },
       preview,
-      button(
-        {
-          class: "btn btn-outline-danger mb-4 d-block mt-3",
-          onclick: `view_post("${viewname}", "del_schema")`,
-        },
-        "Delete schema",
-      ),
+      !schema.body.implemented &&
+        div(
+          { class: "mb-4 d-block mt-3" },
+          button(
+            {
+              class: "btn btn-primary me-2",
+              onclick: `view_post("${viewname}", "implement_schema")`,
+            },
+            "Implement schema",
+          ),
+          button(
+            {
+              class: "btn btn-outline-danger",
+              onclick: `view_post("${viewname}", "del_schema")`,
+            },
+            "Delete schema",
+          ),
+        ),
     );
   } else {
     return div(
@@ -87,7 +102,6 @@ const gen_schema = async (table_id, viewname, config, body, { req, res }) => {
   });
   if (!rs.length) throw new Error("No requirements found");
 
-  const GenerateTablesSkill = require("../agent-skills/database-design");
   const databaseDesignTool = new GenerateTablesSkill({}).provideTools();
   const existing_tables = await Table.find({});
   const answer = await getState().functions.llm_generate.run(
@@ -118,7 +132,7 @@ Now use the ${databaseDesignTool.function.name} tool to generate the database sc
   );
 
   const tc = answer.getToolCalls()[0];
-  
+
   await MetaData.create({
     type: "CopilotConstructMgr",
     name: "schema",
@@ -128,6 +142,35 @@ Now use the ${databaseDesignTool.function.name} tool to generate the database sc
   return { json: { reload_page: true } };
 };
 
-const schema_routes = { gen_schema };
+const del_schema = async (table_id, viewname, config, body, { req, res }) => {
+  const rs = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "schema",
+  });
+  for (const r of rs) await r.delete();
+  return { json: { reload_page: true } };
+};
+
+const implement_schema = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res },
+) => {
+  const md = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "schema",
+  });
+
+  const { apply_copilot_tables } = new GenerateTablesSkill({}).userActions;
+  await apply_copilot_tables({ tables: md.body.tables, user: req.user });
+  md.body.implemented = true;
+  await md.update({ body: md.body });
+
+  return { json: { reload_page: true } };
+};
+
+const schema_routes = { gen_schema, del_schema, implement_schema };
 
 module.exports = { showSchema, schema_routes };
