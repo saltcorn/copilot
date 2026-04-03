@@ -38,7 +38,7 @@ const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { runTask, runNextTask } = require("./run_task");
 const { task_tool } = require("./tools");
-const { saltcorn_description } = require("./prompts");
+const { saltcorn_description, existing_tables_list } = require("./prompts");
 
 const makeTaskList = async (req) => {
   const rs = await MetaData.find(
@@ -166,6 +166,14 @@ const gen_tasks = async (table_id, viewname, config, body, { req, res }) => {
     name: "requirement",
   });
   if (!rs.length) throw new Error("No requirements found");
+  const schema = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "schema",
+  });
+  if (!schema) throw new Error("No schema found");
+  if (!schema.body.implemented) throw new Error("Schema not implemented");
+  const tables = await Table.find({});
+
   const answer = await getState().functions.llm_generate.run(
     `Generate a plan for building this application:
 
@@ -181,8 +189,15 @@ ${rs.map((r) => `* ${r.body.requirement}`).join("\n")}
 
 ${saltcorn_description}
 
-You should first build the database schema. Then build the 
-required views for implementing a CRUD user interface for the database tables. If approriate 
+The database has already been built. The following tables are now present in the database:
+
+${existing_tables_list(tables)}
+
+The plan should outline the continued development of the application on top of this database. 
+Your plan can add additional tables if needed or adjust the table fields, but normally the tables 
+should be designed optimally for this application. 
+
+The plan should focus on building views, triggers (including workflows) and pages.
 
 Your plan should not include any clarification or questions to the product owner. The 
 information you have been given so far is all that is available. Every step in the plan 
