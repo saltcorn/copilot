@@ -1,4 +1,5 @@
 const GenerateJsAction = require("../actions/generate-js-action");
+const { getPromptFromTemplate } = require("../common");
 
 class GenerateJsActionSkill {
   static skill_name = "Javascript Action";
@@ -9,10 +10,6 @@ class GenerateJsActionSkill {
 
   constructor(cfg) {
     Object.assign(this, cfg);
-  }
-
-  async systemPrompt() {
-    return await GenerateJsAction.system_prompt();
   }
 
   get userActions() {
@@ -55,33 +52,84 @@ class GenerateJsActionSkill {
       type: "function",
       process: async (input) => {
         const name = input.name;
-        const code = input.code;
         const description = input.description;
-        if (!name || !code) {
-          return "Both name and code are required to generate a Javascript action.";
+        if (!name) {
+          return "A name is required to generate a Javascript action.";
         }
         return [
-          `Ready to create Javascript action: ${name}.`,
+          `Generating Javascript action: ${name}.`,
           description ? `Description: ${description}` : null,
-          `Code preview:\n\n${code}`,
         ]
           .filter(Boolean)
           .join("\n");
       },
-      postProcess: async ({ tool_call }) => {
+      postProcess: async ({ tool_call, generate }) => {
         const input = tool_call.input || {};
         const name = input.name;
-        const code = input.code;
         const description = input.description;
         const when_trigger = input.when_trigger;
         const trigger_table = input.trigger_table;
-        if (!name || !code) {
+        if (!name) {
           return {
             stop: true,
-            add_response:
-              "Cannot create Javascript action: name and code are required.",
+            add_response: "Cannot create Javascript action: name is required.",
           };
         }
+
+        const partPrompt = await getPromptFromTemplate(
+          "action-builder.txt",
+          "",
+        );
+        const contextParts = [
+          description ? `Action description: ${description}` : null,
+          when_trigger ? `Trigger: ${when_trigger}` : null,
+          trigger_table ? `Table: ${trigger_table}` : null,
+        ].filter(Boolean);
+
+        const prompt = [
+          partPrompt,
+          contextParts.length ? contextParts.join("\n") : null,
+          `Generate the JavaScript code for the action named "${name}" by calling the generate_js_code tool.`,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+
+        const answer = await generate(prompt, {
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "generate_js_code",
+                description: "Provide the JavaScript code for the action",
+                parameters: {
+                  type: "object",
+                  required: ["code"],
+                  properties: {
+                    code: {
+                      type: "string",
+                      description: "JavaScript code for the action",
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          tool_choice: {
+            type: "function",
+            function: { name: "generate_js_code" },
+          },
+        });
+
+        const tc = answer.getToolCalls()[0];
+        const code = tc?.input?.code;
+
+        if (!code) {
+          return {
+            stop: true,
+            add_response: "Failed to generate JavaScript code for the action.",
+          };
+        }
+
         return {
           stop: true,
           add_response: GenerateJsAction.render_html({
@@ -104,15 +152,11 @@ class GenerateJsActionSkill {
         description: GenerateJsAction.description,
         parameters: {
           type: "object",
-          required: ["name", "code"],
+          required: ["name"],
           properties: {
             name: {
               type: "string",
               description: "Name of the Javascript action.",
-            },
-            code: {
-              type: "string",
-              description: "Javascript code for the action.",
             },
             description: {
               type: "string",
