@@ -52,23 +52,18 @@ const makeTaskChart = async (req) => {
     taskIds[md.body.name] = md.id;
   });
   return div(
-    pre(
-      { class: "mermaid" },
-      `flowchart LR
+    pre({
+      class: "mermaid",
+      "mm-src": `flowchart LR
 ${rs.map((md) => `  task${md.id}["${md.body.name}"]`).join("\n")}
 ${rs.map((md) => md.body.depends_on.map((depon) => `  task${taskIds[depon]} --> task${md.id}`).join("\n")).join("\n")}
-${rs.filter(m=>m.body.status==="Done").map((md) => `  style task${md.id} fill:#777`).join("\n")}
+${rs
+  .filter((m) => m.body.status === "Done")
+  .map((md) => `  style task${md.id} fill:#777`)
+  .join("\n")}
 
          `,
-    ),
-    script(
-      domReady(`
-        ensure_script_loaded("/static_assets/"+_sc_version_tag+"/mermaid.min.js", () => {
-          mermaid.initialize({ startOnLoad: false });
-          mermaid.run({ querySelector: ".mermaid" });
-        });
-      `),
-    ),
+    }),
   );
 };
 
