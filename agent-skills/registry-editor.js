@@ -426,30 +426,3 @@ with both the entity type and name, and the new JSON definition as a string as a
 
 module.exports = RegistryEditorSkill;
 
-/* todo
-
-list entities
-
-* view templates
-* types
-
-get_entity more entity types:
-
-* types
-* plugin to show entities provided
-* view templates
-
-get-entity should explain the json schema and perhaps have a longer explanation
-
-set_entity
-
-* module cfg
-* role
-
-set-entity view should run a config check, try to run and report error
-set-entity for calculated fields should try to evaluate expression
-
-install module tool
-
-
-*/
