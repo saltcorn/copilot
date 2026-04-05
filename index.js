@@ -26,6 +26,7 @@ module.exports = {
       require("./agent-skills/database-design.js"),
       require("./agent-skills/workflow.js"),
       require("./agent-skills/viewgen.js"),
+      require("./agent-skills/js-action.js"),
     ],
   },
 };
