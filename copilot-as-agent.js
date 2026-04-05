@@ -46,6 +46,7 @@ const get_agent_view = () => {
         { skill_type: "Database design" },
         { skill_type: "Generate Workflow" },
         { skill_type: "Generate View" },
+        { skill_type: "Registry editor" },
         { skill_type: "Javascript Action" },
       ],
     },
@@ -65,7 +66,6 @@ const run = async (table_id, viewname, cfg, state, reqres) => {
 };
 
 const interact = async (table_id, viewname, config, body, reqres) => {
-  console.log("copilot interact with body", body);
   const view = get_agent_view();
   return await view.runRoute("interact", body, reqres.res, reqres);
 };

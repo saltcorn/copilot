@@ -148,6 +148,7 @@ a view generation mode. The tool call only requires high-level details to start 
     const tableless = enabled_vt_names.filter(
       (vtnm) => vts[vtnm].tableless === true,
     );
+    const roles = state.roles;
     const parameters = {
       type: "object",
       required: ["name", "viewpattern"],
@@ -172,7 +173,7 @@ a view generation mode. The tool call only requires high-level details to start 
           description:
             "The minimum role needed to access the view. For views accessible only by admin, use 'admin', pages with min_role 'public' is publicly accessible and also available to all users",
           type: "string",
-          enum: ["admin", "user", "public"],
+          enum: roles ? roles.map((r) => r.role) : ["admin", "user", "public"],
         },
       },
     };
@@ -306,7 +307,7 @@ a view generation mode. The tool call only requires high-level details to start 
             await getState().functions.llm_add_message.run(
               "tool_response",
               { type: "text", value: "Details provided" },
-              { chat, tool_call: tc }
+              { chat, tool_call: tc },
             );
             Object.assign(wfctx, tc.input);
           }
@@ -316,7 +317,7 @@ a view generation mode. The tool call only requires high-level details to start 
           viewtemplate: tool_call.input.viewpattern,
           table,
           table_id: table?.id,
-          min_role: { admin: 1, public: 100, user: 80 }[
+          min_role: (getState().roles || { admin: 1, public: 100, user: 80 })[
             tool_call.input.min_role || "public"
           ],
           configuration: wfctx,

@@ -205,10 +205,14 @@ class GenerateTables {
 
     `;
   }
-
-  static render_html({ tables }) {
+  
+  static render_html({ tables }, delay) {
     const sctables = this.process_tables(tables);
     const mmdia = buildMermaidMarkup(sctables);
+    if(delay === true) {
+      return pre({ class: "mermaid", "mm-src": mmdia }) 
+
+    }
     return (
       pre({ class: "mermaid" }, mmdia) +
       script(

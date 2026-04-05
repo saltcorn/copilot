@@ -211,7 +211,9 @@ class GenerateTablesSkill {
               `Ignored duplicate definitions: ${skippedDuplicates.join(", ")}`,
             );
           if (skippedMissingNames.length)
-            notifyParts.push(`Missing table_name: ${skippedMissingNames.join(", ")}`);
+            notifyParts.push(
+              `Missing table_name: ${skippedMissingNames.join(", ")}`,
+            );
           if (skippedMissingFields.length)
             notifyParts.push(
               `Tables without fields: ${skippedMissingFields.join(", ")}`,
@@ -231,12 +233,16 @@ class GenerateTablesSkill {
             if (added.length) parts.push(`added: ${added.join(", ")}`);
             if (updated.length) parts.push(`updated: ${updated.join(", ")}`);
             if (parts.length)
-              notifyParts.push(`${table.table_name} \u2014 ${parts.join("; ")}`);
+              notifyParts.push(
+                `${table.table_name} \u2014 ${parts.join("; ")}`,
+              );
           }
         }
 
         return {
-          notify: notifyParts.length ? notifyParts.join(". ") : "Nothing to apply.",
+          notify: notifyParts.length
+            ? notifyParts.join(". ")
+            : "Nothing to apply.",
         };
       },
     };
@@ -309,7 +315,7 @@ class GenerateTablesSkill {
           ...warningLines,
         ].join("\n");
       },
-      postProcess: async ({ tool_call }) => {
+      postProcess: async ({ tool_call, req }) => {
         const payload = payloadFromToolCall(tool_call);
         const tables = payload.tables || [];
         const { newTables, skippedDuplicates, existingTablesData } =
@@ -335,7 +341,9 @@ class GenerateTablesSkill {
             `Ignored duplicate definitions: ${skippedDuplicates.join(", ")}`,
           );
         if (skippedMissingNames.length)
-          warningChunks.push(`Missing table_name: ${skippedMissingNames.join(", ")}`);
+          warningChunks.push(
+            `Missing table_name: ${skippedMissingNames.join(", ")}`,
+          );
         if (skippedMissingFields.length)
           warningChunks.push(
             `Tables without fields: ${skippedMissingFields.join(", ")}`,
@@ -343,7 +351,17 @@ class GenerateTablesSkill {
         const warningHtml = warningChunks.length
           ? `<div class="alert alert-warning">${warningChunks.join("<br/>")}</div>`
           : "";
-        const hasAnything = validTables.length > 0 || existingTablesData.length > 0;
+
+        if (this.yoloMode) {
+          this.userActions.apply_copilot_tables({
+            user: req?.user,
+            tables: validTables,
+          });
+          return { stop: true, add_response: `${warningHtml}${preview}` };
+        }
+
+        const hasAnything =
+          validTables.length > 0 || existingTablesData.length > 0;
         const labelParts = [];
         if (validTables.length)
           labelParts.push(
@@ -363,7 +381,10 @@ class GenerateTablesSkill {
                 name: "apply_copilot_tables",
                 type: "button",
                 label: labelParts.join(" + "),
-                input: { tables: validTables, existing_tables: existingTablesData },
+                input: {
+                  tables: validTables,
+                  existing_tables: existingTablesData,
+                },
               }
             : undefined,
         };
