@@ -242,30 +242,36 @@ class GenerateWorkflow {
       .filter(Boolean)
       .join("\n\n");
 
-    return `Use the generate_workflow tool to construct computational workflows according to specifications. You must create 
+    return `Use the generate_workflow tool to construct computational workflows according to specifications. You must create
   the workflow by calling the generate_workflow tool, with the step required to implement the specification.
-  
+
   ${contextBlocks}
-  
-  The steps are specified as JSON objects. Each step has a name, specified in the step_name key in the JSON object. 
+
+  The steps are specified as JSON objects. Each step has a name, specified in the step_name key in the JSON object.
   The step name should be a valid JavaScript identifier.
-  
+
   When the user explicitly names an action/step type (for example "ForLoop" or "Toast"), ensure the generated workflow contains at least one step whose step_configuration.step_type exactly matches every requested action. Only skip this if the action genuinely does not exist; in that case, clearly explain the omission in the workflow description.
 
+  CRITICAL — every workflow must form a single connected chain from the first step to the last:
+  - Every step except the very last one MUST have a next_step that names another step in the workflow.
+  - The very last step must have next_step omitted or set to an empty string to terminate the workflow.
+  - No step may be an island: every step must be reachable by following next_step links from the first step.
+  - Before submitting, mentally trace the path: first_step → next_step → … → last_step. If any step is unreachable or any link is missing, fix it before calling the tool.
+
   Each run of the workflow is executed in the presence of a context, which is a JavaScript object that individual
-  steps can read values from and write values to. This context is a state that is persisted on disk for each workflow 
-  run. 
-  
-  Each step can have a next_step key which is the name of the next step, or a JavaScript expression which evaluates 
-  to the name of the next step based on the context. In the evaluation of the next step, each value in the context is 
-  in scope and can be addressed directly. Identifiers for the step names are also in scope, the name of the next step 
-  can be used directly without enclosing it in quotes to form a string. 
-  
+  steps can read values from and write values to. This context is a state that is persisted on disk for each workflow
+  run.
+
+  Each step can have a next_step key which is the name of the next step, or a JavaScript expression which evaluates
+  to the name of the next step based on the context. In the evaluation of the next step, each value in the context is
+  in scope and can be addressed directly. Identifiers for the step names are also in scope, the name of the next step
+  can be used directly without enclosing it in quotes to form a string.
+
   For example, if the context contains a value x which is an integer and you have steps named "too_low" and "too_high",
   and you would like the next step to be too_low if x is less than 10 and too_high otherwise,
   use this as the next_step expression: x<10 ? too_low : too_high
-  
-  If the next_step is omitted then the workflow terminates.
+
+  If the next_step is omitted then the workflow terminates. Only the final step should have next_step omitted.
   
   Each step has a step_configuration object which contains the step type and the specific parameters of 
   that step type. You should specify the step type in the step_type subfield of the step_configuration
@@ -318,8 +324,25 @@ class GenerateWorkflow {
   static async execute(
     { workflow_steps, workflow_name, when_trigger, trigger_table },
     req,
+    context_vars
   ) {
-    const steps = this.process_all_steps(workflow_steps);
+    let allSteps = workflow_steps;
+    let initContextStep = null;
+    if (context_vars && Object.keys(context_vars).length) {
+      const firstUserStep = allSteps[0]?.step_name || "";
+      initContextStep = {
+        step_name: "init_context",
+        only_if: "",
+        next_step: firstUserStep,
+        step_configuration: {
+          step_type: "run_js_code",
+          run_where: "Server",
+          code: `return ${JSON.stringify(context_vars, null, 2)};`,
+        },
+      };
+      allSteps = [initContextStep, ...allSteps];
+    }
+    const steps = this.process_all_steps(allSteps);
     let table_id;
     if (trigger_table) {
       const table = Table.findOne({ name: trigger_table });
@@ -333,9 +356,16 @@ class GenerateWorkflow {
       action: "Workflow",
       configuration: {},
     });
-    for (const step of steps) {
+    // Insert user steps first so the init_context next_step target already
+    // exists in the DB when init_context is created.
+    const [initStep, ...userSteps] = initContextStep ? steps : [null, ...steps];
+    for (const step of initContextStep ? userSteps : steps) {
       step.trigger_id = trigger.id;
       await WorkflowStep.create(step);
+    }
+    if (initStep) {
+      initStep.trigger_id = trigger.id;
+      await WorkflowStep.create(initStep);
     }
     Trigger.emitEvent("AppChange", `Trigger ${trigger.name}`, req?.user, {
       entity_type: "Trigger",

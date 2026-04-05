@@ -550,11 +550,50 @@ class GenerateWorkflowSkill {
     ensureActionCatalog();
   }
 
+  static async configFields() {
+    return [
+      {
+        name: "context_vars",
+        label: "Initial context variables",
+        input_type: "code",
+        attributes: { mode: "application/json" },
+        sublabel:
+          'JSON object of key-value pairs pre-loaded into the workflow context at startup (e.g. {"ELEVENLABS_API_KEY": "sk-..."}). Keys are available by name in every run_js_code step.',
+      },
+    ];
+  }
+
+  _parseContextVars() {
+    if (!this.context_vars) return null;
+    try {
+      const vars =
+        typeof this.context_vars === "string"
+          ? JSON.parse(this.context_vars)
+          : this.context_vars;
+      return Object.keys(vars).length ? vars : null;
+    } catch {
+      return null;
+    }
+  }
+
   async systemPrompt() {
-    return await GenerateWorkflow.system_prompt();
+    const base = await GenerateWorkflow.system_prompt();
+    const vars = this._parseContextVars();
+    if (!vars) return base;
+    const keyList = Object.keys(vars).join(", ");
+    return (
+      base +
+      `\n\nThe following values are pre-loaded into the workflow context before the first step runs: ${keyList}. ` +
+      `Use them directly by name in run_js_code steps (e.g. \`${
+        Object.keys(vars)[0]
+      }\`) ` +
+      `or via the context object (e.g. \`context.${Object.keys(vars)[0]}\`). ` +
+      `Do not ask the user to supply these values — they are already available.`
+    );
   }
 
   get userActions() {
+    const context_vars = this._parseContextVars();
     return {
       async apply_copilot_workflow({ user, ...raw }) {
         const payload = ensureWorkflowHasSteps(normalizeWorkflowPayload(raw));
@@ -563,7 +602,11 @@ class GenerateWorkflowSkill {
           return {
             notify: `Cannot create workflow: ${analysis.blocking.join("; ")}`,
           };
-        const result = await GenerateWorkflow.execute(payload, { user });
+        const result = await GenerateWorkflow.execute(
+          payload,
+          { user },
+          context_vars
+        );
         return {
           notify:
             result?.postExec ||

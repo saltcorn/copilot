@@ -47,6 +47,7 @@ const get_agent_view = () => {
         { skill_type: "Generate Workflow" },
         { skill_type: "Generate View" },
         { skill_type: "Registry editor" },
+        { skill_type: "Javascript Action" },
       ],
     },
   });

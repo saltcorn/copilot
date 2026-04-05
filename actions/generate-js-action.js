@@ -5,7 +5,7 @@ const Table = require("@saltcorn/data/models/table");
 const Field = require("@saltcorn/data/models/field");
 const { apply, removeAllWhiteSpace } = require("@saltcorn/data/utils");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
-const { a, pre, script, div, code } = require("@saltcorn/markup/tags");
+const { a, script, div, domReady } = require("@saltcorn/markup/tags");
 const { fieldProperties, getPromptFromTemplate } = require("../common");
 
 class GenerateJsAction {
@@ -59,12 +59,49 @@ class GenerateJsAction {
     when_trigger,
     trigger_table,
   }) {
+    const lineCount = (action_javascript_code.match(/\n/g) || []).length + 1;
+    const height = Math.min(Math.max(lineCount * 20, 80), 300);
+    const editorId = `monaco-js-${Math.random().toString(36).slice(2)}`;
     return (
-      div({class: "mb-3"},
-        `${action_name}${when_trigger ? `: ${when_trigger}` : ""}${
+      div(
+        { class: "mb-3" },
+        `<strong>${action_name}</strong>${when_trigger ? `: ${when_trigger}` : ""}${
           trigger_table ? ` on ${trigger_table}` : ""
-        }`
-      ) + pre(code(action_javascript_code))
+        }`,
+      ) +
+      div({
+        id: editorId,
+        style: `height: ${height}px; border: 1px solid #ccc;`,
+      }) +
+      // div(
+      //   { class: `mt-3 ${action_description ? "" : "d-none"}` },
+      //   action_description || "",
+      // ) +
+      script(
+        domReady(`
+          (function() {
+            var container = document.getElementById('${editorId}');
+            if (!container) return;
+            var code = ${JSON.stringify(action_javascript_code)};
+            function createEditor() {
+              monaco.editor.create(container, {
+                value: code,
+                language: 'javascript',
+                theme: typeof _sc_lightmode !== 'undefined' && _sc_lightmode === 'dark' ? 'vs-dark' : 'vs',
+                readOnly: true,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+              });
+            }
+            if (typeof enable_monaco === 'function') {
+              enable_monaco([container], createEditor);
+            } else if (typeof monaco !== 'undefined') {
+              createEditor();
+            }
+          })();
+        `),
+      )
     );
   }
   static async execute(
@@ -85,6 +122,7 @@ class GenerateJsAction {
     }
     const trigger = await Trigger.create({
       name: action_name,
+      description: action_description,
       when_trigger: when_trigger || "Never",
       table_id,
       action: "run_js_code",
