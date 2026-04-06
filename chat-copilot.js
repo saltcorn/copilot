@@ -384,6 +384,7 @@ const actionClasses = [
   require("./actions/generate-js-action"),
   require("./actions/generate-page"),
   require("./actions/generate-view"),
+  require("./actions/install-plugin-action"),
 ];
 
 const classesWithSkills = () => {

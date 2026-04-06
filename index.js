@@ -42,6 +42,7 @@ module.exports = {
       require("./agent-skills/viewgen.js"),
       require("./agent-skills/registry-editor.js"),
       require("./agent-skills/js-action.js"),
+      require("./agent-skills/install-plugin.js"),
     ],
   },
 };
