@@ -2,6 +2,7 @@ const Workflow = require("@saltcorn/data/models/workflow");
 const Form = require("@saltcorn/data/models/form");
 const { features } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
+const Plugin = require("@saltcorn/data/models/plugin");
 const { viewname } = require("./app-constructor/common.js");
 
 const headers = [
@@ -42,7 +43,9 @@ module.exports = {
       require("./agent-skills/viewgen.js"),
       require("./agent-skills/registry-editor.js"),
       require("./agent-skills/js-action.js"),
-      require("./agent-skills/install-plugin.js"),
+      ...(typeof Plugin.loadAndSaveNewPlugin === "function"
+        ? [require("./agent-skills/install-plugin.js")]
+        : []),
     ],
   },
 };

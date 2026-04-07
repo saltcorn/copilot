@@ -1,3 +1,5 @@
+// Core install logic. Deprecated chat-copilot format;
+// the Agent Chat structure uses agent-skills/install-plugin.js instead.
 const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
 const Plugin = require("@saltcorn/data/models/plugin");

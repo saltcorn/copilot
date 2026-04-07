@@ -3,6 +3,7 @@ const Table = require("@saltcorn/data/models/table");
 const Form = require("@saltcorn/data/models/form");
 const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
+const Plugin = require("@saltcorn/data/models/plugin");
 const { findType } = require("@saltcorn/data/models/discovery");
 const { save_menu_items } = require("@saltcorn/data/models/config");
 const db = require("@saltcorn/data/db");
@@ -48,7 +49,9 @@ const get_agent_view = () => {
         { skill_type: "Generate View" },
         { skill_type: "Registry editor" },
         { skill_type: "Javascript Action" },
-        { skill_type: "Install Plugin" },
+        ...(typeof Plugin.loadAndSaveNewPlugin === "function"
+          ? [{ skill_type: "Install Plugin" }]
+          : []),
       ],
     },
   });
