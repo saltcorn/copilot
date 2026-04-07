@@ -5,6 +5,7 @@ const Table = require("@saltcorn/data/models/table");
 const Field = require("@saltcorn/data/models/field");
 const User = require("@saltcorn/data/models/user");
 const Plugin = require("@saltcorn/data/models/plugin");
+const Role = require("@saltcorn/data/models/role");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const { getState } = require("@saltcorn/data/db/state");
 
@@ -60,12 +61,15 @@ with both the entity type and name, and the new JSON definition as a string as a
                   "installed-plugins",
                   "system-configuration-keys",
                   "roles",
+                  "viewtemplates",
+                  "types",
                 ],
               },
             },
           },
         },
         process: async (input) => {
+          console.log("list entities", input);
           const tables = await Table.find({}, { cached: true });
           const tableNames = {};
           for (const table of tables) tableNames[table.id] = table.name;
@@ -73,6 +77,7 @@ with both the entity type and name, and the new JSON definition as a string as a
             case "roles":
               return await User.get_roles();
             case "system-configuration-keys": {
+              console.log("Getting system configuration keys");
               const cfgs = getState().configs;
               return Object.keys(cfgs).map((k) => ({
                 key: k,
@@ -80,6 +85,7 @@ with both the entity type and name, and the new JSON definition as a string as a
               }));
             }
             case "available-plugins": {
+              console.log("Getting available plugins");
               const store_plugins = await Plugin.store_plugins_available();
               const installed_plugins = await Plugin.find({});
               const installed_names = new Set(
@@ -93,6 +99,7 @@ with both the entity type and name, and the new JSON definition as a string as a
               }));
             }
             case "installed-plugins":
+              console.log("Getting installed plugins");
               const installed_plugins = await Plugin.find({});
               return installed_plugins.map((p) => ({
                 name: p.name,
@@ -118,8 +125,23 @@ with both the entity type and name, and the new JSON definition as a string as a
                 name: p.name,
                 description: p.description,
               }));
+            case "viewtemplates": {
+              const viewtemplates = getState().viewtemplates;
+              return Object.keys(viewtemplates).map((name) => ({
+                name,
+                description: viewtemplates[name].description,
+              }));
+            }
+            case "types": {
+              const types = getState().types;
+              return Object.keys(types).map((name) => ({
+                name,
+                description: types[name].description,
+              }));
+            }
             case "trigger":
               const allTriggers = Trigger.find({});
+              console.log("Getting triggers", allTriggers);
               return allTriggers.map((tr) => ({
                 name: tr.name,
                 description: tr.description,
@@ -150,6 +172,7 @@ with both the entity type and name, and the new JSON definition as a string as a
                   "trigger",
                   "plugin",
                   "system-configuration-value",
+                  "type",
                 ],
               },
               entity_name: {
@@ -160,6 +183,7 @@ with both the entity type and name, and the new JSON definition as a string as a
           },
         },
         process: async (input) => {
+          console.log("get entity", input);
           const tables = await Table.find({}, { cached: true });
           const tableNames = {};
           for (const table of tables) tableNames[table.id] = table.name;
@@ -212,6 +236,63 @@ with both the entity type and name, and the new JSON definition as a string as a
               const trigger = Trigger.findOne({ name: input.entity_name });
               if (!trigger) return `trigger not found`;
               return trigger.toJson;
+            case "type": {
+              const types = getState().types;
+              const type = types[input.entity_name];
+              if (!type) return `type not found`;
+              const serializeField = (f) => {
+                const {
+                  name,
+                  label,
+                  type: ftype,
+                  description,
+                  required,
+                  options,
+                } = f;
+                return {
+                  name,
+                  label,
+                  type: typeof ftype === "string" ? ftype : ftype?.name,
+                  description,
+                  required,
+                  options,
+                };
+              };
+              console.log({
+                attrFxType: typeof type.attributes,
+                attrs: JSON.stringify(type.attributes, null, 2),
+                attrsFx: type.attributes,
+                attrsFxBrackets: type.attributes ? Object.getOwnPropertyNames(type.attributes) : null,
+              });
+              const result = {
+                name: type.name,
+                description: type.description,
+              };
+              if (Array.isArray(type.attributes)) {
+                result.attributes = type.attributes.map(serializeField);
+              } else if (typeof type.attributes === "function") {
+                result.attributes = "dynamic (depends on table context)";
+              }
+              if (type.fieldviews) {
+                result.fieldviews = Object.entries(type.fieldviews).map(
+                  ([fvName, fv]) => {
+                    const fvInfo = {
+                      name: fvName,
+                      description: fv.description,
+                      isEdit: fv.isEdit || false,
+                      isFilter: fv.isFilter || false,
+                    };
+                    if (Array.isArray(fv.configFields)) {
+                      fvInfo.configFields = fv.configFields.map(serializeField);
+                    } else if (typeof fv.configFields === "function") {
+                      fvInfo.configFields = "dynamic";
+                    }
+                    return fvInfo;
+                  },
+                );
+              }
+              return result;
+            }
           }
         },
       },
@@ -234,6 +315,8 @@ with both the entity type and name, and the new JSON definition as a string as a
                   "page",
                   "trigger",
                   "system-configuration-value",
+                  "module-configuration",
+                  "role",
                 ],
               },
               entity_name: {
@@ -413,6 +496,34 @@ with both the entity type and name, and the new JSON definition as a string as a
                 await getState().refresh_tables();
 
                 break;
+              }
+              case "module-configuration": {
+                console.log(
+                  "Updating module configuration",
+                  input.entity_name,
+                  entityValue,
+                );
+                const plugin = await Plugin.findOne({
+                  name: input.entity_name,
+                });
+                if (!plugin) return `module not found: ${input.entity_name}`;
+                plugin.configuration = {
+                  ...(plugin.configuration || {}),
+                  ...entityValue,
+                };
+                await plugin.upsert();
+                getState().plugin_cfgs[input.entity_name] =
+                  plugin.configuration;
+                return "Module configuration updated";
+              }
+              case "role": {
+                const result = await Role.create({
+                  role: input.entity_name,
+                  ...entityValue,
+                });
+                if (result?.error) return result.error;
+                await getState().refresh_roles();
+                return "Role created";
               }
             }
           } catch (e) {
