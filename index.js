@@ -28,6 +28,7 @@ module.exports = {
         copilot_standard_prompt: require("./standard-prompt.js"),
         copilot_generate_layout: require("./builder-gen.js"),
         copilot_generate_workflow: require("./workflow-gen"),
+        copilot_generate_javascript: require("./js-code-gen.js"),
       }
     : {},
   actions: {
