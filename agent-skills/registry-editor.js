@@ -69,7 +69,6 @@ with both the entity type and name, and the new JSON definition as a string as a
           },
         },
         process: async (input) => {
-          console.log("list entities", input);
           const tables = await Table.find({}, { cached: true });
           const tableNames = {};
           for (const table of tables) tableNames[table.id] = table.name;
@@ -77,7 +76,6 @@ with both the entity type and name, and the new JSON definition as a string as a
             case "roles":
               return await User.get_roles();
             case "system-configuration-keys": {
-              console.log("Getting system configuration keys");
               const cfgs = getState().configs;
               return Object.keys(cfgs).map((k) => ({
                 key: k,
@@ -85,7 +83,6 @@ with both the entity type and name, and the new JSON definition as a string as a
               }));
             }
             case "available-plugins": {
-              console.log("Getting available plugins");
               const store_plugins = await Plugin.store_plugins_available();
               const installed_plugins = await Plugin.find({});
               const installed_names = new Set(
@@ -99,7 +96,6 @@ with both the entity type and name, and the new JSON definition as a string as a
               }));
             }
             case "installed-plugins":
-              console.log("Getting installed plugins");
               const installed_plugins = await Plugin.find({});
               return installed_plugins.map((p) => ({
                 name: p.name,
@@ -141,7 +137,6 @@ with both the entity type and name, and the new JSON definition as a string as a
             }
             case "trigger":
               const allTriggers = Trigger.find({});
-              console.log("Getting triggers", allTriggers);
               return allTriggers.map((tr) => ({
                 name: tr.name,
                 description: tr.description,
@@ -183,7 +178,6 @@ with both the entity type and name, and the new JSON definition as a string as a
           },
         },
         process: async (input) => {
-          console.log("get entity", input);
           const tables = await Table.find({}, { cached: true });
           const tableNames = {};
           for (const table of tables) tableNames[table.id] = table.name;
@@ -258,12 +252,6 @@ with both the entity type and name, and the new JSON definition as a string as a
                   options,
                 };
               };
-              console.log({
-                attrFxType: typeof type.attributes,
-                attrs: JSON.stringify(type.attributes, null, 2),
-                attrsFx: type.attributes,
-                attrsFxBrackets: type.attributes ? Object.getOwnPropertyNames(type.attributes) : null,
-              });
               const result = {
                 name: type.name,
                 description: type.description,
@@ -332,7 +320,6 @@ with both the entity type and name, and the new JSON definition as a string as a
           },
         },
         process: async (input) => {
-          console.log("set entity", input);
           //return "Done";
           try {
             const entityValue = JSON.parse(input.entity_definition);
@@ -498,11 +485,6 @@ with both the entity type and name, and the new JSON definition as a string as a
                 break;
               }
               case "module-configuration": {
-                console.log(
-                  "Updating module configuration",
-                  input.entity_name,
-                  entityValue,
-                );
                 const plugin = await Plugin.findOne({
                   name: input.entity_name,
                 });
@@ -514,6 +496,7 @@ with both the entity type and name, and the new JSON definition as a string as a
                 await plugin.upsert();
                 getState().plugin_cfgs[input.entity_name] =
                   plugin.configuration;
+                await getState().refresh_plugins();
                 return "Module configuration updated";
               }
               case "role": {
@@ -536,4 +519,3 @@ with both the entity type and name, and the new JSON definition as a string as a
 }
 
 module.exports = RegistryEditorSkill;
-
