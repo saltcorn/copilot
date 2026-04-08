@@ -312,14 +312,17 @@ a view generation mode. The tool call only requires high-level details to start 
             Object.assign(wfctx, tc.input);
           }
         }
+        const roleName = tool_call.input.min_role || "public";
+        const rolesState = getState().roles;
+        const min_role = rolesState
+          ? (rolesState.find((r) => r.role === roleName) || { id: 100 }).id
+          : { admin: 1, public: 100, user: 80 }[roleName] ?? 100;
         const view = new View({
           name: tool_call.input.name,
           viewtemplate: tool_call.input.viewpattern,
           table,
           table_id: table?.id,
-          min_role: (getState().roles || { admin: 1, public: 100, user: 80 })[
-            tool_call.input.min_role || "public"
-          ],
+          min_role,
           configuration: wfctx,
         });
         const runres = await view.run({}, { req });
