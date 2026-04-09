@@ -540,7 +540,7 @@ const normalizeSegment = (segment, ctx) => {
   }
   if (clone.type === "prompt") return null;
 
-  if (!clone.type && clone.above) {
+  if ((!clone.type || clone.type === "stack") && clone.above) {
     const above = ensureArray(clone.above)
       .map((child) => normalizeSegment(child, ctx))
       .filter(Boolean);
@@ -583,7 +583,10 @@ const normalizeSegment = (segment, ctx) => {
     }
     case "tabs": {
       const tabs = normalizeTabs(clone.tabs, ctx);
-      return tabs.length ? { ...clone, tabs, class: clone.class || "" } : null;
+      if (!tabs.length) return null;
+      const titles = clone.titles ?? tabs.map((t) => t.title || "");
+      const contents = clone.contents ?? tabs.map((t) => t.contents);
+      return { ...clone, tabs, titles, contents, class: clone.class || "" };
     }
     case "blank":
       return {
@@ -1147,6 +1150,7 @@ const buildErrorLayout = ({ message, mode, table }) => {
 };
 
 module.exports = {
+  normalizeLayoutCandidate,
   run: async (prompt, mode, table, existing_layout, chat) => {
     prompt = prompt.trim().replace(/^\[\w+\]:\s*/, "");
 
