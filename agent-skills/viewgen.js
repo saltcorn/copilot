@@ -325,6 +325,19 @@ a view generation mode. The tool call only requires high-level details to start 
           min_role,
           configuration: wfctx,
         });
+        if (this.yoloMode) {
+          await this.userActions.build_copilot_view_gen({
+            wfctx,
+            name: tool_call.input.name,
+            viewpattern: tool_call.input.viewpattern,
+            table: tool_call.input.table,
+            min_role: tool_call.input.min_role,
+          });
+          return {
+            stop: true,
+            add_response: `View ${tool_call.input.name} created.`,
+          };
+        }
         const runres = await view.run({}, { req });
         return {
           stop: true,
