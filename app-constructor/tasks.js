@@ -230,10 +230,16 @@ const gen_tasks = async (table_id, viewname, config, body, { req, res }) => {
   if (!schema) throw new Error("No schema found");
   if (!schema.body.implemented) throw new Error("Schema not implemented");
   const tables = await Table.find({});
+  const tableById = Object.fromEntries(tables.map((t) => [t.id, t.name]));
   const views = await View.find({});
   const triggers = await Trigger.find({});
   const pages = await Page.find({});
-  const entitiesSection = existing_entities_list({ views, triggers, pages });
+  const entitiesSection = existing_entities_list({
+    views,
+    triggers,
+    pages,
+    tableById,
+  });
   const installedPlugins = await Plugin.find({});
   const installedNames = new Set(installedPlugins.map((p) => p.name));
   let storePlugins = [];

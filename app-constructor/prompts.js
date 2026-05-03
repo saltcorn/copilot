@@ -57,18 +57,21 @@ const existing_tables_list = (tables) => {
 ${tableLines.join("\n\n")}`;
 };
 
-const existing_entities_list = ({ views, triggers, pages }) => {
+const existing_entities_list = ({ views, triggers, pages, tableById = {} }) => {
   const sections = [];
   if (views.length)
     sections.push(
       `The following views are already implemented — do NOT plan tasks to create them:\n` +
         views
-          .map(
-            (v) =>
-              `- ${v.name} (${v.viewtemplate}${
-                v.table ? ` on ${v.table.name}` : ""
-              })`
-          )
+          .map((v) => {
+            const tablePart =
+              v.table?.name ||
+              (v.table_id && tableById[v.table_id]) ||
+              v.exttable_name;
+            return `- ${v.name} (${v.viewtemplate}${
+              tablePart ? ` on ${tablePart}` : ""
+            })`;
+          })
           .join("\n")
     );
   if (triggers.length)
