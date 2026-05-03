@@ -198,6 +198,34 @@ const makeTaskList = async (req) => {
       )
     );
   } else {
+    const planning = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: "planning",
+    });
+    if (planning) {
+      return div(
+        { class: "mt-2" },
+        p(
+          i({ class: "fas fa-spinner fa-spin me-2" }),
+          "Planning tasks, please wait..."
+        ),
+        script(
+          domReady(`
+(function() {
+  function poll() {
+    view_post(${JSON.stringify(
+      viewname
+    )}, 'planning_status', {}, function(resp) {
+      if (resp && !resp.planning) location.reload();
+      else setTimeout(poll, 3000);
+    });
+  }
+  setTimeout(poll, 3000);
+})();
+`)
+        )
+      );
+    }
     return div(
       { class: "mt-2" },
       p("No tasks found"),
@@ -212,44 +240,34 @@ const makeTaskList = async (req) => {
   }
 };
 
-const gen_tasks = async (table_id, viewname, config, body, { req, res }) => {
-  const spec = await MetaData.findOne({
+const doGenTasks = async (spec, rs, schema, userId) => {
+  const planningMd = await MetaData.create({
     type: "CopilotConstructMgr",
-    name: "spec",
+    name: "planning",
+    body: {},
   });
-  if (!spec) throw new Error("Specification not found");
-  const rs = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "requirement",
-  });
-  if (!rs.length) throw new Error("No requirements found");
-  const schema = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "schema",
-  });
-  if (!schema) throw new Error("No schema found");
-  if (!schema.body.implemented) throw new Error("Schema not implemented");
-  const tables = await Table.find({});
-  const tableById = Object.fromEntries(tables.map((t) => [t.id, t.name]));
-  const views = await View.find({});
-  const triggers = await Trigger.find({});
-  const pages = await Page.find({});
-  const entitiesSection = existing_entities_list({
-    views,
-    triggers,
-    pages,
-    tableById,
-  });
-  const installedPlugins = await Plugin.find({});
-  const installedNames = new Set(installedPlugins.map((p) => p.name));
-  let storePlugins = [];
   try {
-    storePlugins = await Plugin.store_plugins_available();
-  } catch (_) {}
-  const pluginsSection = available_plugins_list(storePlugins, installedNames);
+    const tables = await Table.find({});
+    const tableById = Object.fromEntries(tables.map((t) => [t.id, t.name]));
+    const views = await View.find({});
+    const triggers = await Trigger.find({});
+    const pages = await Page.find({});
+    const entitiesSection = existing_entities_list({
+      views,
+      triggers,
+      pages,
+      tableById,
+    });
+    const installedPlugins = await Plugin.find({});
+    const installedNames = new Set(installedPlugins.map((p) => p.name));
+    let storePlugins = [];
+    try {
+      storePlugins = await Plugin.store_plugins_available();
+    } catch (_) {}
+    const pluginsSection = available_plugins_list(storePlugins, installedNames);
 
-  const answer = await getState().functions.llm_generate.run(
-    `Generate a plan for building this application:
+    const answer = await getState().functions.llm_generate.run(
+      `Generate a plan for building this application:
 
 Description: ${spec.body.description}
 Audience: ${spec.body.audience}
@@ -272,8 +290,8 @@ Your plan can add additional tables if needed or adjust the table fields, but no
 should be designed optimally for this application.
 
 ${entitiesSection ? entitiesSection + "\n\n" : ""}${
-      pluginsSection ? pluginsSection + "\n\n" : ""
-    }The plan should focus on building views, triggers (including workflows) and pages.
+        pluginsSection ? pluginsSection + "\n\n" : ""
+      }The plan should focus on building views, triggers (including workflows) and pages.
 
 Important trigger planning rules:
 * When a task involves a simple field update (e.g. marking an item complete or incomplete), plan it as a trigger using modify_row — NOT a workflow. Use a workflow only when multiple steps, branching, or looping are genuinely required.
@@ -317,23 +335,47 @@ of one or several application entity types.
 
 Now use the plan_tasks tool to make a plan of tasks for building software application
 `,
-    {
-      tools: [task_tool],
-      ...tool_choice("plan_tasks"),
-      systemPrompt:
-        "You are a project manager. The user wants to build an application, and you must analyse their application description",
-    }
+      {
+        tools: [task_tool],
+        ...tool_choice("plan_tasks"),
+        systemPrompt:
+          "You are a project manager. The user wants to build an application, and you must analyse their application description",
+      }
+    );
+
+    const tc = answer.getToolCalls()[0];
+    for (const task of tc.input.tasks)
+      await MetaData.create({
+        type: "CopilotConstructMgr",
+        name: "task",
+        body: task,
+        user_id: userId,
+      });
+  } finally {
+    await planningMd.delete();
+  }
+};
+
+const gen_tasks = async (table_id, viewname, config, body, { req, res }) => {
+  const spec = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "spec",
+  });
+  if (!spec) throw new Error("Specification not found");
+  const rs = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "requirement",
+  });
+  if (!rs.length) throw new Error("No requirements found");
+  const schema = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "schema",
+  });
+  if (!schema) throw new Error("No schema found");
+  if (!schema.body.implemented) throw new Error("Schema not implemented");
+  doGenTasks(spec, rs, schema, req.user?.id).catch((e) =>
+    console.error("gen_tasks error", e)
   );
-
-  const tc = answer.getToolCalls()[0];
-
-  for (const task of tc.input.tasks)
-    await MetaData.create({
-      type: "CopilotConstructMgr",
-      name: "task",
-      body: task,
-      user_id: req.user?.id,
-    });
   return { json: { reload_page: true } };
 };
 
@@ -354,6 +396,20 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
     );
   else runNextTask(true).catch((e) => console.error("run_task error", e));
   return { json: { reload_page: true } };
+};
+
+const planning_status = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
+  const planning = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "planning",
+  });
+  return { json: { planning: !!planning } };
 };
 
 const task_status = async (table_id, viewname, config, body, { req, res }) => {
@@ -433,6 +489,7 @@ const task_routes = {
   del_all_tasks,
   mark_done_task,
   run_task,
+  planning_status,
   task_status,
   start,
   stop,
