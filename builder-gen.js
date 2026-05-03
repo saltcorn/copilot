@@ -846,7 +846,14 @@ const normalizeSegment = (segment, ctx) => {
       return { ...clone, besides, list_columns: true };
     }
     case "list_column": {
-      const contents = normalizeChild(clone.contents, ctx);
+      let raw = clone.contents;
+      // Saltcorn's list renderer handles `above` in a cell (wraps in Container)
+      // but silently drops a typeless `besides`. Convert it so both links render
+      // stacked in one column rather than disappearing.
+      if (raw && !raw.type && Array.isArray(raw.besides)) {
+        raw = { above: raw.besides };
+      }
+      const contents = normalizeChild(raw, ctx);
       return contents
         ? { ...clone, contents, header_label: clone.header_label || "" }
         : null;

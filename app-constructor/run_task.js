@@ -31,7 +31,10 @@ const runTask = async (md_id, req) => {
     when_trigger: "Never",
     configuration: {
       viewname: viewname,
-      sys_prompt: "",
+      sys_prompt:
+        "When a task requires creating multiple views, triggers, or pages, you MUST create ALL of them by calling the appropriate tool for each one. " +
+        "Do not produce a text-only response until every entity named in the task has been created. " +
+        "Only stop calling tools when the task is fully complete.",
       prompt: "{{prompt}}",
       skills: [
         { skill_type: "Generate Page", yoloMode: true },
