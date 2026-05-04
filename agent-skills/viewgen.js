@@ -301,7 +301,9 @@ class GenerateViewSkill {
             chat
           );
           if (table && viewpattern !== "Filter") {
-            const baseCfg = await initial_config_all_fields(false)({
+            // isEdit=true: FK fields get Field+select columns; false gives JoinField (display-only)
+            const isEditView = viewpattern === "Edit";
+            const baseCfg = await initial_config_all_fields(isEditView)({
               table_id: table.id,
             });
             if (baseCfg?.columns) wfctx.columns = baseCfg.columns;
@@ -310,14 +312,26 @@ class GenerateViewSkill {
             const layoutFieldNames = collectLayoutFieldNames(wfctx.layout);
             const fields = table.fields || [];
             const fixed = {};
+            const usersFkColumnsToAdd = [];
             for (const f of fields) {
               if (f.primary_key || f.calculated) continue;
-              if (layoutFieldNames.has(f.name)) continue;
               if (f.type === "Key" && f.reftable_name === "users") {
-                fixed[`preset_${f.name}`] = "LoggedIn";
-                fixed[`_block_${f.name}`] = true;
+                if (layoutFieldNames.has(f.name)) {
+                  // Explicitly placed in layout — add a select column so getForm renders it
+                  usersFkColumnsToAdd.push({
+                    field_name: f.name,
+                    type: "Field",
+                    fieldview: "select",
+                    state_field: true,
+                  });
+                } else {
+                  fixed[`preset_${f.name}`] = "LoggedIn";
+                  fixed[`_block_${f.name}`] = true;
+                }
               }
             }
+            if (usersFkColumnsToAdd.length > 0)
+              wfctx.columns = [...(wfctx.columns || []), ...usersFkColumnsToAdd];
             if (Object.keys(fixed).length > 0) wfctx.fixed = fixed;
             wfctx.destination_type = "Back to referer";
           }
