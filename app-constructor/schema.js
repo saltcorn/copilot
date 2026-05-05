@@ -50,7 +50,9 @@ const showSchema = async (req) => {
 
   if (schema) {
     // Build diagram from new tables + any reused existing tables
-    const newTableInstances = GenerateTables.process_tables(schema.body.tables);
+    const newTableInstances = GenerateTables.process_tables(
+      schema.body.tables || []
+    );
     const reusedMd = await MetaData.findOne({
       type: "CopilotConstructMgr",
       name: "reused_schema",
@@ -85,37 +87,60 @@ const showSchema = async (req) => {
           )
         )
     );
-  } else {
+  }
+
+  const generating = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "generating_schema",
+  });
+  if (generating) {
     return div(
       { class: "mt-2" },
-      p("Schema not found"),
-      button(
-        {
-          class: "btn btn-primary",
-          onclick: `press_store_button(this);view_post("${viewname}", "gen_schema")`,
-        },
-        "Generate schema"
+      p(
+        i({ class: "fas fa-spinner fa-spin me-2" }),
+        "Generating schema, please wait..."
+      ),
+      script(
+        domReady(`
+(function() {
+  function poll() {
+    view_post(${JSON.stringify(viewname)}, 'schema_status', {}, function(resp) {
+      if (resp && !resp.generating) location.reload();
+      else setTimeout(poll, 3000);
+    });
+  }
+  setTimeout(poll, 3000);
+})();
+`)
       )
     );
   }
+
+  return div(
+    { class: "mt-2" },
+    p("Schema not found"),
+    button(
+      {
+        class: "btn btn-primary",
+        onclick: `press_store_button(this);view_post("${viewname}", "gen_schema")`,
+      },
+      "Generate schema"
+    )
+  );
 };
 
-const gen_schema = async (table_id, viewname, config, body, { req, res }) => {
-  const spec = await MetaData.findOne({
+const doGenSchema = async (spec, rs, userId) => {
+  const generatingMd = await MetaData.create({
     type: "CopilotConstructMgr",
-    name: "spec",
+    name: "generating_schema",
+    body: {},
+    user_id: userId,
   });
-  if (!spec) throw new Error("Specification not found");
-  const rs = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "requirement",
-  });
-  if (!rs.length) throw new Error("No requirements found");
-
-  const databaseDesignTool = new GenerateTablesSkill({}).provideTools();
-  const existing_tables = await Table.find({});
-  const answer = await getState().functions.llm_generate.run(
-    `Generate the database schema for this application:
+  try {
+    const databaseDesignTool = new GenerateTablesSkill({}).provideTools();
+    const existing_tables = await Table.find({});
+    const answer = await getState().functions.llm_generate.run(
+      `Generate the database schema for this application:
 
 Description: ${spec.body.description}
 Audience: ${spec.body.audience}
@@ -123,7 +148,7 @@ Core features: ${spec.body.core_features}
 Out of scope: ${spec.body.out_of_scope}
 Visual style: ${spec.body.visual_style}
 
-These are the requirements of the application: 
+These are the requirements of the application:
 
 ${rs.map((r) => `* ${r.body.requirement}`).join("\n")}
 
@@ -144,41 +169,74 @@ Do NOT leave uniqueness or required constraints for a later step — express the
 Note: ownership configuration (automatically populating a FK-to-users field from the logged-in user) is a VIEW-level concern and cannot be expressed in the schema. Do not attempt to annotate fields as "ownership fields" here — simply define the foreign key field normally. Ownership will be configured when the Edit views are generated.
 
 Now use the ${
-      databaseDesignTool.function.name
-    } tool to generate the complete database schema for this software application
+        databaseDesignTool.function.name
+      } tool to generate the complete database schema for this software application
 `,
-    {
-      tools: [databaseDesignTool],
-      ...tool_choice(databaseDesignTool.function.name),
-      systemPrompt:
-        "You are a database designer. The user wants to build an application, and you must analyse their application description and requirements and design a complete schema. Every entity needed by any requirement must have its own table. Never produce a partial schema.",
-    }
-  );
+      {
+        tools: [databaseDesignTool],
+        ...tool_choice(databaseDesignTool.function.name),
+        systemPrompt:
+          "You are a database designer. The user wants to build an application, and you must analyse their application description and requirements and design a complete schema. Every entity needed by any requirement must have its own table. Never produce a partial schema.",
+      }
+    );
 
-  const tc = answer.getToolCalls()[0];
+    const tc = answer.getToolCalls()[0];
 
-  await MetaData.create({
-    type: "CopilotConstructMgr",
-    name: "schema",
-    body: { tables: tc.input.tables, implemented: false },
-    user_id: req.user?.id,
-  });
-
-  const reusedNames = tc.input.reused_table_names || [];
-  if (reusedNames.length) {
     await MetaData.create({
       type: "CopilotConstructMgr",
-      name: "reused_schema",
-      body: { table_names: reusedNames },
-      user_id: req.user?.id,
+      name: "schema",
+      body: { tables: tc.input.tables || [], implemented: false },
+      user_id: userId,
     });
-  }
 
+    const reusedNames = tc.input.reused_table_names || [];
+    if (reusedNames.length) {
+      await MetaData.create({
+        type: "CopilotConstructMgr",
+        name: "reused_schema",
+        body: { table_names: reusedNames },
+        user_id: userId,
+      });
+    }
+  } finally {
+    await generatingMd.delete();
+  }
+};
+
+const gen_schema = async (table_id, viewname, config, body, { req, res }) => {
+  const spec = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "spec",
+  });
+  if (!spec) throw new Error("Specification not found");
+  const rs = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "requirement",
+  });
+  if (!rs.length) throw new Error("No requirements found");
+
+  doGenSchema(spec, rs, req.user?.id).catch((e) =>
+    console.error("gen_schema error", e)
+  );
   return { json: { reload_page: true } };
 };
 
+const schema_status = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
+  const generating = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "generating_schema",
+  });
+  return { json: { generating: !!generating } };
+};
+
 const del_schema = async (table_id, viewname, config, body, { req, res }) => {
-  for (const name of ["schema", "reused_schema"]) {
+  for (const name of ["schema", "reused_schema", "generating_schema"]) {
     const rs = await MetaData.find({ type: "CopilotConstructMgr", name });
     for (const r of rs) await r.delete();
   }
@@ -216,6 +274,11 @@ const implement_schema = async (
   return { json: { reload_page: true } };
 };
 
-const schema_routes = { gen_schema, del_schema, implement_schema };
+const schema_routes = {
+  gen_schema,
+  schema_status,
+  del_schema,
+  implement_schema,
+};
 
 module.exports = { showSchema, schema_routes };
