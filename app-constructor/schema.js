@@ -49,10 +49,8 @@ const showSchema = async (req) => {
   });
 
   if (schema) {
-    // Build diagram from new tables + any reused existing tables
-    const newTableInstances = GenerateTables.process_tables(
-      schema.body.tables || []
-    );
+    const newTableDefs = schema.body.tables || [];
+    const newTableInstances = GenerateTables.process_tables(newTableDefs);
     const reusedMd = await MetaData.findOne({
       type: "CopilotConstructMgr",
       name: "reused_schema",
@@ -65,9 +63,33 @@ const showSchema = async (req) => {
     const mmdia = buildMermaidMarkup(allTables);
     const preview = pre({ class: "mermaid", "mm-src": mmdia });
 
+    const newNames = newTableDefs.map((t) => t.table_name).filter(Boolean);
+    const legend = div(
+      { class: "mt-3 d-flex flex-wrap gap-3 align-items-start" },
+      newNames.length
+        ? div(
+            { class: "d-flex flex-wrap align-items-center gap-1" },
+            span({ class: "me-1 text-muted small" }, "Will be created:"),
+            ...newNames.map((n) =>
+              span({ class: "badge bg-success" }, n)
+            )
+          )
+        : "",
+      reusedNames.length
+        ? div(
+            { class: "d-flex flex-wrap align-items-center gap-1" },
+            span({ class: "me-1 text-muted small" }, "Already exists:"),
+            ...reusedNames.map((n) =>
+              span({ class: "badge bg-secondary" }, n)
+            )
+          )
+        : ""
+    );
+
     return div(
       { class: "mt-2" },
       preview,
+      !schema.body.implemented && legend,
       !schema.body.implemented &&
         div(
           { class: "mb-4 d-block mt-3" },
@@ -182,10 +204,11 @@ Now use the ${
 
     const tc = answer.getToolCalls()[0];
 
+    const noNewTables = !tc.input.tables || tc.input.tables.length === 0;
     await MetaData.create({
       type: "CopilotConstructMgr",
       name: "schema",
-      body: { tables: tc.input.tables || [], implemented: false },
+      body: { tables: tc.input.tables || [], implemented: noNewTables },
       user_id: userId,
     });
 
