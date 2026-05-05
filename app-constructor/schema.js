@@ -39,6 +39,7 @@ const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
 const { saltcorn_description, existing_tables_list } = require("./prompts");
 const GenerateTables = require("../actions/generate-tables");
+const { buildMermaidMarkup } = GenerateTables;
 const GenerateTablesSkill = require("../agent-skills/database-design");
 
 const showSchema = async (req) => {
@@ -48,10 +49,19 @@ const showSchema = async (req) => {
   });
 
   if (schema) {
-    const preview = GenerateTables.render_html(
-      { tables: schema.body.tables },
-      true
-    );
+    // Build diagram from new tables + any reused existing tables
+    const newTableInstances = GenerateTables.process_tables(schema.body.tables);
+    const reusedMd = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: "reused_schema",
+    });
+    const reusedNames = reusedMd?.body?.table_names || [];
+    const reusedInstances = reusedNames
+      .map((n) => Table.findOne({ name: n }))
+      .filter(Boolean);
+    const allTables = [...newTableInstances, ...reusedInstances];
+    const mmdia = buildMermaidMarkup(allTables);
+    const preview = pre({ class: "mermaid", "mm-src": mmdia });
 
     return div(
       { class: "mt-2" },
@@ -123,7 +133,9 @@ ${existing_tables_list(existing_tables)}
 
 Design a complete database schema that covers ALL requirements listed above. Every distinct entity in the application must have its own table. Do not produce a minimal or partial schema — all tables needed to implement every requirement must be included in this single call. Do not leave any tables for a later step.
 
-The tables listed above are already implemented in the database — include them in the schema as-is so the full data model is visible, but do not change their fields. Only add new tables for entities not yet covered. The implementation step will skip any table whose name already exists.
+The tables listed above already exist in the database. Do NOT modify or extend them — treat them as fixed. Handle them as follows:
+- If an existing table is already complete and used as-is: add its name to reused_table_names. Do NOT define its fields again in the tables array.
+- New tables not yet in the database: include them in the tables array with all their fields as usual.
 
 For every field that must be unique (e.g. unique email, unique slug, unique combination keys expressed as individual unique fields), set unique=true on that field.
 For every field that must not be empty, set not_null=true.
@@ -151,15 +163,25 @@ Now use the ${
     body: { tables: tc.input.tables, implemented: false },
     user_id: req.user?.id,
   });
+
+  const reusedNames = tc.input.reused_table_names || [];
+  if (reusedNames.length) {
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: "reused_schema",
+      body: { table_names: reusedNames },
+      user_id: req.user?.id,
+    });
+  }
+
   return { json: { reload_page: true } };
 };
 
 const del_schema = async (table_id, viewname, config, body, { req, res }) => {
-  const rs = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "schema",
-  });
-  for (const r of rs) await r.delete();
+  for (const name of ["schema", "reused_schema"]) {
+    const rs = await MetaData.find({ type: "CopilotConstructMgr", name });
+    for (const r of rs) await r.delete();
+  }
   return { json: { reload_page: true } };
 };
 
