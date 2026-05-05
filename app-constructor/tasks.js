@@ -107,7 +107,7 @@ const makeTaskList = async (req) => {
       : button(
           {
             class: "btn btn-success ms-2",
-            onclick: `view_post("${viewname}", "start", {})`,
+            onclick: `copilotStartRunning(this)`,
           },
           i({ class: "fas fa-play me-1" }),
           "Start running now"
@@ -160,6 +160,7 @@ const makeTaskList = async (req) => {
                 : button(
                     {
                       class: "btn btn-outline-success btn-sm",
+                      "data-task-run": r.id,
                       onclick: `copilotRunTask(this,${r.id})`,
                     },
                     i({ class: "fas fa-play" })
@@ -203,28 +204,28 @@ const makeTaskList = async (req) => {
         { grouped: true }
       ),
       script(`
+function copilotAppendDoneRow(taskId, rowResp) {
+  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+  if (row) row.remove();
+  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
+    .find(h => h.textContent.trim() === 'Done');
+  if (doneHeader && rowResp && rowResp.html) {
+    const tbody = doneHeader.closest('tr').parentNode;
+    const tmp = document.createElement('tbody');
+    tmp.innerHTML = rowResp.html;
+    tbody.appendChild(tmp.firstChild);
+  }
+}
+
 function copilotRunTask(btn, taskId) {
   btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
   btn.disabled = true;
   view_post(${JSON.stringify(viewname)}, 'run_task', {id: taskId}, () => {
     const poll = () => {
-      view_post(${JSON.stringify(
-        viewname
-      )}, 'task_status', {ids: [String(taskId)]}, (resp) => {
+      view_post(${JSON.stringify(viewname)}, 'task_status', {ids: [String(taskId)]}, (resp) => {
         if (resp && resp.any_done) {
-          view_post(${JSON.stringify(
-            viewname
-          )}, 'task_row_done', {id: taskId}, (rowResp) => {
-            const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
-            if (row) row.remove();
-            const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
-              .find(h => h.textContent.trim() === 'Done');
-            if (doneHeader && rowResp && rowResp.html) {
-              const tbody = doneHeader.closest('tr').parentNode;
-              const tmp = document.createElement('tbody');
-              tmp.innerHTML = rowResp.html;
-              tbody.appendChild(tmp.firstChild);
-            }
+          view_post(${JSON.stringify(viewname)}, 'task_row_done', {id: taskId}, (rowResp) => {
+            copilotAppendDoneRow(taskId, rowResp);
           });
         } else {
           setTimeout(poll, 3000);
@@ -232,6 +233,80 @@ function copilotRunTask(btn, taskId) {
       });
     };
     setTimeout(poll, 3000);
+  });
+}
+
+function copilotStartRunning(btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
+  let stopped = false;
+  let stopNotice = null;
+  const stopBtn = document.createElement('button');
+  stopBtn.className = 'btn btn-danger ms-2';
+  stopBtn.innerHTML = '<i class="fas fa-stop me-1"></i>Stop';
+  stopBtn.onclick = () => {
+    stopped = true;
+    view_post(${JSON.stringify(viewname)}, 'stop', {});
+    if (document.querySelector('.task-spinner') && !stopNotice) {
+      stopNotice = document.createElement('div');
+      stopNotice.className = 'alert alert-warning alert-dismissible d-inline-block ms-2 py-1 px-2 mb-0';
+      stopNotice.style.fontSize = '0.875rem';
+      stopNotice.innerHTML =
+        '<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>' +
+        'The current task will complete, then the queue stops. No new tasks will be started.';
+      stopBtn.insertAdjacentElement('afterend', stopNotice);
+    }
+  };
+  btn.insertAdjacentElement('afterend', stopBtn);
+  view_post(${JSON.stringify(viewname)}, 'start', {}, () => {
+    const movedToDone = new Set();
+    const doneHeaderInit = Array.from(document.querySelectorAll('h4.list-group-header'))
+      .find(h => h.textContent.trim() === 'Done');
+    if (doneHeaderInit) {
+      let sib = doneHeaderInit.closest('tr').nextElementSibling;
+      while (sib) {
+        const id = sib.getAttribute('data-row-id');
+        if (id) movedToDone.add(Number(id));
+        sib = sib.nextElementSibling;
+      }
+    }
+    const poll = () => {
+      view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
+        if (!resp || !resp.tasks) return;
+        let hasPending = false;
+        let hasRunning = false;
+        for (const task of resp.tasks) {
+          if (task.status === 'Done' && !movedToDone.has(task.id)) {
+            movedToDone.add(task.id);
+            view_post(${JSON.stringify(viewname)}, 'task_row_done', {id: task.id}, (rowResp) => {
+              copilotAppendDoneRow(task.id, rowResp);
+            });
+          } else if (task.status === 'Running') {
+            hasRunning = true;
+            const row = document.querySelector('tr[data-row-id="' + task.id + '"]');
+            if (row && !row.querySelector('.task-spinner')) {
+              const runBtn = row.querySelector('[data-task-run]');
+              if (runBtn) {
+                runBtn.closest('td').innerHTML =
+                  '<span class="task-spinner" data-task-id="' + task.id + '">' +
+                  '<i class="fas fa-spinner fa-spin text-warning"></i></span>';
+              }
+            }
+          } else if (task.status !== 'Done') {
+            hasPending = true;
+          }
+        }
+        if (hasRunning || (!stopped && hasPending)) {
+          setTimeout(poll, 3000);
+        } else {
+          stopBtn.remove();
+          if (stopNotice) { stopNotice.remove(); stopNotice = null; }
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
+        }
+      });
+    };
+    setTimeout(poll, 1000);
   });
 }
 `),
@@ -565,6 +640,22 @@ const planning_status = async (
   return { json: { planning: !!planning } };
 };
 
+const tasks_poll = async (table_id, viewname, config, body, { req, res }) => {
+  const tasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  return {
+    json: {
+      tasks: tasks.map((t) => ({
+        id: t.id,
+        status: t.body.status || "To do",
+        run_id: t.body.run_id,
+      })),
+    },
+  };
+};
+
 const task_row_done = async (
   table_id,
   viewname,
@@ -602,7 +693,7 @@ const start = async (table_id, viewname, config, body, { req, res }) => {
       body: { running: true },
     });
   runNextTask().catch((e) => console.error("start error", e));
-  return { json: { reload_page: true } };
+  return { json: { success: true } };
 };
 const stop = async (table_id, viewname, config, body, { req, res }) => {
   const settings = await MetaData.findOne({
@@ -617,7 +708,7 @@ const stop = async (table_id, viewname, config, body, { req, res }) => {
       name: "settings",
       body: { running: false },
     });
-  return { json: { reload_page: true } };
+  return { json: { success: true } };
 };
 
 const mark_done_task = async (
@@ -656,6 +747,7 @@ const task_routes = {
   run_task,
   planning_status,
   task_status,
+  tasks_poll,
   task_row_done,
   start,
   stop,
