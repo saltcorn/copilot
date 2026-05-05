@@ -33,7 +33,11 @@ class AnyActionSkill {
       `If the task requires several independent single-step actions (e.g. "mark complete" and "mark incomplete"), call this tool once per action — do NOT bundle them into one workflow.\n\n` +
       `**Navigation is a view concern:** If a task description says "return the user to X" or "navigate back", ` +
       `do NOT add a navigation step inside the trigger. Triggers only handle data operations. ` +
-      `Navigation (GoBack) is configured on the button in the list view, not inside the trigger itself.`
+      `Navigation (GoBack) is configured on the button in the list view, not inside the trigger itself.\n\n` +
+      `**Verification/confirmation emails after user registration:** Create a trigger with event "Insert" on the "users" table, ` +
+      `action_type "run_js_code". Do NOT use the send_email action — it will not work for verification. ` +
+      `Set the action_config "code" field to exactly:\n` +
+      `const { send_verification_email } = require("@saltcorn/data/models/email");\nawait send_verification_email(row, req);`
     );
   }
 

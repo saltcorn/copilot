@@ -123,6 +123,8 @@ ${existing_tables_list(existing_tables)}
 
 Design a complete database schema that covers ALL requirements listed above. Every distinct entity in the application must have its own table. Do not produce a minimal or partial schema — all tables needed to implement every requirement must be included in this single call. Do not leave any tables for a later step.
 
+The tables listed above are already implemented in the database — include them in the schema as-is so the full data model is visible, but do not change their fields. Only add new tables for entities not yet covered. The implementation step will skip any table whose name already exists.
+
 For every field that must be unique (e.g. unique email, unique slug, unique combination keys expressed as individual unique fields), set unique=true on that field.
 For every field that must not be empty, set not_null=true.
 Do NOT leave uniqueness or required constraints for a later step — express them fully in this schema.
@@ -174,7 +176,18 @@ const implement_schema = async (
   });
 
   const { apply_copilot_tables } = new GenerateTablesSkill({}).userActions;
-  await apply_copilot_tables({ tables: md.body.tables, user: req.user });
+  const existingNames = new Set((await Table.find({})).map((t) => t.name));
+  const newTables = md.body.tables.filter((t) => {
+    if (existingNames.has(t.name)) {
+      getState().log(
+        2,
+        `AppConstructor: skipping table "${t.name}" — already exists in database`
+      );
+      return false;
+    }
+    return true;
+  });
+  await apply_copilot_tables({ tables: newTables, user: req.user });
   md.body.implemented = true;
   await md.update({ body: md.body });
 

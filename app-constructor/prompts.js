@@ -42,12 +42,14 @@ const existing_tables_list = (tables) => {
   tables.forEach((table) => {
     const fieldLines = table.fields.map(
       (f) =>
-        `  * ${f.name} with type: ${f.pretty_type}.${f.description ? ` ${f.description}` : ""}`,
+        `  * ${f.name} with type: ${f.pretty_type}.${
+          f.description ? ` ${f.description}` : ""
+        }`
     );
     tableLines.push(
       `${table.name}${
         table.description ? `: ${table.description}.` : "."
-      } Contains the following fields:\n${fieldLines.join("\n")}`,
+      } Contains the following fields:\n${fieldLines.join("\n")}`
     );
   });
   return `The database already contains the following tables: 
@@ -55,4 +57,64 @@ const existing_tables_list = (tables) => {
 ${tableLines.join("\n\n")}`;
 };
 
-module.exports = { saltcorn_description, existing_tables_list };
+const existing_entities_list = ({ views, triggers, pages, tableById = {} }) => {
+  const sections = [];
+  if (views.length)
+    sections.push(
+      `The following views are already implemented — do NOT plan tasks to create them:\n` +
+        views
+          .map((v) => {
+            const tablePart =
+              v.table?.name ||
+              (v.table_id && tableById[v.table_id]) ||
+              v.exttable_name;
+            return `- ${v.name} (${v.viewtemplate}${
+              tablePart ? ` on ${tablePart}` : ""
+            })`;
+          })
+          .join("\n")
+    );
+  if (triggers.length)
+    sections.push(
+      `The following triggers are already implemented — do NOT plan tasks to create them:\n` +
+        triggers
+          .map(
+            (t) =>
+              `- ${t.name} (${t.action}${
+                t.when_trigger ? `, ${t.when_trigger}` : ""
+              })`
+          )
+          .join("\n")
+    );
+  if (pages.length)
+    sections.push(
+      `The following pages are already implemented — do NOT plan tasks to create them:\n` +
+        pages.map((p) => `- ${p.name}`).join("\n")
+    );
+  return sections.join("\n\n");
+};
+
+const available_plugins_list = (storePlugins, installedNames) => {
+  const uninstalled = storePlugins.filter((p) => !installedNames.has(p.name));
+  if (!uninstalled.length) return "";
+  const lines = uninstalled.map((p) => {
+    let line = `### ${p.name}`;
+    if (p.description) line += `\n${p.description}`;
+    if (p.contents) line += `\n${p.contents}`;
+    return line;
+  });
+  return (
+    `The following plugins are available in the Saltcorn store but not yet installed. ` +
+    `If a task requires functionality provided by one of these plugins (e.g. a specific view template, field type, or action), ` +
+    `include an explicit "Install plugin <name>" task before it with the exact plugin name as listed here. ` +
+    `The executor will use that name directly without needing to look it up.\n\n` +
+    lines.join("\n\n")
+  );
+};
+
+module.exports = {
+  saltcorn_description,
+  existing_tables_list,
+  existing_entities_list,
+  available_plugins_list,
+};

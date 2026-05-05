@@ -488,7 +488,10 @@ const prettifyActionName = (name) =>
 // Picks a valid fieldview from the field's available fieldviews only.
 // Never returns a fieldview that doesn't exist in field.fieldviews
 const pickFieldview = (field, mode, requestedFieldview = null) => {
-  const availableViews = field?.fieldviews || [];
+  const isEditMode = mode === "edit" || mode === "filter";
+  const availableViews = isEditMode
+    ? field?.editFieldviews || field?.fieldviews || []
+    : field?.fieldviews || [];
 
   // If no available fieldviews, return the first one or a safe default
   if (!availableViews.length) {
@@ -843,7 +846,14 @@ const normalizeSegment = (segment, ctx) => {
       return { ...clone, besides, list_columns: true };
     }
     case "list_column": {
-      const contents = normalizeChild(clone.contents, ctx);
+      let raw = clone.contents;
+      // Saltcorn's list renderer handles `above` in a cell (wraps in Container)
+      // but silently drops a typeless `besides`. Convert it so both links render
+      // stacked in one column rather than disappearing.
+      if (raw && !raw.type && Array.isArray(raw.besides)) {
+        raw = { above: raw.besides };
+      }
+      const contents = normalizeChild(raw, ctx);
       return contents
         ? { ...clone, contents, header_label: clone.header_label || "" }
         : null;
@@ -1268,13 +1278,19 @@ const buildContext = async (mode, tableName) => {
   }
   if (rawFields?.then) rawFields = await rawFields;
   const fields = (rawFields || []).map((field) => {
-    let fieldviews = Object.keys(field.type?.fieldviews || {});
+    const fvDefs = field.type?.fieldviews || {};
+    let fieldviews = Object.keys(fvDefs);
     // FK fields have type "Key" (a string) so field.type?.fieldviews is empty;
     // ensure select and show are always available for them
     const typeName = field.type?.name || field.type || "";
     if (!fieldviews.length && String(typeName).startsWith("Key")) {
       fieldviews = ["select", "show"];
     }
+    // editFieldviews: only fieldviews where isEdit is not explicitly false
+    const editFieldviews = fieldviews.filter(
+      (fv) => fvDefs[fv]?.isEdit !== false
+    );
+
     const isPkName =
       table.pk_name &&
       typeof field.name === "string" &&
@@ -1299,6 +1315,7 @@ const buildContext = async (mode, tableName) => {
       is_pk_name: !!isPkName,
       default_fieldview: defaultFieldview,
       fieldviews: fieldviews.length ? fieldviews : ["show"],
+      editFieldviews: editFieldviews.length ? editFieldviews : fieldviews,
       attributes: field.attributes || {},
     };
   });

@@ -45,7 +45,6 @@ module.exports = {
       require("./agent-skills/registry-editor.js"),
       require("./agent-skills/js-action.js"),
       require("./agent-skills/triggergen.js"),
-      require("./agent-skills/app-constructor-context.js"),
       ...(typeof Plugin.loadAndSaveNewPlugin === "function"
         ? [require("./agent-skills/install-plugin.js")]
         : []),
