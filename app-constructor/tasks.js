@@ -34,6 +34,8 @@ const {
   small,
   a,
   textarea,
+  tr,
+  td,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
@@ -46,6 +48,37 @@ const {
   existing_entities_list,
   available_plugins_list,
 } = require("./prompts");
+
+const doneTaskRowHtml = (task) =>
+  tr(
+    { "data-row-id": task.id },
+    td(task.body.name || ""),
+    td(task.body.description || ""),
+    td((task.body.depends_on || []).join(", ")),
+    td(task.body.priority || ""),
+    td("Done"),
+    td(
+      task.body.run_id
+        ? a(
+            {
+              target: "_blank",
+              href: `/view/Saltcorn%20Agent%20copilot?run_id=${task.body.run_id}`,
+            },
+            i({ class: "fas fa-external-link-alt" })
+          )
+        : ""
+    ),
+    td(""),
+    td(
+      button(
+        {
+          class: "btn btn-outline-danger btn-sm",
+          onclick: `view_post("${viewname}", "del_task", {id:${task.id}})`,
+        },
+        i({ class: "fas fa-trash-alt" })
+      )
+    )
+  );
 
 const makeTaskList = async (req) => {
   const rs = await MetaData.find(
@@ -89,6 +122,7 @@ const makeTaskList = async (req) => {
     )
   );
   if (rs.length) {
+    const runningOnLoad = rs.some((t) => t.body.status === "Running");
     return div(
       { class: "mt-2" },
       status,
@@ -126,7 +160,7 @@ const makeTaskList = async (req) => {
                 : button(
                     {
                       class: "btn btn-outline-success btn-sm",
-                      onclick: `press_store_button(this);view_post("${viewname}", "run_task", {id:${r.id}})`,
+                      onclick: `copilotRunTask(this,${r.id})`,
                     },
                     i({ class: "fas fa-play" })
                   ),
@@ -159,31 +193,61 @@ const makeTaskList = async (req) => {
         ],
         {
           "To do": rs.filter(
-            (t) => !t.body.status || t.body.status === "To do"
+            (t) =>
+              !t.body.status ||
+              t.body.status === "To do" ||
+              t.body.status === "Running"
           ),
-          Running: rs.filter((t) => t.body.status === "Running"),
           Done: rs.filter((t) => t.body.status === "Done"),
         },
         { grouped: true }
       ),
-      rs.some((t) => t.body.status === "Running")
+      script(`
+function copilotRunTask(btn, taskId) {
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  btn.disabled = true;
+  view_post(${JSON.stringify(viewname)}, 'run_task', {id: taskId}, () => {
+    const poll = () => {
+      view_post(${JSON.stringify(
+        viewname
+      )}, 'task_status', {ids: [String(taskId)]}, (resp) => {
+        if (resp && resp.any_done) {
+          view_post(${JSON.stringify(
+            viewname
+          )}, 'task_row_done', {id: taskId}, (rowResp) => {
+            const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+            if (row) row.remove();
+            const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
+              .find(h => h.textContent.trim() === 'Done');
+            if (doneHeader && rowResp && rowResp.html) {
+              const tbody = doneHeader.closest('tr').parentNode;
+              const tmp = document.createElement('tbody');
+              tmp.innerHTML = rowResp.html;
+              tbody.appendChild(tmp.firstChild);
+            }
+          });
+        } else {
+          setTimeout(poll, 3000);
+        }
+      });
+    };
+    setTimeout(poll, 3000);
+  });
+}
+`),
+      runningOnLoad
         ? script(
             domReady(`
-(function() {
-  function pollTasks() {
-    var spinners = document.querySelectorAll('.task-spinner[data-task-id]');
+(() => {
+  const pollTasks = () => {
+    const spinners = document.querySelectorAll('.task-spinner[data-task-id]');
     if (!spinners.length) return;
-    var ids = Array.from(spinners).map(function(el) { return el.getAttribute('data-task-id'); });
-    view_post(${JSON.stringify(
-      viewname
-    )}, 'task_status', { ids: ids }, function(resp) {
-      if (resp && resp.any_done) {
-        location.reload();
-      } else {
-        setTimeout(pollTasks, 3000);
-      }
+    const ids = Array.from(spinners).map(el => el.getAttribute('data-task-id'));
+    view_post(${JSON.stringify(viewname)}, 'task_status', {ids}, (resp) => {
+      if (resp && resp.any_done) location.reload();
+      else setTimeout(pollTasks, 3000);
     });
-  }
+  };
   setTimeout(pollTasks, 3000);
 })();
 `)
@@ -477,11 +541,13 @@ const del_task = async (table_id, viewname, config, body, { req, res }) => {
 };
 const run_task = async (table_id, viewname, config, body, { req, res }) => {
   const reqUser = req?.user;
-  if (body.id)
+  if (body.id) {
     runTask(body.id, { user: reqUser, __: req.__ }).catch((e) =>
       console.error("run_task error", e)
     );
-  else runNextTask(true).catch((e) => console.error("run_task error", e));
+    return { json: { success: true } };
+  }
+  runNextTask(true).catch((e) => console.error("run_task error", e));
   return { json: { reload_page: true } };
 };
 
@@ -497,6 +563,18 @@ const planning_status = async (
     name: "planning",
   });
   return { json: { planning: !!planning } };
+};
+
+const task_row_done = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
+  const task = await MetaData.findOne({ id: body.id });
+  if (!task) return { json: { html: "" } };
+  return { json: { html: doneTaskRowHtml(task) } };
 };
 
 const task_status = async (table_id, viewname, config, body, { req, res }) => {
@@ -578,6 +656,7 @@ const task_routes = {
   run_task,
   planning_status,
   task_status,
+  task_row_done,
   start,
   stop,
 };
