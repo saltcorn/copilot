@@ -93,6 +93,7 @@ const makeTaskList = async (req) => {
     name: "settings",
   });
   const running = !!settings?.body?.running;
+  const stopping = !running && rs.some((t) => t.body.status === "Running");
   const status = div(
     running ? "Currently running" : "Currently not running",
     running
@@ -106,25 +107,46 @@ const makeTaskList = async (req) => {
         )
       : button(
           {
+            id: "copilot-start-btn",
             class: "btn btn-success ms-2",
-            onclick: `copilotStartRunning(this)`,
+            ...(stopping
+              ? { disabled: true }
+              : { onclick: `copilotStartRunning(this)` }),
           },
-          i({ class: "fas fa-play me-1" }),
-          "Start running now"
+          stopping
+            ? i({ class: "fas fa-spinner fa-spin me-1" })
+            : i({ class: "fas fa-play me-1" }),
+          stopping ? "Running..." : "Start running now"
         ),
-    !running &&
-      button(
+    stopping &&
+      span(
         {
-          id: "copilot-run-next-btn",
-          class: "btn btn-outline-success ms-2",
-          onclick: `copilotRunNext(this)`,
+          id: "copilot-stop-notice",
+          class:
+            "alert alert-warning alert-dismissible d-inline-block ms-2 py-1 px-2 mb-0",
+          style: "font-size:0.875rem",
         },
-        i({ class: "fas fa-play me-1" }),
-        "Run next task"
-      )
+        button({
+          type: "button",
+          class: "btn-close btn-sm",
+          "data-bs-dismiss": "alert",
+        }),
+        "The current task will complete, then the queue stops. No new tasks will be started."
+      ),
+    button(
+      {
+        id: "copilot-run-next-btn",
+        class: "btn btn-outline-success ms-2",
+        style: running || stopping ? "display:none" : "",
+        onclick: `copilotRunNext(this)`,
+      },
+      i({ class: "fas fa-play me-1" }),
+      "Run next task"
+    )
   );
   if (rs.length) {
-    const runningOnLoad = rs.some((t) => t.body.status === "Running");
+    const runningOnLoad =
+      !stopping && rs.some((t) => t.body.status === "Running");
     return div(
       { class: "mt-2" },
       status,
@@ -206,6 +228,44 @@ const makeTaskList = async (req) => {
         { grouped: true }
       ),
       script(`
+function copilotInitStopping() {
+  const startBtn = document.getElementById('copilot-start-btn');
+  const noticeEl = document.getElementById('copilot-stop-notice');
+  const runNextBtn = document.getElementById('copilot-run-next-btn');
+  const movedToDone = copilotDoneIds();
+  const poll = () => {
+    view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
+      if (!resp || !resp.tasks) return;
+      let hasRunning = false;
+      for (const task of resp.tasks) {
+        if (task.status === 'Done' && !movedToDone.has(task.id)) {
+          movedToDone.add(task.id);
+          view_post(${JSON.stringify(
+            viewname
+          )}, 'task_row_done', {id: task.id}, (rowResp) => {
+            copilotAppendDoneRow(task.id, rowResp);
+          });
+        } else if (task.status === 'Running') {
+          hasRunning = true;
+          copilotShowSpinner(task.id);
+        }
+      }
+      if (hasRunning) {
+        setTimeout(poll, 3000);
+      } else {
+        if (noticeEl) noticeEl.remove();
+        if (startBtn) {
+          startBtn.disabled = false;
+          startBtn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
+          startBtn.onclick = () => copilotStartRunning(startBtn);
+        }
+        if (runNextBtn) runNextBtn.style.display = '';
+      }
+    });
+  };
+  setTimeout(poll, 1000);
+}
+
 function copilotAppendDoneRow(taskId, rowResp) {
   const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
   if (row) row.remove();
@@ -292,7 +352,9 @@ function copilotRunNext(btn) {
         for (const task of resp.tasks) {
           if (task.status === 'Done' && !movedToDone.has(task.id)) {
             movedToDone.add(task.id);
-            view_post(${JSON.stringify(viewname)}, 'task_row_done', {id: task.id}, (rowResp) => {
+            view_post(${JSON.stringify(
+              viewname
+            )}, 'task_row_done', {id: task.id}, (rowResp) => {
               copilotAppendDoneRow(task.id, rowResp);
             });
           } else if (task.status === 'Running') {
@@ -373,7 +435,9 @@ function copilotStartRunning(btn) {
   });
 }
 `),
-      runningOnLoad
+      stopping
+        ? script(domReady(`copilotInitStopping();`))
+        : runningOnLoad
         ? script(
             domReady(`
 (() => {
