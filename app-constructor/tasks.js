@@ -112,14 +112,16 @@ const makeTaskList = async (req) => {
           i({ class: "fas fa-play me-1" }),
           "Start running now"
         ),
-    button(
-      {
-        class: "btn btn-outline-success ms-2",
-        onclick: `press_store_button(this);view_post("${viewname}", "run_task", {})`,
-      },
-      i({ class: "fas fa-play me-1" }),
-      "Run next task"
-    )
+    !running &&
+      button(
+        {
+          id: "copilot-run-next-btn",
+          class: "btn btn-outline-success ms-2",
+          onclick: `copilotRunNext(this)`,
+        },
+        i({ class: "fas fa-play me-1" }),
+        "Run next task"
+      )
   );
   if (rs.length) {
     const runningOnLoad = rs.some((t) => t.body.status === "Running");
@@ -222,9 +224,13 @@ function copilotRunTask(btn, taskId) {
   btn.disabled = true;
   view_post(${JSON.stringify(viewname)}, 'run_task', {id: taskId}, () => {
     const poll = () => {
-      view_post(${JSON.stringify(viewname)}, 'task_status', {ids: [String(taskId)]}, (resp) => {
+      view_post(${JSON.stringify(
+        viewname
+      )}, 'task_status', {ids: [String(taskId)]}, (resp) => {
         if (resp && resp.any_done) {
-          view_post(${JSON.stringify(viewname)}, 'task_row_done', {id: taskId}, (rowResp) => {
+          view_post(${JSON.stringify(
+            viewname
+          )}, 'task_row_done', {id: taskId}, (rowResp) => {
             copilotAppendDoneRow(taskId, rowResp);
           });
         } else {
@@ -236,9 +242,80 @@ function copilotRunTask(btn, taskId) {
   });
 }
 
+function copilotDoneIds() {
+  const ids = new Set();
+  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
+    .find(h => h.textContent.trim() === 'Done');
+  if (doneHeader) {
+    let sib = doneHeader.closest('tr').nextElementSibling;
+    while (sib) {
+      const id = sib.getAttribute('data-row-id');
+      if (id) ids.add(Number(id));
+      sib = sib.nextElementSibling;
+    }
+  }
+  return ids;
+}
+
+function copilotShowSpinner(taskId) {
+  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+  if (row && !row.querySelector('.task-spinner')) {
+    const runBtn = row.querySelector('[data-task-run]');
+    if (runBtn) {
+      runBtn.closest('td').innerHTML =
+        '<span class="task-spinner" data-task-id="' + taskId + '">' +
+        '<i class="fas fa-spinner fa-spin text-warning"></i></span>';
+    }
+  }
+}
+
+function copilotRunNext(btn) {
+  btn.disabled = true;
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
+  const firstRunBtn = document.querySelector('[data-task-run]');
+  const optimisticId = firstRunBtn ? Number(firstRunBtn.getAttribute('data-task-run')) : null;
+  if (optimisticId) copilotShowSpinner(optimisticId);
+  const movedToDone = copilotDoneIds();
+  view_post(${JSON.stringify(viewname)}, 'run_task', {}, () => {
+    const poll = () => {
+      view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
+        if (!resp || !resp.tasks) return;
+        let hasRunning = false;
+        const runningIds = new Set(resp.tasks.filter(t => t.status === 'Running').map(t => t.id));
+        if (optimisticId && !runningIds.has(optimisticId) && !movedToDone.has(optimisticId)) {
+          const staleRow = document.querySelector('tr[data-row-id="' + optimisticId + '"]');
+          const staleSpinner = staleRow?.querySelector('.task-spinner');
+          if (staleSpinner) staleSpinner.closest('td').innerHTML =
+            '<button class="btn btn-outline-success btn-sm" data-task-run="' + optimisticId + '" onclick="copilotRunTask(this,' + optimisticId + ')"><i class="fas fa-play"></i></button>';
+        }
+        for (const task of resp.tasks) {
+          if (task.status === 'Done' && !movedToDone.has(task.id)) {
+            movedToDone.add(task.id);
+            view_post(${JSON.stringify(viewname)}, 'task_row_done', {id: task.id}, (rowResp) => {
+              copilotAppendDoneRow(task.id, rowResp);
+            });
+          } else if (task.status === 'Running') {
+            hasRunning = true;
+            copilotShowSpinner(task.id);
+          }
+        }
+        if (hasRunning) setTimeout(poll, 3000);
+        else {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+        }
+      });
+    };
+    setTimeout(poll, 500);
+  });
+}
+
 function copilotStartRunning(btn) {
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
+  const runNextBtn = document.getElementById('copilot-run-next-btn');
+  if (runNextBtn) runNextBtn.style.display = 'none';
   let stopped = false;
   let stopNotice = null;
   const stopBtn = document.createElement('button');
@@ -246,6 +323,7 @@ function copilotStartRunning(btn) {
   stopBtn.innerHTML = '<i class="fas fa-stop me-1"></i>Stop';
   stopBtn.onclick = () => {
     stopped = true;
+    stopBtn.disabled = true;
     view_post(${JSON.stringify(viewname)}, 'stop', {});
     if (document.querySelector('.task-spinner') && !stopNotice) {
       stopNotice = document.createElement('div');
@@ -259,17 +337,7 @@ function copilotStartRunning(btn) {
   };
   btn.insertAdjacentElement('afterend', stopBtn);
   view_post(${JSON.stringify(viewname)}, 'start', {}, () => {
-    const movedToDone = new Set();
-    const doneHeaderInit = Array.from(document.querySelectorAll('h4.list-group-header'))
-      .find(h => h.textContent.trim() === 'Done');
-    if (doneHeaderInit) {
-      let sib = doneHeaderInit.closest('tr').nextElementSibling;
-      while (sib) {
-        const id = sib.getAttribute('data-row-id');
-        if (id) movedToDone.add(Number(id));
-        sib = sib.nextElementSibling;
-      }
-    }
+    const movedToDone = copilotDoneIds();
     const poll = () => {
       view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
         if (!resp || !resp.tasks) return;
@@ -278,20 +346,14 @@ function copilotStartRunning(btn) {
         for (const task of resp.tasks) {
           if (task.status === 'Done' && !movedToDone.has(task.id)) {
             movedToDone.add(task.id);
-            view_post(${JSON.stringify(viewname)}, 'task_row_done', {id: task.id}, (rowResp) => {
+            view_post(${JSON.stringify(
+              viewname
+            )}, 'task_row_done', {id: task.id}, (rowResp) => {
               copilotAppendDoneRow(task.id, rowResp);
             });
           } else if (task.status === 'Running') {
             hasRunning = true;
-            const row = document.querySelector('tr[data-row-id="' + task.id + '"]');
-            if (row && !row.querySelector('.task-spinner')) {
-              const runBtn = row.querySelector('[data-task-run]');
-              if (runBtn) {
-                runBtn.closest('td').innerHTML =
-                  '<span class="task-spinner" data-task-id="' + task.id + '">' +
-                  '<i class="fas fa-spinner fa-spin text-warning"></i></span>';
-              }
-            }
+            copilotShowSpinner(task.id);
           } else if (task.status !== 'Done') {
             hasPending = true;
           }
@@ -303,6 +365,7 @@ function copilotStartRunning(btn) {
           if (stopNotice) { stopNotice.remove(); stopNotice = null; }
           btn.disabled = false;
           btn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
+          if (runNextBtn) runNextBtn.style.display = '';
         }
       });
     };
@@ -623,7 +686,7 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
     return { json: { success: true } };
   }
   runNextTask(true).catch((e) => console.error("run_task error", e));
-  return { json: { reload_page: true } };
+  return { json: { success: true } };
 };
 
 const planning_status = async (
