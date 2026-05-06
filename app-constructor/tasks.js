@@ -603,9 +603,17 @@ Important view planning rules:
 * For every task that creates a view, include the exact view name in the task description. View names must be lowercase, snake_case, unique across all tasks in the plan, and descriptive enough to identify the table and purpose — for example 'packing_items_edit' rather than just 'edit'.
 
 Important user account rules:
-* The platform (Saltcorn) provides a built-in user account system with login, registration, and session management. Do NOT plan any tasks for user registration, login pages, password management, or authentication flows — these are already handled by the platform.
+* The platform (Saltcorn) provides a built-in user account system with login, registration, and session management. Do NOT plan any tasks for user registration, login pages, password management, authentication flows, or email verification — these are already handled by the platform. Users register at /auth/signup and log in at /auth/login.
 * User identity is always available as the logged-in user. Ownership fields (FK to users) are set automatically from the session; no custom logic is needed.
 * If a requirement mentions "user accounts", "secure login", "saving data per user", "user-specific data", or "sharing between users", treat it as already satisfied by the platform's built-in user system. Do not generate any task in response to such a requirement.
+
+Important home page rules:
+* Every role should land on the right page after visiting /. Plan a single task "Set home pages by role" that depends on all relevant page tasks and configures home_page_by_role for every role in one step.
+* Role IDs: public=100, user=80, staff=40, admin=1.
+* Landing/marketing page (public-facing intro): min_role must be "public". It MUST include visible links to /auth/login (Log in) and /auth/signup (Create an account). Set as home for role 100 (public).
+* If there is an admin dashboard page, set it as home for role 1 (admin).
+* If there is a dashboard or main page for regular users or staff, set it as home for role 80 (user) and/or role 40 (staff) as appropriate.
+* The "Set home pages by role" task description must list every role→page mapping explicitly, e.g.: "Set home_page_by_role: public (100) → landing, user (80) → client_dashboard, staff (40) → client_dashboard, admin (1) → admin_dashboard."
 
 Important plugin rules:
 * If multiple plugins need to be installed, combine them ALL into a single task named "Install plugins" that lists every required plugin name. Do NOT create a separate task per plugin.

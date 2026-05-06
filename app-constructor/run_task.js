@@ -58,7 +58,9 @@ Important: The database schema is already fully implemented. Do NOT use generate
 
 Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn. Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls. Only fields that exist as actual database columns (regular fields and stored calculated fields) can be written. If a calculated field needs updating, it will refresh automatically when the fields it depends on change.
 
-Important: The "users" table is built-in. Passwords are platform-managed — never add a password field to a view. Signup uses a built-in form, not an Edit view.
+Important: The "users" table is built-in. Passwords are platform-managed — never add a password field to a view. Signup uses the built-in page at /auth/signup, login at /auth/login. Do NOT create triggers for registration or email verification — the platform handles this natively.
+
+Important: To set a page as the home page for a role, use the registry editor to set the system configuration value "home_page_by_role". This is a JSON object mapping role IDs to page names. Role IDs: public=100, user=80, staff=40, admin=1. Example: to set "landing" as the home page for public visitors, set home_page_by_role to {"100": "landing"}. Read the current value first so you can merge with existing entries rather than overwriting them.
 
 Important: If the task description mentions adding a viewlink, linking rows to another view, or a button that opens another view from a list — that viewlink column MUST be present in the finished view. Do not skip it. Viewlinks require calling get_relation_paths first to obtain the relation string before generating the layout.
 
