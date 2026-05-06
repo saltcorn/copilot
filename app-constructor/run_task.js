@@ -60,11 +60,11 @@ Important: Some fields are non-stored (virtual) calculated fields — they have 
 
 Important: The "users" table is built-in. Passwords are platform-managed — never add a password field to a view. Signup uses a built-in form, not an Edit view.
 
+Important: If the task description mentions adding a viewlink, linking rows to another view, or a button that opens another view from a list — that viewlink column MUST be present in the finished view. Do not skip it. Viewlinks require calling get_relation_paths first to obtain the relation string before generating the layout.
+
 Your task now is:
 ${md.body.description}`;
-  const safeReq = req?.__
-    ? req
-    : { ...req, __: (s) => s, user: req?.user };
+  const safeReq = req?.__ ? req : { ...req, __: (s) => s, user: req?.user };
 
   await md.update({ body: { ...md.body, status: "Running" } });
   const actionres = await agent_action.runWithoutRow({
@@ -88,11 +88,11 @@ ${md.body.description}`;
   const lastText =
     typeof lastInteraction.content === "string"
       ? lastInteraction.content
-        : lastInteraction.content.text
-        ? lastInteraction.content.text
-          : Array.isArray(lastInteraction.content)
-          ? lastInteraction.content[0].text
-          : lastInteraction.content;
+      : lastInteraction.content.text
+      ? lastInteraction.content.text
+      : Array.isArray(lastInteraction.content)
+      ? lastInteraction.content[0].text
+      : lastInteraction.content;
   await MetaData.create({
     type: "CopilotConstructMgr",
     name: "progress",
