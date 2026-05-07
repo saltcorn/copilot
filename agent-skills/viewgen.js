@@ -23,6 +23,21 @@ const {
   getRelationPathsForPairs,
 } = require("../relation-paths");
 
+const collectViewLinks = (segment, out = []) => {
+  if (!segment || typeof segment !== "object") return out;
+  if (Array.isArray(segment)) {
+    segment.forEach((s) => collectViewLinks(s, out));
+    return out;
+  }
+  if (segment.type === "view_link" && segment.view) out.push(segment);
+  if (segment.above) collectViewLinks(segment.above, out);
+  if (segment.besides) collectViewLinks(segment.besides, out);
+  if (segment.contents) collectViewLinks(segment.contents, out);
+  if (Array.isArray(segment.tabs))
+    segment.tabs.forEach((t) => collectViewLinks(t?.contents, out));
+  return out;
+};
+
 const collectLayoutFieldNames = (segment, out = new Set()) => {
   if (!segment || typeof segment !== "object") return out;
   if (Array.isArray(segment)) {
@@ -129,7 +144,8 @@ class GenerateViewSkill {
       `(3) Write out the complete updated configuration JSON in full — every key from the existing config must be present, with only your targeted changes merged in.\n` +
       `(4) Call apply_view_config with that complete object. NEVER call apply_view_config before step (3) is finished. NEVER call it with only the name or a partial object — the configuration field is mandatory and must be the full merged result from step (3). Calling apply_view_config without a complete configuration is an error.\n\n` +
       `**Generating a new view that contains view_links or embedded views:**\n` +
-      `Call get_relation_paths once with all source_table/target_view pairs you need before constructing the layout.\n\n` +
+      `If the task or prompt mentions a viewlink, a link to another view, or a button that opens another view from a list row, that view_link column is REQUIRED — do not omit it. ` +
+      `You MUST call get_relation_paths with all source_table/target_view pairs before constructing the layout. Never skip this step when view_links are needed.\n\n` +
       `**Embedded view segment format (for Show layouts):**\n` +
       `  { "type": "view", "view": "<viewName>", "name": "<viewName>", "relation": "<from get_relation_paths>" }\n` +
       `Do NOT use blank text segments as placeholders — always use a real view segment with a relation string from get_relation_paths.\n\n` +
@@ -161,11 +177,16 @@ class GenerateViewSkill {
             error: `View "${name}" already exists. Use get_view_config and apply_view_config to update it.`,
           };
         const tableRow = table ? Table.findOne({ name: table }) : null;
-        const roleName = typeof min_role === "number" ? null : (min_role || "public");
+        const roleName =
+          typeof min_role === "number" ? null : min_role || "public";
         const resolvedRole =
           typeof min_role === "number"
             ? min_role
-            : ((getState().roles || []).find((r) => r.role === roleName) || { id: 100 }).id;
+            : (
+                (getState().roles || []).find((r) => r.role === roleName) || {
+                  id: 100,
+                }
+              ).id;
         await View.create({
           name,
           viewtemplate: viewpattern,
@@ -308,6 +329,21 @@ class GenerateViewSkill {
             });
             if (baseCfg?.columns) wfctx.columns = baseCfg.columns;
           }
+          if (viewpattern === "List" && wfctx.layout) {
+            // initial_config_all_fields never generates ViewLink columns — inject them from layout
+            const viewLinks = collectViewLinks(wfctx.layout);
+            const viewLinkColumns = viewLinks.map((seg) => ({
+              type: "ViewLink",
+              view: seg.view,
+              block: seg.block || false,
+              label: seg.view_label || "",
+              minRole: seg.minRole || 100,
+              ...(seg.relation ? { relation: seg.relation } : {}),
+              isFormula: seg.isFormula || {},
+            }));
+            if (viewLinkColumns.length > 0)
+              wfctx.columns = [...(wfctx.columns || []), ...viewLinkColumns];
+          }
           if (viewpattern === "Edit" && table) {
             const layoutFieldNames = collectLayoutFieldNames(wfctx.layout);
             const fields = table.fields || [];
@@ -331,7 +367,10 @@ class GenerateViewSkill {
               }
             }
             if (usersFkColumnsToAdd.length > 0)
-              wfctx.columns = [...(wfctx.columns || []), ...usersFkColumnsToAdd];
+              wfctx.columns = [
+                ...(wfctx.columns || []),
+                ...usersFkColumnsToAdd,
+              ];
             if (Object.keys(fixed).length > 0) wfctx.fixed = fixed;
             wfctx.destination_type = "Back to referer";
           }

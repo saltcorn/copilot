@@ -44,7 +44,7 @@ const requirementsList = async (req) => {
       type: "CopilotConstructMgr",
       name: "requirement",
     },
-    { orderBy: "written_at" },
+    { orderBy: "written_at" }
   );
   const starFieldview = getState().types.Integer.fieldviews.show_star_rating;
 
@@ -67,43 +67,85 @@ const requirementsList = async (req) => {
                   class: "btn btn-outline-danger btn-sm",
                   onclick: `view_post("${viewname}", "del_req", {id:${r.id}})`,
                 },
-                i({ class: "fas fa-trash-alt" }),
+                i({ class: "fas fa-trash-alt" })
               ),
           },
         ],
-        rs,
+        rs
       ),
       button(
         {
           class: "btn btn-outline-danger mb-4",
           onclick: `view_post("${viewname}", "del_all_reqs")`,
         },
-        "Delete all",
-      ),
-    );
-  } else {
-    return div(
-      { class: "mt-2" },
-      p("No requirements found"),
-      button(
-        {
-          class: "btn btn-primary",
-          onclick: `press_store_button(this);view_post("${viewname}", "gen_reqs")`,
-        },
-        "Generate requirements",
-      ),
+        "Delete all"
+      )
     );
   }
+
+  const generating = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "generating_requirements",
+  });
+  if (generating) {
+    return div(
+      { class: "mt-2" },
+      p(
+        i({ class: "fas fa-spinner fa-spin me-2" }),
+        "Generating requirements, please wait..."
+      ),
+      script(
+        domReady(`
+(function() {
+  const poll = () => {
+    view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
+      if (resp && !resp.generating) location.reload();
+      else setTimeout(poll, 3000);
+    });
+  };
+  setTimeout(poll, 3000);
+})();
+`)
+      )
+    );
+  }
+
+  return div(
+    { class: "mt-2", id: "req-gen-area" },
+    p("No requirements found"),
+    button(
+      { class: "btn btn-primary", onclick: `copilotGenReqs()` },
+      "Generate requirements"
+    ),
+    script(
+      domReady(`
+window.copilotGenReqs = () => {
+  document.getElementById('req-gen-area').innerHTML =
+    '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating requirements, please wait...</p>';
+  view_post(${JSON.stringify(viewname)}, 'gen_reqs', {}, () => {});
+  const poll = () => {
+    view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
+      if (resp && !resp.generating) location.reload();
+      else setTimeout(poll, 3000);
+    });
+  };
+  setTimeout(poll, 3000);
+};
+`)
+    )
+  );
 };
 
-const gen_reqs = async (table_id, viewname, config, body, { req, res }) => {
-  const spec = await MetaData.findOne({
+const doGenReqs = async (spec, userId) => {
+  const generatingMd = await MetaData.create({
     type: "CopilotConstructMgr",
-    name: "spec",
+    name: "generating_requirements",
+    body: {},
+    user_id: userId,
   });
-  if (!spec) throw new Error("Specification not found");
-  const answer = await getState().functions.llm_generate.run(
-    `Generate the requirements for this application:
+  try {
+    const answer = await getState().functions.llm_generate.run(
+      `Generate the requirements for this application:
 
 Description: ${spec.body.description}
 Audience: ${spec.body.audience}
@@ -113,24 +155,44 @@ Visual style: ${spec.body.visual_style}
 
 Now use the make_requirements tool to list the requirements for this software application
 `,
-    {
-      tools: [requirements_tool],
-      ...tool_choice("make_requirements"),
-      systemPrompt:
-        "You are a project manager. The user wants to build an application, and you must analyse their application description",
-    },
+      {
+        tools: [requirements_tool],
+        ...tool_choice("make_requirements"),
+        systemPrompt:
+          "You are a project manager. The user wants to build an application, and you must analyse their application description",
+      }
+    );
+    const tc = answer.getToolCalls()[0];
+    for (const reqm of tc.input.requirements)
+      await MetaData.create({
+        type: "CopilotConstructMgr",
+        name: "requirement",
+        body: reqm,
+        user_id: userId,
+      });
+  } finally {
+    await generatingMd.delete();
+  }
+};
+
+const gen_reqs = async (table_id, viewname, config, body, { req, res }) => {
+  const spec = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "spec",
+  });
+  if (!spec) throw new Error("Specification not found");
+  doGenReqs(spec, req.user?.id).catch((e) =>
+    console.error("gen_reqs error", e)
   );
+  return { json: { success: true } };
+};
 
-  const tc = answer.getToolCalls()[0];
-
-  for (const reqm of tc.input.requirements)
-    await MetaData.create({
-      type: "CopilotConstructMgr",
-      name: "requirement",
-      body: reqm,
-      user_id: req.user?.id,
-    });
-  return { json: { reload_page: true } };
+const req_status = async (table_id, viewname, config, body, { req, res }) => {
+  const generating = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "generating_requirements",
+  });
+  return { json: { generating: !!generating } };
 };
 
 const del_req = async (table_id, viewname, config, body, { req, res }) => {
@@ -151,6 +213,6 @@ const del_all_reqs = async (table_id, viewname, config, body, { req, res }) => {
   return { json: { reload_page: true } };
 };
 
-const req_routes = { gen_reqs, del_req, del_all_reqs };
+const req_routes = { gen_reqs, req_status, del_req, del_all_reqs };
 
 module.exports = { requirementsList, req_routes };

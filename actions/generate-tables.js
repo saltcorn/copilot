@@ -163,6 +163,13 @@ class GenerateTables {
             },
           },
         },
+        reused_table_names: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Names of existing tables that are already complete and require no changes. " +
+            "List them here so the caller knows which tables were reused as-is. Do NOT repeat their field definitions in the tables array.",
+        },
       },
     };
   }
@@ -201,6 +208,12 @@ class GenerateTables {
     If a table already exists, include it in the generate_tables call anyway with the fields you
     want to add or update. The system will automatically add new fields and update the settings of
     existing fields — it will not recreate or drop the table.
+
+    ## Reused tables
+
+    If an existing table is used by the application as-is (no new fields needed), do NOT repeat it
+    in the tables array. Instead, add its name to the reused_table_names array. This tells the
+    system to include it in the schema diagram without attempting to modify it.
 
     If a user requests creating a table with certain fields and the table already exists, automatically add any missing fields to that table. Do not ask the user for confirmation or prompt them again—just proceed with the table update.
 
@@ -451,6 +464,7 @@ const buildMermaidMarkup = (tables) => {
 };
 
 module.exports = GenerateTables;
+module.exports.buildMermaidMarkup = buildMermaidMarkup;
 
 /* todo
 

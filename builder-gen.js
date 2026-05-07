@@ -79,7 +79,9 @@ only use "show_with_html" when the task explicitly requires rendering HTML conte
 
 const LISTCOLUMNS_VIEW_LINK = `\
 A view_link that opens the detail of a row MUST point to a Show-type view (viewtemplate "Show"). \
-Only include such a view_link if a Show view for this table is listed in the available views.`;
+Only include such a view_link if a Show view for this table is listed in the available views. \
+Every view_link requires a "relation" string — you MUST call get_relation_paths before generating the layout \
+whenever the layout will contain any view_link or embedded view segment.`;
 
 // ── Composed MODE_GUIDANCE ────────────────────────────────────────────────────
 
@@ -805,7 +807,8 @@ const normalizeSegment = (segment, ctx) => {
       let viewLabel = clone.view_label || clone.view;
       let isFormula = clone.isFormula || {};
       const tmplMatch =
-        typeof viewLabel === "string" && viewLabel.match(/^\{\{\s*(.+?)\s*\}\}$/);
+        typeof viewLabel === "string" &&
+        viewLabel.match(/^\{\{\s*(.+?)\s*\}\}$/);
       if (tmplMatch) {
         viewLabel = tmplMatch[1];
         isFormula = { ...isFormula, label: true };
@@ -843,7 +846,9 @@ const normalizeSegment = (segment, ctx) => {
         child == null ? null : normalizeSegment(child, ctx)
       );
       if (!besides.some(Boolean)) return null;
-      return { ...clone, besides, list_columns: true };
+      // Drop 'type' — List viewtemplate expects { besides, list_columns: true } with no type field
+      const { type: _t, ...rest } = clone;
+      return { ...rest, besides, list_columns: true };
     }
     case "list_column": {
       let raw = clone.contents;
@@ -961,7 +966,21 @@ const normalizeLayoutCandidate = (candidate, ctx) => {
     normalized = convertForeignLayout(candidate, ctx);
   }
   if (!normalized) return null;
-  const layout = Array.isArray(normalized) ? { above: normalized } : normalized;
+  let layout = Array.isArray(normalized) ? { above: normalized } : normalized;
+
+  // For listcolumns mode: if the LLM wrapped the list in a stack, unwrap it
+  if (
+    ctx.mode === "listcolumns" &&
+    layout.type === "stack" &&
+    Array.isArray(layout.above)
+  ) {
+    const listChild = layout.above.find((c) => c?.list_columns);
+    if (listChild) {
+      const { type: _t, ...rest } = listChild;
+      layout = rest;
+    }
+  }
+
   return sanitizeNoHtmlSegments(layout);
 };
 
@@ -999,6 +1018,11 @@ const buildPromptText = (userPrompt, ctx, schema) => {
     `Here is the strict Saltcorn layout JSON schema you MUST follow to construct the layout. Do not deviate from these definitions:\n${JSON.stringify(
       schema
     )}`
+  );
+  parts.push(
+    `TOOL CALL REQUIRED: If the layout you are about to generate contains any view_link or embedded view (type "view") segment, ` +
+      `you MUST call get_relation_paths with all required source_table/target_view pairs BEFORE returning JSON. ` +
+      `Do NOT guess or omit the "relation" field — return the tool call first and use the result in the layout.`
   );
   parts.push(
     `Based on the schema above, process the following user request and generate the layout JSON. Reminder: ONLY output valid JSON starting with { and ending with }, no markdown fences.\nUser request:\n"${userPrompt}"`
@@ -1220,7 +1244,6 @@ const buildBracketObject = (node) => {
   return obj;
 };
 
-
 const buildContext = async (mode, tableName) => {
   const normalizedMode = (mode || "show").toLowerCase();
   const ctx = {
@@ -1400,16 +1423,19 @@ const buildErrorLayout = ({ message, mode, table }) => {
   };
 };
 
-const GET_RELATION_PATHS_TOOL = { type: "function", function: GET_RELATION_PATHS_FUNCTION };
+const GET_RELATION_PATHS_TOOL = {
+  type: "function",
+  function: GET_RELATION_PATHS_FUNCTION,
+};
 
 /**
- * Run the LLM giving it one opportunity to call get_relation_paths before
- * producing the final layout JSON. Returns the final text response.
+ * Run the LLM allowing up to MAX_TOOL_ROUNDS get_relation_paths calls (depth
+ * escalation: 2 → 4 → 6) before producing the final layout JSON.
  */
+const MAX_TOOL_ROUNDS = 4;
 const runWithRelationTools = async (llm, mainPrompt, opts) => {
   const llm_add_message = getState().functions.llm_add_message;
 
-  // Local chat copy with the main prompt pre-loaded so all iterations see it.
   const runChat = Array.isArray(opts.chat) ? [...opts.chat] : [];
   runChat.push({ role: "user", content: mainPrompt });
 
@@ -1418,35 +1444,54 @@ const runWithRelationTools = async (llm, mainPrompt, opts) => {
   delete toolOpts.response_format;
   delete toolOpts.chat;
 
-  // Call 1: model either returns JSON directly or calls get_relation_paths.
-  const raw = await llm.run(null, { ...toolOpts, chat: runChat });
-  if (!raw?.hasToolCalls) {
-    return typeof raw === "string" ? raw : raw?.content ?? "";
-  }
-
-  // Append the assistant message so call 2 has full context.
-  if (raw.ai_sdk && Array.isArray(raw.messages)) {
-    raw.messages.filter((m) => m.role === "assistant").forEach((m) => runChat.push(m));
-  } else if (raw.tool_calls) {
-    runChat.push({ role: "assistant", content: raw.content || null, tool_calls: raw.tool_calls });
-  }
-
-  // Resolve the tool call(s) and push results.
   const schemaData = await build_schema_data();
-  for (const tc of raw.getToolCalls()) {
-    let resultText;
-    if (tc.tool_name === "get_relation_paths") {
-      const sections = getRelationPathsForPairs(tc.input.pairs || [], schemaData);
-      resultText =
-        sections.join("\n\n") +
-        `\n\nSet the "relation" property to one of the strings listed above for each view_link.`;
-    } else {
-      resultText = `Unknown tool: ${tc.tool_name}`;
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const raw = await llm.run(null, { ...toolOpts, chat: runChat });
+
+    if (!raw?.hasToolCalls) {
+      return typeof raw === "string" ? raw : raw?.content ?? "";
     }
-    await llm_add_message.run("tool_response", resultText, { chat: runChat, tool_call: tc });
+
+    // Append the assistant message so the next round has full context.
+    if (raw.ai_sdk && Array.isArray(raw.messages)) {
+      raw.messages
+        .filter((m) => m.role === "assistant")
+        .forEach((m) => runChat.push(m));
+    } else if (raw.tool_calls) {
+      runChat.push({
+        role: "assistant",
+        content: raw.content || null,
+        tool_calls: raw.tool_calls,
+      });
+    }
+
+    for (const tc of raw.getToolCalls()) {
+      let resultText;
+      if (tc.tool_name === "get_relation_paths") {
+        const maxDepth = tc.input.max_depth ?? 2;
+        const sections = getRelationPathsForPairs(
+          tc.input.pairs || [],
+          schemaData,
+          maxDepth
+        );
+        resultText =
+          sections.join("\n\n") +
+          `\n\nFor each pair above: analyse whether the listed paths include a suitable one for the intended relation type (ChildList, ParentShow, Own, etc.). ` +
+          `If a suitable path exists, set the "relation" property to the chosen path string for all types including Own. ` +
+          `If no suitable path exists for a pair (no paths listed, or none match the intended type), call get_relation_paths again with a higher max_depth (4, then 6). ` +
+          `Do not escalate just because multiple paths are listed — only escalate when none is appropriate.`;
+      } else {
+        resultText = `Unknown tool: ${tc.tool_name}`;
+      }
+      await llm_add_message.run("tool_response", resultText, {
+        chat: runChat,
+        tool_call: tc,
+      });
+    }
   }
 
-  // Call 2: model has relation paths, now generates the layout JSON.
+  // Exhausted tool rounds — force final JSON answer.
   const final = await llm.run(null, { ...opts, chat: runChat });
   return typeof final === "string" ? final : final?.content ?? "";
 };

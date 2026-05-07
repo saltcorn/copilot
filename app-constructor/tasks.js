@@ -34,6 +34,8 @@ const {
   small,
   a,
   textarea,
+  tr,
+  td,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
@@ -46,6 +48,37 @@ const {
   existing_entities_list,
   available_plugins_list,
 } = require("./prompts");
+
+const doneTaskRowHtml = (task) =>
+  tr(
+    { "data-row-id": task.id },
+    td(task.body.name || ""),
+    td(task.body.description || ""),
+    td((task.body.depends_on || []).join(", ")),
+    td(task.body.priority || ""),
+    td("Done"),
+    td(
+      task.body.run_id
+        ? a(
+            {
+              target: "_blank",
+              href: `/view/Saltcorn%20Agent%20copilot?run_id=${task.body.run_id}`,
+            },
+            i({ class: "fas fa-external-link-alt" })
+          )
+        : ""
+    ),
+    td(""),
+    td(
+      button(
+        {
+          class: "btn btn-outline-danger btn-sm",
+          onclick: `view_post("${viewname}", "del_task", {id:${task.id}})`,
+        },
+        i({ class: "fas fa-trash-alt" })
+      )
+    )
+  );
 
 const makeTaskList = async (req) => {
   const rs = await MetaData.find(
@@ -60,6 +93,7 @@ const makeTaskList = async (req) => {
     name: "settings",
   });
   const running = !!settings?.body?.running;
+  const stopping = !running && rs.some((t) => t.body.status === "Running");
   const status = div(
     running ? "Currently running" : "Currently not running",
     running
@@ -73,22 +107,46 @@ const makeTaskList = async (req) => {
         )
       : button(
           {
+            id: "copilot-start-btn",
             class: "btn btn-success ms-2",
-            onclick: `view_post("${viewname}", "start", {})`,
+            ...(stopping
+              ? { disabled: true }
+              : { onclick: `copilotStartRunning(this)` }),
           },
-          i({ class: "fas fa-play me-1" }),
-          "Start running now"
+          stopping
+            ? i({ class: "fas fa-spinner fa-spin me-1" })
+            : i({ class: "fas fa-play me-1" }),
+          stopping ? "Running..." : "Start running now"
         ),
+    stopping &&
+      span(
+        {
+          id: "copilot-stop-notice",
+          class:
+            "alert alert-warning alert-dismissible d-inline-block ms-2 py-1 px-2 mb-0",
+          style: "font-size:0.875rem",
+        },
+        button({
+          type: "button",
+          class: "btn-close btn-sm",
+          "data-bs-dismiss": "alert",
+        }),
+        "The current task will complete, then the queue stops. No new tasks will be started."
+      ),
     button(
       {
+        id: "copilot-run-next-btn",
         class: "btn btn-outline-success ms-2",
-        onclick: `press_store_button(this);view_post("${viewname}", "run_task", {})`,
+        style: running || stopping ? "display:none" : "",
+        onclick: `copilotRunNext(this)`,
       },
       i({ class: "fas fa-play me-1" }),
       "Run next task"
     )
   );
   if (rs.length) {
+    const runningOnLoad =
+      !stopping && rs.some((t) => t.body.status === "Running");
     return div(
       { class: "mt-2" },
       status,
@@ -126,7 +184,8 @@ const makeTaskList = async (req) => {
                 : button(
                     {
                       class: "btn btn-outline-success btn-sm",
-                      onclick: `press_store_button(this);view_post("${viewname}", "run_task", {id:${r.id}})`,
+                      "data-task-run": r.id,
+                      onclick: `copilotRunTask(this,${r.id})`,
                     },
                     i({ class: "fas fa-play" })
                   ),
@@ -159,31 +218,238 @@ const makeTaskList = async (req) => {
         ],
         {
           "To do": rs.filter(
-            (t) => !t.body.status || t.body.status === "To do"
+            (t) =>
+              !t.body.status ||
+              t.body.status === "To do" ||
+              t.body.status === "Running"
           ),
-          Running: rs.filter((t) => t.body.status === "Running"),
           Done: rs.filter((t) => t.body.status === "Done"),
         },
         { grouped: true }
       ),
-      rs.some((t) => t.body.status === "Running")
-        ? script(
-            domReady(`
-(function() {
-  function pollTasks() {
-    var spinners = document.querySelectorAll('.task-spinner[data-task-id]');
-    if (!spinners.length) return;
-    var ids = Array.from(spinners).map(function(el) { return el.getAttribute('data-task-id'); });
-    view_post(${JSON.stringify(
-      viewname
-    )}, 'task_status', { ids: ids }, function(resp) {
-      if (resp && resp.any_done) {
-        location.reload();
+      script(`
+function copilotInitStopping() {
+  const startBtn = document.getElementById('copilot-start-btn');
+  const noticeEl = document.getElementById('copilot-stop-notice');
+  const runNextBtn = document.getElementById('copilot-run-next-btn');
+  const movedToDone = copilotDoneIds();
+  const poll = () => {
+    view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
+      if (!resp || !resp.tasks) return;
+      let hasRunning = false;
+      for (const task of resp.tasks) {
+        if (task.status === 'Done' && !movedToDone.has(task.id)) {
+          movedToDone.add(task.id);
+          view_post(${JSON.stringify(
+            viewname
+          )}, 'task_row_done', {id: task.id}, (rowResp) => {
+            copilotAppendDoneRow(task.id, rowResp);
+          });
+        } else if (task.status === 'Running') {
+          hasRunning = true;
+          copilotShowSpinner(task.id);
+        }
+      }
+      if (hasRunning) {
+        setTimeout(poll, 3000);
       } else {
-        setTimeout(pollTasks, 3000);
+        if (noticeEl) noticeEl.remove();
+        if (startBtn) {
+          startBtn.disabled = false;
+          startBtn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
+          startBtn.onclick = () => copilotStartRunning(startBtn);
+        }
+        if (runNextBtn) runNextBtn.style.display = '';
       }
     });
+  };
+  setTimeout(poll, 1000);
+}
+
+function copilotAppendDoneRow(taskId, rowResp) {
+  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+  if (row) row.remove();
+  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
+    .find(h => h.textContent.trim() === 'Done');
+  if (doneHeader && rowResp && rowResp.html) {
+    const tbody = doneHeader.closest('tr').parentNode;
+    const tmp = document.createElement('tbody');
+    tmp.innerHTML = rowResp.html;
+    tbody.appendChild(tmp.firstChild);
   }
+}
+
+function copilotRunTask(btn, taskId) {
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  btn.disabled = true;
+  view_post(${JSON.stringify(viewname)}, 'run_task', {id: taskId}, () => {
+    const poll = () => {
+      view_post(${JSON.stringify(
+        viewname
+      )}, 'task_status', {ids: [String(taskId)]}, (resp) => {
+        if (resp && resp.any_done) {
+          view_post(${JSON.stringify(
+            viewname
+          )}, 'task_row_done', {id: taskId}, (rowResp) => {
+            copilotAppendDoneRow(taskId, rowResp);
+          });
+        } else {
+          setTimeout(poll, 3000);
+        }
+      });
+    };
+    setTimeout(poll, 3000);
+  });
+}
+
+function copilotDoneIds() {
+  const ids = new Set();
+  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
+    .find(h => h.textContent.trim() === 'Done');
+  if (doneHeader) {
+    let sib = doneHeader.closest('tr').nextElementSibling;
+    while (sib) {
+      const id = sib.getAttribute('data-row-id');
+      if (id) ids.add(Number(id));
+      sib = sib.nextElementSibling;
+    }
+  }
+  return ids;
+}
+
+function copilotShowSpinner(taskId) {
+  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+  if (row && !row.querySelector('.task-spinner')) {
+    const runBtn = row.querySelector('[data-task-run]');
+    if (runBtn) {
+      runBtn.closest('td').innerHTML =
+        '<span class="task-spinner" data-task-id="' + taskId + '">' +
+        '<i class="fas fa-spinner fa-spin text-warning"></i></span>';
+    }
+  }
+}
+
+function copilotRunNext(btn) {
+  btn.disabled = true;
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
+  const firstRunBtn = document.querySelector('[data-task-run]');
+  const optimisticId = firstRunBtn ? Number(firstRunBtn.getAttribute('data-task-run')) : null;
+  if (optimisticId) copilotShowSpinner(optimisticId);
+  const movedToDone = copilotDoneIds();
+  view_post(${JSON.stringify(viewname)}, 'run_task', {}, () => {
+    const poll = () => {
+      view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
+        if (!resp || !resp.tasks) return;
+        let hasRunning = false;
+        const runningIds = new Set(resp.tasks.filter(t => t.status === 'Running').map(t => t.id));
+        if (optimisticId && !runningIds.has(optimisticId) && !movedToDone.has(optimisticId)) {
+          const staleRow = document.querySelector('tr[data-row-id="' + optimisticId + '"]');
+          const staleSpinner = staleRow?.querySelector('.task-spinner');
+          if (staleSpinner) staleSpinner.closest('td').innerHTML =
+            '<button class="btn btn-outline-success btn-sm" data-task-run="' + optimisticId + '" onclick="copilotRunTask(this,' + optimisticId + ')"><i class="fas fa-play"></i></button>';
+        }
+        for (const task of resp.tasks) {
+          if (task.status === 'Done' && !movedToDone.has(task.id)) {
+            movedToDone.add(task.id);
+            view_post(${JSON.stringify(
+              viewname
+            )}, 'task_row_done', {id: task.id}, (rowResp) => {
+              copilotAppendDoneRow(task.id, rowResp);
+            });
+          } else if (task.status === 'Running') {
+            hasRunning = true;
+            copilotShowSpinner(task.id);
+          }
+        }
+        if (hasRunning) setTimeout(poll, 3000);
+        else {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+        }
+      });
+    };
+    setTimeout(poll, 500);
+  });
+}
+
+function copilotStartRunning(btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
+  const runNextBtn = document.getElementById('copilot-run-next-btn');
+  if (runNextBtn) runNextBtn.style.display = 'none';
+  let stopped = false;
+  let stopNotice = null;
+  const stopBtn = document.createElement('button');
+  stopBtn.className = 'btn btn-danger ms-2';
+  stopBtn.innerHTML = '<i class="fas fa-stop me-1"></i>Stop';
+  stopBtn.onclick = () => {
+    stopped = true;
+    stopBtn.disabled = true;
+    view_post(${JSON.stringify(viewname)}, 'stop', {});
+    if (document.querySelector('.task-spinner') && !stopNotice) {
+      stopNotice = document.createElement('div');
+      stopNotice.className = 'alert alert-warning alert-dismissible d-inline-block ms-2 py-1 px-2 mb-0';
+      stopNotice.style.fontSize = '0.875rem';
+      stopNotice.innerHTML =
+        '<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>' +
+        'The current task will complete, then the queue stops. No new tasks will be started.';
+      stopBtn.insertAdjacentElement('afterend', stopNotice);
+    }
+  };
+  btn.insertAdjacentElement('afterend', stopBtn);
+  view_post(${JSON.stringify(viewname)}, 'start', {}, () => {
+    const movedToDone = copilotDoneIds();
+    const poll = () => {
+      view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
+        if (!resp || !resp.tasks) return;
+        let hasPending = false;
+        let hasRunning = false;
+        for (const task of resp.tasks) {
+          if (task.status === 'Done' && !movedToDone.has(task.id)) {
+            movedToDone.add(task.id);
+            view_post(${JSON.stringify(
+              viewname
+            )}, 'task_row_done', {id: task.id}, (rowResp) => {
+              copilotAppendDoneRow(task.id, rowResp);
+            });
+          } else if (task.status === 'Running') {
+            hasRunning = true;
+            copilotShowSpinner(task.id);
+          } else if (task.status !== 'Done') {
+            hasPending = true;
+          }
+        }
+        if (hasRunning || (!stopped && hasPending)) {
+          setTimeout(poll, 3000);
+        } else {
+          stopBtn.remove();
+          if (stopNotice) { stopNotice.remove(); stopNotice = null; }
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
+          if (runNextBtn) runNextBtn.style.display = '';
+        }
+      });
+    };
+    setTimeout(poll, 1000);
+  });
+}
+`),
+      stopping
+        ? script(domReady(`copilotInitStopping();`))
+        : runningOnLoad
+        ? script(
+            domReady(`
+(() => {
+  const pollTasks = () => {
+    const spinners = document.querySelectorAll('.task-spinner[data-task-id]');
+    if (!spinners.length) return;
+    const ids = Array.from(spinners).map(el => el.getAttribute('data-task-id'));
+    view_post(${JSON.stringify(viewname)}, 'task_status', {ids}, (resp) => {
+      if (resp && resp.any_done) location.reload();
+      else setTimeout(pollTasks, 3000);
+    });
+  };
   setTimeout(pollTasks, 3000);
 })();
 `)
@@ -337,9 +603,17 @@ Important view planning rules:
 * For every task that creates a view, include the exact view name in the task description. View names must be lowercase, snake_case, unique across all tasks in the plan, and descriptive enough to identify the table and purpose — for example 'packing_items_edit' rather than just 'edit'.
 
 Important user account rules:
-* The platform (Saltcorn) provides a built-in user account system with login, registration, and session management. Do NOT plan any tasks for user registration, login pages, password management, or authentication flows — these are already handled by the platform.
+* The platform (Saltcorn) provides a built-in user account system with login, registration, and session management. Do NOT plan any tasks for user registration, login pages, password management, authentication flows, or email verification — these are already handled by the platform. Users register at /auth/signup and log in at /auth/login.
 * User identity is always available as the logged-in user. Ownership fields (FK to users) are set automatically from the session; no custom logic is needed.
 * If a requirement mentions "user accounts", "secure login", "saving data per user", "user-specific data", or "sharing between users", treat it as already satisfied by the platform's built-in user system. Do not generate any task in response to such a requirement.
+
+Important home page rules:
+* Every role should land on the right page after visiting /. Plan a single task "Set home pages by role" that depends on all relevant page tasks and configures home_page_by_role for every role in one step.
+* Role IDs: public=100, user=80, staff=40, admin=1.
+* Landing/marketing page (public-facing intro): min_role must be "public". It MUST include visible links to /auth/login (Log in) and /auth/signup (Create an account). Set as home for role 100 (public).
+* If there is an admin dashboard page, set it as home for role 1 (admin).
+* If there is a dashboard or main page for regular users or staff, set it as home for role 80 (user) and/or role 40 (staff) as appropriate.
+* The "Set home pages by role" task description must list every role→page mapping explicitly, e.g.: "Set home_page_by_role: public (100) → landing, user (80) → client_dashboard, staff (40) → client_dashboard, admin (1) → admin_dashboard."
 
 Important plugin rules:
 * If multiple plugins need to be installed, combine them ALL into a single task named "Install plugins" that lists every required plugin name. Do NOT create a separate task per plugin.
@@ -477,12 +751,14 @@ const del_task = async (table_id, viewname, config, body, { req, res }) => {
 };
 const run_task = async (table_id, viewname, config, body, { req, res }) => {
   const reqUser = req?.user;
-  if (body.id)
+  if (body.id) {
     runTask(body.id, { user: reqUser, __: req.__ }).catch((e) =>
       console.error("run_task error", e)
     );
-  else runNextTask(true).catch((e) => console.error("run_task error", e));
-  return { json: { reload_page: true } };
+    return { json: { success: true } };
+  }
+  runNextTask(true).catch((e) => console.error("run_task error", e));
+  return { json: { success: true } };
 };
 
 const planning_status = async (
@@ -497,6 +773,34 @@ const planning_status = async (
     name: "planning",
   });
   return { json: { planning: !!planning } };
+};
+
+const tasks_poll = async (table_id, viewname, config, body, { req, res }) => {
+  const tasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  return {
+    json: {
+      tasks: tasks.map((t) => ({
+        id: t.id,
+        status: t.body.status || "To do",
+        run_id: t.body.run_id,
+      })),
+    },
+  };
+};
+
+const task_row_done = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
+  const task = await MetaData.findOne({ id: body.id });
+  if (!task) return { json: { html: "" } };
+  return { json: { html: doneTaskRowHtml(task) } };
 };
 
 const task_status = async (table_id, viewname, config, body, { req, res }) => {
@@ -524,7 +828,7 @@ const start = async (table_id, viewname, config, body, { req, res }) => {
       body: { running: true },
     });
   runNextTask().catch((e) => console.error("start error", e));
-  return { json: { reload_page: true } };
+  return { json: { success: true } };
 };
 const stop = async (table_id, viewname, config, body, { req, res }) => {
   const settings = await MetaData.findOne({
@@ -539,7 +843,7 @@ const stop = async (table_id, viewname, config, body, { req, res }) => {
       name: "settings",
       body: { running: false },
     });
-  return { json: { reload_page: true } };
+  return { json: { success: true } };
 };
 
 const mark_done_task = async (
@@ -578,6 +882,8 @@ const task_routes = {
   run_task,
   planning_status,
   task_status,
+  tasks_poll,
+  task_row_done,
   start,
   stop,
 };

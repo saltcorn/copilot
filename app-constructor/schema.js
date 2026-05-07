@@ -39,6 +39,7 @@ const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
 const { saltcorn_description, existing_tables_list } = require("./prompts");
 const GenerateTables = require("../actions/generate-tables");
+const { buildMermaidMarkup } = GenerateTables;
 const GenerateTablesSkill = require("../agent-skills/database-design");
 
 const showSchema = async (req) => {
@@ -48,14 +49,43 @@ const showSchema = async (req) => {
   });
 
   if (schema) {
-    const preview = GenerateTables.render_html(
-      { tables: schema.body.tables },
-      true
+    const newTableDefs = schema.body.tables || [];
+    const newTableInstances = GenerateTables.process_tables(newTableDefs);
+    const reusedMd = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: "reused_schema",
+    });
+    const reusedNames = reusedMd?.body?.table_names || [];
+    const reusedInstances = reusedNames
+      .map((n) => Table.findOne({ name: n }))
+      .filter(Boolean);
+    const allTables = [...newTableInstances, ...reusedInstances];
+    const mmdia = buildMermaidMarkup(allTables);
+    const preview = pre({ class: "mermaid", "mm-src": mmdia });
+
+    const newNames = newTableDefs.map((t) => t.table_name).filter(Boolean);
+    const legend = div(
+      { class: "mt-3 d-flex flex-wrap gap-3 align-items-start" },
+      newNames.length
+        ? div(
+            { class: "d-flex flex-wrap align-items-center gap-1" },
+            span({ class: "me-1 text-muted small" }, "Will be created:"),
+            ...newNames.map((n) => span({ class: "badge bg-success" }, n))
+          )
+        : "",
+      reusedNames.length
+        ? div(
+            { class: "d-flex flex-wrap align-items-center gap-1" },
+            span({ class: "me-1 text-muted small" }, "Already exists:"),
+            ...reusedNames.map((n) => span({ class: "badge bg-secondary" }, n))
+          )
+        : ""
     );
 
     return div(
       { class: "mt-2" },
       preview,
+      !schema.body.implemented && legend,
       !schema.body.implemented &&
         div(
           { class: "mb-4 d-block mt-3" },
@@ -75,18 +105,133 @@ const showSchema = async (req) => {
           )
         )
     );
-  } else {
+  }
+
+  const generating = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "generating_schema",
+  });
+  if (generating) {
     return div(
       { class: "mt-2" },
-      p("Schema not found"),
-      button(
-        {
-          class: "btn btn-primary",
-          onclick: `press_store_button(this);view_post("${viewname}", "gen_schema")`,
-        },
-        "Generate schema"
+      p(
+        i({ class: "fas fa-spinner fa-spin me-2" }),
+        "Generating schema, please wait..."
+      ),
+      script(
+        domReady(`
+(function() {
+  function poll() {
+    view_post(${JSON.stringify(viewname)}, 'schema_status', {}, function(resp) {
+      if (resp && !resp.generating) location.reload();
+      else setTimeout(poll, 3000);
+    });
+  }
+  setTimeout(poll, 3000);
+})();
+`)
       )
     );
+  }
+
+  return div(
+    { class: "mt-2", id: "schema-gen-area" },
+    p("Schema not found"),
+    button(
+      { class: "btn btn-primary", onclick: `copilotGenSchema()` },
+      "Generate schema"
+    ),
+    script(
+      domReady(`
+window.copilotGenSchema = () => {
+  document.getElementById('schema-gen-area').innerHTML =
+    '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating schema, please wait...</p>';
+  view_post(${JSON.stringify(viewname)}, 'gen_schema', {}, () => {});
+  const poll = () => {
+    view_post(${JSON.stringify(viewname)}, 'schema_status', {}, (resp) => {
+      if (resp && !resp.generating) location.reload();
+      else setTimeout(poll, 3000);
+    });
+  };
+  setTimeout(poll, 3000);
+};
+`)
+    )
+  );
+};
+
+const doGenSchema = async (spec, rs, userId) => {
+  const generatingMd = await MetaData.create({
+    type: "CopilotConstructMgr",
+    name: "generating_schema",
+    body: {},
+    user_id: userId,
+  });
+  try {
+    const databaseDesignTool = new GenerateTablesSkill({}).provideTools();
+    const existing_tables = await Table.find({});
+    const answer = await getState().functions.llm_generate.run(
+      `Generate the database schema for this application:
+
+Description: ${spec.body.description}
+Audience: ${spec.body.audience}
+Core features: ${spec.body.core_features}
+Out of scope: ${spec.body.out_of_scope}
+Visual style: ${spec.body.visual_style}
+
+These are the requirements of the application:
+
+${rs.map((r) => `* ${r.body.requirement}`).join("\n")}
+
+${saltcorn_description}
+
+${existing_tables_list(existing_tables)}
+
+Design a complete database schema that covers ALL requirements listed above. Every distinct entity in the application must have its own table. Do not produce a minimal or partial schema — all tables needed to implement every requirement must be included in this single call. Do not leave any tables for a later step.
+
+The tables listed above already exist in the database. Do NOT modify or extend them — treat them as fixed. Handle them as follows:
+- If an existing table is already complete and used as-is: add its name to reused_table_names. Do NOT define its fields again in the tables array.
+- New tables not yet in the database: include them in the tables array with all their fields as usual.
+
+For every field that must be unique (e.g. unique email, unique slug, unique combination keys expressed as individual unique fields), set unique=true on that field.
+For every field that must not be empty, set not_null=true.
+Do NOT leave uniqueness or required constraints for a later step — express them fully in this schema.
+
+Note: ownership configuration (automatically populating a FK-to-users field from the logged-in user) is a VIEW-level concern and cannot be expressed in the schema. Do not attempt to annotate fields as "ownership fields" here — simply define the foreign key field normally. Ownership will be configured when the Edit views are generated.
+
+Now use the ${
+        databaseDesignTool.function.name
+      } tool to generate the complete database schema for this software application
+`,
+      {
+        tools: [databaseDesignTool],
+        ...tool_choice(databaseDesignTool.function.name),
+        systemPrompt:
+          "You are a database designer. The user wants to build an application, and you must analyse their application description and requirements and design a complete schema. Every entity needed by any requirement must have its own table. Never produce a partial schema.",
+      }
+    );
+
+    const tc = answer.getToolCalls()[0];
+
+    const noNewTables = !tc.input.tables || tc.input.tables.length === 0;
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: "schema",
+      body: { tables: tc.input.tables || [], implemented: noNewTables },
+      user_id: userId,
+    });
+
+    const reusedNames = tc.input.reused_table_names || [];
+    if (reusedNames.length) {
+      await MetaData.create({
+        type: "CopilotConstructMgr",
+        name: "reused_schema",
+        body: { table_names: reusedNames },
+        user_id: userId,
+      });
+    }
+  } finally {
+    await generatingMd.delete();
   }
 };
 
@@ -102,64 +247,31 @@ const gen_schema = async (table_id, viewname, config, body, { req, res }) => {
   });
   if (!rs.length) throw new Error("No requirements found");
 
-  const databaseDesignTool = new GenerateTablesSkill({}).provideTools();
-  const existing_tables = await Table.find({});
-  const answer = await getState().functions.llm_generate.run(
-    `Generate the database schema for this application:
-
-Description: ${spec.body.description}
-Audience: ${spec.body.audience}
-Core features: ${spec.body.core_features}
-Out of scope: ${spec.body.out_of_scope}
-Visual style: ${spec.body.visual_style}
-
-These are the requirements of the application: 
-
-${rs.map((r) => `* ${r.body.requirement}`).join("\n")}
-
-${saltcorn_description}
-
-${existing_tables_list(existing_tables)}
-
-Design a complete database schema that covers ALL requirements listed above. Every distinct entity in the application must have its own table. Do not produce a minimal or partial schema — all tables needed to implement every requirement must be included in this single call. Do not leave any tables for a later step.
-
-The tables listed above are already implemented in the database — include them in the schema as-is so the full data model is visible, but do not change their fields. Only add new tables for entities not yet covered. The implementation step will skip any table whose name already exists.
-
-For every field that must be unique (e.g. unique email, unique slug, unique combination keys expressed as individual unique fields), set unique=true on that field.
-For every field that must not be empty, set not_null=true.
-Do NOT leave uniqueness or required constraints for a later step — express them fully in this schema.
-
-Note: ownership configuration (automatically populating a FK-to-users field from the logged-in user) is a VIEW-level concern and cannot be expressed in the schema. Do not attempt to annotate fields as "ownership fields" here — simply define the foreign key field normally. Ownership will be configured when the Edit views are generated.
-
-Now use the ${
-      databaseDesignTool.function.name
-    } tool to generate the complete database schema for this software application
-`,
-    {
-      tools: [databaseDesignTool],
-      ...tool_choice(databaseDesignTool.function.name),
-      systemPrompt:
-        "You are a database designer. The user wants to build an application, and you must analyse their application description and requirements and design a complete schema. Every entity needed by any requirement must have its own table. Never produce a partial schema.",
-    }
+  doGenSchema(spec, rs, req.user?.id).catch((e) =>
+    console.error("gen_schema error", e)
   );
+  return { json: { success: true } };
+};
 
-  const tc = answer.getToolCalls()[0];
-
-  await MetaData.create({
+const schema_status = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
+  const generating = await MetaData.findOne({
     type: "CopilotConstructMgr",
-    name: "schema",
-    body: { tables: tc.input.tables, implemented: false },
-    user_id: req.user?.id,
+    name: "generating_schema",
   });
-  return { json: { reload_page: true } };
+  return { json: { generating: !!generating } };
 };
 
 const del_schema = async (table_id, viewname, config, body, { req, res }) => {
-  const rs = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "schema",
-  });
-  for (const r of rs) await r.delete();
+  for (const name of ["schema", "reused_schema", "generating_schema"]) {
+    const rs = await MetaData.find({ type: "CopilotConstructMgr", name });
+    for (const r of rs) await r.delete();
+  }
   return { json: { reload_page: true } };
 };
 
@@ -194,6 +306,11 @@ const implement_schema = async (
   return { json: { reload_page: true } };
 };
 
-const schema_routes = { gen_schema, del_schema, implement_schema };
+const schema_routes = {
+  gen_schema,
+  schema_status,
+  del_schema,
+  implement_schema,
+};
 
 module.exports = { showSchema, schema_routes };
