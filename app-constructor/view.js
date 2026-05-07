@@ -159,6 +159,13 @@ const submit_specs = async (table_id, viewname, config, body, { req, res }) => {
       user_id: req.user?.id || undefined,
       body: spec,
     });
+  return {
+    json: {
+      success: "ok",
+      notify: "Specification saved",
+      notify_type: "success",
+    },
+  };
 };
 
 const virtual_triggers = () => {
