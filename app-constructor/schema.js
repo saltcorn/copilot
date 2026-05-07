@@ -70,18 +70,14 @@ const showSchema = async (req) => {
         ? div(
             { class: "d-flex flex-wrap align-items-center gap-1" },
             span({ class: "me-1 text-muted small" }, "Will be created:"),
-            ...newNames.map((n) =>
-              span({ class: "badge bg-success" }, n)
-            )
+            ...newNames.map((n) => span({ class: "badge bg-success" }, n))
           )
         : "",
       reusedNames.length
         ? div(
             { class: "d-flex flex-wrap align-items-center gap-1" },
             span({ class: "me-1 text-muted small" }, "Already exists:"),
-            ...reusedNames.map((n) =>
-              span({ class: "badge bg-secondary" }, n)
-            )
+            ...reusedNames.map((n) => span({ class: "badge bg-secondary" }, n))
           )
         : ""
     );
@@ -139,14 +135,27 @@ const showSchema = async (req) => {
   }
 
   return div(
-    { class: "mt-2" },
+    { class: "mt-2", id: "schema-gen-area" },
     p("Schema not found"),
     button(
-      {
-        class: "btn btn-primary",
-        onclick: `press_store_button(this);view_post("${viewname}", "gen_schema")`,
-      },
+      { class: "btn btn-primary", onclick: `copilotGenSchema()` },
       "Generate schema"
+    ),
+    script(
+      domReady(`
+window.copilotGenSchema = () => {
+  document.getElementById('schema-gen-area').innerHTML =
+    '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating schema, please wait...</p>';
+  view_post(${JSON.stringify(viewname)}, 'gen_schema', {}, () => {});
+  const poll = () => {
+    view_post(${JSON.stringify(viewname)}, 'schema_status', {}, (resp) => {
+      if (resp && !resp.generating) location.reload();
+      else setTimeout(poll, 3000);
+    });
+  };
+  setTimeout(poll, 3000);
+};
+`)
     )
   );
 };
@@ -241,7 +250,7 @@ const gen_schema = async (table_id, viewname, config, body, { req, res }) => {
   doGenSchema(spec, rs, req.user?.id).catch((e) =>
     console.error("gen_schema error", e)
   );
-  return { json: { reload_page: true } };
+  return { json: { success: true } };
 };
 
 const schema_status = async (
