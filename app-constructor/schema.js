@@ -61,22 +61,69 @@ const showSchema = async (req) => {
       .filter(Boolean);
     const allTables = [...newTableInstances, ...reusedInstances];
     const mmdia = buildMermaidMarkup(allTables);
-    const preview = pre({ class: "mermaid", "mm-src": mmdia });
+    const implemented = !!schema.body.implemented;
 
     const newNames = newTableDefs.map((t) => t.table_name).filter(Boolean);
+
+    const colorMap = Object.fromEntries([
+      ...newNames.map((n) => [n, "#198754"]),
+      ...reusedNames.map((n) => [n, "#6c757d"]),
+    ]);
+    const colorScript = script(domReady(`
+  const colors = ${JSON.stringify(colorMap)};
+  const pre = document.querySelector('.schema-mermaid');
+  if (!pre) return;
+
+  const doRender = () => {
+    mermaid.run({ nodes: [pre], suppressErrors: true, postRenderCallback: () => {
+      for (const g of pre.querySelectorAll('g[id^="entity-"]')) {
+        const name = g.id.replace(/^entity-/, '').replace(/-\\d+$/, '');
+        const color = colors[name];
+        if (color) {
+          const p = g.querySelector('path');
+          if (p) p.setAttribute('fill', color);
+        }
+      }
+      for (const el of pre.querySelectorAll('g.label.name .nodeLabel')) {
+        el.style.color = 'white';
+        el.style.fontWeight = 'bold';
+      }
+    }});
+  };
+
+  // Defer render until tab is visible, then colorize nodes.
+  const pane = pre.closest('.tab-pane');
+  if (pane && !pane.classList.contains('active')) {
+    const link = document.querySelector('[href="#' + pane.id + '"]');
+    if (link) link.addEventListener('shown.bs.tab', doRender, { once: true });
+    else {
+      const o = new MutationObserver(() => {
+        if (pane.classList.contains('active')) { o.disconnect(); doRender(); }
+      });
+      o.observe(pane, { attributes: true, attributeFilter: ['class'] });
+    }
+  } else doRender();
+`));
+
     const legend = div(
       { class: "mt-3 d-flex flex-wrap gap-3 align-items-start" },
       newNames.length
         ? div(
             { class: "d-flex flex-wrap align-items-center gap-1" },
-            span({ class: "me-1 text-muted small" }, "Will be created:"),
+            span(
+              { class: "me-1 text-muted small" },
+              implemented ? "Was created:" : "Will be created:"
+            ),
             ...newNames.map((n) => span({ class: "badge bg-success" }, n))
           )
         : "",
       reusedNames.length
         ? div(
             { class: "d-flex flex-wrap align-items-center gap-1" },
-            span({ class: "me-1 text-muted small" }, "Already exists:"),
+            span(
+              { class: "me-1 text-muted small" },
+              implemented ? "Already existed:" : "Already exists:"
+            ),
             ...reusedNames.map((n) => span({ class: "badge bg-secondary" }, n))
           )
         : ""
@@ -84,9 +131,10 @@ const showSchema = async (req) => {
 
     return div(
       { class: "mt-2" },
-      preview,
-      !schema.body.implemented && legend,
-      !schema.body.implemented &&
+      pre({ class: "schema-mermaid" }, mmdia),
+      colorScript,
+      legend,
+      !implemented &&
         div(
           { class: "mb-4 d-block mt-3" },
           button(
