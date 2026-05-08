@@ -43,6 +43,7 @@ const runTask = async (md_id, req) => {
         { skill_type: "Generate trigger", yoloMode: true },
         { skill_type: "Generate View", yoloMode: true },
         { skill_type: "Install Plugin", yoloMode: true },
+        { skill_type: "Registry editor", yoloMode: true },
       ],
     },
   });
@@ -60,7 +61,15 @@ Important: Some fields are non-stored (virtual) calculated fields — they have 
 
 Important: The "users" table is built-in. Passwords are platform-managed — never add a password field to a view. Signup uses the built-in page at /auth/signup, login at /auth/login. Do NOT create triggers for registration or email verification — the platform handles this natively.
 
-Important: To set a page as the home page for a role, use the registry editor to set the system configuration value "home_page_by_role". This is a JSON object mapping role IDs to page names. Role IDs: public=100, user=80, staff=40, admin=1. Example: to set "landing" as the home page for public visitors, set home_page_by_role to {"100": "landing"}. Read the current value first so you can merge with existing entries rather than overwriting them.
+Important: On landing pages, place Log in / Create account buttons in no more than two locations (e.g. navbar and one hero call-to-action). Do not repeat them in a third "Get started" section or anywhere else. For links that take an already-authenticated user to their dashboard, use href="/" — not /auth/login.
+
+Important: Do not name any page or view "Admin dashboard" — that name is reserved by the Saltcorn platform. For pages intended for role 1 (admin), use a name like "App admin dashboard" or prefix it with the application name (e.g. "Law Firm admin dashboard").
+
+Important: When a page is rendered via an HTML file rather than a standard Saltcorn layout, the file itself has its own access role (min_role_read) separate from the page's min_role. After creating or updating such a page, use set_entity with entity_type "file" to set min_role_read on the HTML file to the same role as the page. Use get_entity with entity_type "file" and the filename to read the current value first.
+
+Important: Two-factor authentication (2FA/TOTP) is fully built into the platform. To configure it, call set_entity directly with entity_type "system-configuration-value" and entity_name "twofa_policy_by_role". The entity_definition must be the plain JSON object itself — for example: {"1": "Mandatory", "100": "Disabled"}. Do NOT wrap it in {"type": "json", "value": ...} or any other envelope. Read the current value first with get_entity and merge rather than overwrite. Do NOT create a workflow or trigger to do this.
+
+Important: To set a page as the home page for a role, call set_entity directly with entity_type "system-configuration-value" and entity_name "home_page_by_role". The value is a JSON object mapping role IDs to page names — Role IDs: public=100, user=80, staff=40, admin=1. The entity_definition must be the plain JSON object itself — for example: {"100": "landing", "80": "client_dashboard"}. Do NOT wrap it in {"type": "json", "value": ...} or any other envelope. Read the current value first with get_entity so you can merge rather than overwrite. Do NOT create a workflow or trigger to do this — use set_entity directly.
 
 Important: If the task description mentions adding a viewlink, linking rows to another view, or a button that opens another view from a list — that viewlink column MUST be present in the finished view. Do not skip it. Viewlinks require calling get_relation_paths first to obtain the relation string before generating the layout.
 
@@ -69,40 +78,44 @@ ${md.body.description}`;
   const safeReq = req?.__ ? req : { ...req, __: (s) => s, user: req?.user };
 
   await md.update({ body: { ...md.body, status: "Running" } });
-  const actionres = await agent_action.runWithoutRow({
-    row: { prompt },
-    req: safeReq,
-    user: safeReq.user,
-  });
-  const run_id = actionres.json.run_id;
-  const run = await WorkflowRun.findOne({ id: run_id });
-  await agent_action.runWithoutRow({
-    row: {
-      prompt:
-        "Write a description of what you did, for the purposes of a progress report. Write 1-4 sentences. Do not use any tools or write any code",
-    },
-    req: safeReq,
-    run,
-    user: safeReq.user,
-  });
-  const lastInteraction =
-    run.context.interactions[run.context.interactions.length - 1];
-  const lastText =
-    typeof lastInteraction.content === "string"
-      ? lastInteraction.content
-      : lastInteraction.content.text
-      ? lastInteraction.content.text
-      : Array.isArray(lastInteraction.content)
-      ? lastInteraction.content[0].text
-      : lastInteraction.content;
-  await MetaData.create({
-    type: "CopilotConstructMgr",
-    name: "progress",
-    body: { text: lastText, run_id, task_id: md.id },
-    user_id: req?.user?.id,
-  });
-
-  await md.update({ body: { ...md.body, status: "Done", run_id } });
+  try {
+    const actionres = await agent_action.runWithoutRow({
+      row: { prompt },
+      req: safeReq,
+      user: safeReq.user,
+    });
+    const run_id = actionres.json.run_id;
+    const run = await WorkflowRun.findOne({ id: run_id });
+    await agent_action.runWithoutRow({
+      row: {
+        prompt:
+          "Write a description of what you did, for the purposes of a progress report. Write 1-4 sentences. Do not use any tools or write any code",
+      },
+      req: safeReq,
+      run,
+      user: safeReq.user,
+    });
+    const lastInteraction =
+      run.context.interactions[run.context.interactions.length - 1];
+    const lastText =
+      typeof lastInteraction.content === "string"
+        ? lastInteraction.content
+        : lastInteraction.content.text
+        ? lastInteraction.content.text
+        : Array.isArray(lastInteraction.content)
+        ? lastInteraction.content[0].text
+        : lastInteraction.content;
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: "progress",
+      body: { text: lastText, run_id, task_id: md.id },
+      user_id: req?.user?.id,
+    });
+    await md.update({ body: { ...md.body, status: "Done", run_id } });
+  } catch (e) {
+    await md.update({ body: { ...md.body, status: "To do" } });
+    throw e;
+  }
 };
 
 /**

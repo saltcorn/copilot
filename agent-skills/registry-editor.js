@@ -6,6 +6,7 @@ const Field = require("@saltcorn/data/models/field");
 const User = require("@saltcorn/data/models/user");
 const Plugin = require("@saltcorn/data/models/plugin");
 const Role = require("@saltcorn/data/models/role");
+const File = require("@saltcorn/data/models/file");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const { getState } = require("@saltcorn/data/db/state");
 
@@ -167,6 +168,7 @@ with both the entity type and name, and the new JSON definition as a string as a
                   "trigger",
                   "plugin",
                   "system-configuration-value",
+                  "file",
                   "type",
                 ],
               },
@@ -316,6 +318,11 @@ with both the entity type and name, and the new JSON definition as a string as a
                 return `The value of "${input.entity_name}" is: ${JSON.stringify(v)}\n\nDescription: ${cfgMeta.description}`;
               }
               return v;
+            }
+            case "file": {
+              const file = await File.findOne({ filename: input.entity_name });
+              if (!file) return `file not found`;
+              return { filename: file.filename, min_role_read: file.min_role_read };
             }
             case "plugin": {
               const plugin = await Plugin.findOne({ name: input.entity_name });
@@ -473,6 +480,7 @@ with both the entity type and name, and the new JSON definition as a string as a
                   "system-configuration-value",
                   "module-configuration",
                   "role",
+                  "file",
                 ],
               },
               entity_name: {
@@ -896,6 +904,13 @@ with both the entity type and name, and the new JSON definition as a string as a
                 if (result?.error) return result.error;
                 await getState().refresh_roles();
                 return "Role created";
+              }
+
+              case "file": {
+                const file = await File.findOne({ filename: input.entity_name });
+                if (!file) return `file not found: ${input.entity_name}`;
+                await file.set_role(entityValue.min_role_read);
+                return "Done";
               }
             }
             return "Done";

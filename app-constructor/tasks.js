@@ -613,7 +613,7 @@ Important home page rules:
 * Landing/marketing page (public-facing intro): min_role must be "public". It MUST include visible links to /auth/login (Log in) and /auth/signup (Create an account). Set as home for role 100 (public).
 * If there is an admin dashboard page, set it as home for role 1 (admin).
 * If there is a dashboard or main page for regular users or staff, set it as home for role 80 (user) and/or role 40 (staff) as appropriate.
-* The "Set home pages by role" task description must list every role→page mapping explicitly, e.g.: "Set home_page_by_role: public (100) → landing, user (80) → client_dashboard, staff (40) → client_dashboard, admin (1) → admin_dashboard."
+* The "Set home pages by role" task description must list every role→page mapping explicitly using the exact page names planned in this task list, e.g.: "Set home_page_by_role: public (100) → landing, user (80) → client_dashboard, staff (40) → staff_dashboard, admin (1) → app_admin_dashboard." Never use "admin_dashboard" as a page name — it is reserved by the platform.
 
 Important plugin rules:
 * If multiple plugins need to be installed, combine them ALL into a single task named "Install plugins" that lists every required plugin name. Do NOT create a separate task per plugin.
