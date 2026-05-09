@@ -94,8 +94,17 @@ const makeTaskList = async (req) => {
   });
   const running = !!settings?.body?.running;
   const stopping = !running && rs.some((t) => t.body.status === "Running");
+  const runningTask = rs.find((t) => t.body.status === "Running");
+  const statusText = runningTask
+    ? span(
+        "Running: ",
+        span({ class: "fw-bold" }, runningTask.body.name || "task")
+      )
+    : running
+    ? "Currently running"
+    : "Currently not running";
   const status = div(
-    running ? "Currently running" : "Currently not running",
+    span({ id: "copilot-status-text" }, statusText),
     running
       ? button(
           {
@@ -254,6 +263,8 @@ function copilotInitStopping() {
         setTimeout(poll, 3000);
       } else {
         if (noticeEl) noticeEl.remove();
+        const statusTextEl = document.getElementById('copilot-status-text');
+        if (statusTextEl) statusTextEl.textContent = 'Currently not running';
         if (startBtn) {
           startBtn.disabled = false;
           startBtn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
@@ -377,7 +388,9 @@ function copilotStartRunning(btn) {
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
   const runNextBtn = document.getElementById('copilot-run-next-btn');
+  const statusTextEl = document.getElementById('copilot-status-text');
   if (runNextBtn) runNextBtn.style.display = 'none';
+  if (statusTextEl) statusTextEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running';
   let stopped = false;
   let stopNotice = null;
   const stopBtn = document.createElement('button');
@@ -387,8 +400,8 @@ function copilotStartRunning(btn) {
     stopped = true;
     stopBtn.disabled = true;
     view_post(${JSON.stringify(viewname)}, 'stop', {});
-    if (document.querySelector('.task-spinner') && !stopNotice) {
-      stopNotice = document.createElement('div');
+    if (!stopNotice) {
+      stopNotice = document.createElement('span');
       stopNotice.className = 'alert alert-warning alert-dismissible d-inline-block ms-2 py-1 px-2 mb-0';
       stopNotice.style.fontSize = '0.875rem';
       stopNotice.innerHTML =
@@ -416,6 +429,8 @@ function copilotStartRunning(btn) {
           } else if (task.status === 'Running') {
             hasRunning = true;
             copilotShowSpinner(task.id);
+            if (statusTextEl) statusTextEl.innerHTML =
+              'Running: <span class="fw-bold">' + (task.name || 'task') + '</span>';
           } else if (task.status !== 'Done') {
             hasPending = true;
           }
@@ -427,6 +442,7 @@ function copilotStartRunning(btn) {
           if (stopNotice) { stopNotice.remove(); stopNotice = null; }
           btn.disabled = false;
           btn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
+          if (statusTextEl) statusTextEl.textContent = 'Currently not running';
           if (runNextBtn) runNextBtn.style.display = '';
         }
       });
@@ -440,18 +456,16 @@ function copilotStartRunning(btn) {
         : runningOnLoad
         ? script(
             domReady(`
-(() => {
-  const pollTasks = () => {
-    const spinners = document.querySelectorAll('.task-spinner[data-task-id]');
-    if (!spinners.length) return;
-    const ids = Array.from(spinners).map(el => el.getAttribute('data-task-id'));
-    view_post(${JSON.stringify(viewname)}, 'task_status', {ids}, (resp) => {
-      if (resp && resp.any_done) location.reload();
-      else setTimeout(pollTasks, 3000);
-    });
-  };
-  setTimeout(pollTasks, 3000);
-})();
+const pollTasks = () => {
+  const spinners = document.querySelectorAll('.task-spinner[data-task-id]');
+  if (!spinners.length) return;
+  const ids = Array.from(spinners).map(el => el.getAttribute('data-task-id'));
+  view_post(${JSON.stringify(viewname)}, 'task_status', {ids}, (resp) => {
+    if (resp && resp.any_done) location.reload();
+    else setTimeout(pollTasks, 3000);
+  });
+};
+setTimeout(pollTasks, 3000);
 `)
           )
         : "",
@@ -477,17 +491,13 @@ function copilotStartRunning(btn) {
         ),
         script(
           domReady(`
-(function() {
-  function poll() {
-    view_post(${JSON.stringify(
-      viewname
-    )}, 'planning_status', {}, function(resp) {
-      if (resp && !resp.planning) location.reload();
-      else setTimeout(poll, 3000);
-    });
-  }
-  setTimeout(poll, 3000);
-})();
+const poll = () => {
+  view_post(${JSON.stringify(viewname)}, 'planning_status', {}, (resp) => {
+    if (resp && !resp.planning) location.reload();
+    else setTimeout(poll, 3000);
+  });
+};
+setTimeout(poll, 3000);
 `)
         )
       );
@@ -618,6 +628,10 @@ Important home page rules:
 Important plugin rules:
 * If multiple plugins need to be installed, combine them ALL into a single task named "Install plugins" that lists every required plugin name. Do NOT create a separate task per plugin.
 
+Important dependency rules:
+* Every name in a task's depends_on MUST exactly match the name field of another task in the same plan_tasks call. Never reference a name that is not present in the tasks array — not a concept, not a table name, not a made-up label. If you find yourself writing a depends_on entry whose name does not appear as a task name in the list, either add the missing task or remove the dependency.
+* Before calling plan_tasks, mentally verify: for every task, every name in its depends_on array appears as the name of another task in the array.
+
 Important schema/table rules:
 * The database schema is already fully designed and implemented before task planning begins. ALL tables and fields needed by the application already exist. Do NOT plan any tasks that create tables, add fields, modify fields, or change the schema in any way. If you find yourself writing a task whose output is a table or a field, delete it — that work is already done.
 * Ownership behaviour (auto-setting a FK-to-users field from the logged-in user) is configured in the Edit view, not in the database. Do not create tasks for it at the schema level.
@@ -653,13 +667,27 @@ Before finalising the plan, you may call get_view_config for any existing view y
 
       const planCall = toolCalls.find((tc) => tc.tool_name === "plan_tasks");
       if (planCall) {
-        for (const task of planCall.input.tasks)
+        const plannedNames = new Set(
+          planCall.input.tasks.map((t) => t.name).filter(Boolean)
+        );
+        for (const task of planCall.input.tasks) {
+          const validDeps = (task.depends_on || []).filter((nm) => {
+            if (!plannedNames.has(nm)) {
+              getState().log(
+                2,
+                `AppConstructor: dropping phantom dependency "${nm}" from task "${task.name}" — no such task in plan`
+              );
+              return false;
+            }
+            return true;
+          });
           await MetaData.create({
             type: "CopilotConstructMgr",
             name: "task",
-            body: task,
+            body: { ...task, depends_on: validDeps },
             user_id: userId,
           });
+        }
         break;
       }
 
@@ -784,6 +812,7 @@ const tasks_poll = async (table_id, viewname, config, body, { req, res }) => {
     json: {
       tasks: tasks.map((t) => ({
         id: t.id,
+        name: t.body.name,
         status: t.body.status || "To do",
         run_id: t.body.run_id,
       })),

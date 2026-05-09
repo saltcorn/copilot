@@ -95,8 +95,11 @@ ${md.body.description}`;
       run,
       user: safeReq.user,
     });
+    const updatedRun = await WorkflowRun.findOne({ id: run_id });
     const lastInteraction =
-      run.context.interactions[run.context.interactions.length - 1];
+      updatedRun.context.interactions[
+        updatedRun.context.interactions.length - 1
+      ];
     const lastText =
       typeof lastInteraction.content === "string"
         ? lastInteraction.content
@@ -143,9 +146,12 @@ const runNextTask = async (once = false) => {
   );
   const done = tasks.filter((t) => t.body.status === "Done");
   const done_names = new Set(done.map((t) => t.body.name));
+  const all_task_names = new Set(tasks.map((t) => t.body.name).filter(Boolean));
 
   const startable = todos.filter((t) =>
-    t.body.depends_on.every((nm) => done_names.has(nm))
+    (t.body.depends_on || []).every(
+      (nm) => done_names.has(nm) || !all_task_names.has(nm)
+    )
   );
 
   if (startable[0]) {

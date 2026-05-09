@@ -46,12 +46,13 @@ const task_tool = {
           type: "array",
           items: {
             type: "object",
-            required: ["requirement", "priority"],
+            required: ["name", "description", "priority", "depends_on"],
             additionalProperties: false,
             properties: {
               name: {
                 type: "string",
-                description: "A short name for the task",
+                description:
+                  "A short unique name for the task (snake_case). Every other task that depends on this task must use exactly this name in their depends_on array.",
               },
               description: {
                 type: "string",
@@ -65,7 +66,7 @@ const task_tool = {
               depends_on: {
                 type: "array",
                 description:
-                  "The names of the tasks that must be completed before this tasks can be started",
+                  "Names of tasks in THIS plan that must complete before this task starts. Every name listed here MUST exactly match the name of another task in this same plan_tasks call. Never reference a task name that is not present in the tasks array.",
                 items: {
                   type: "string",
                 },
@@ -78,4 +79,4 @@ const task_tool = {
   },
 };
 
-module.exports = { requirements_tool,task_tool };
+module.exports = { requirements_tool, task_tool };

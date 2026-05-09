@@ -69,7 +69,8 @@ const showSchema = async (req) => {
       ...newNames.map((n) => [n, "#198754"]),
       ...reusedNames.map((n) => [n, "#6c757d"]),
     ]);
-    const colorScript = script(domReady(`
+    const colorScript = script(
+      domReady(`
   const colors = ${JSON.stringify(colorMap)};
   const pre = document.querySelector('.schema-mermaid');
   if (!pre) return;
@@ -103,7 +104,8 @@ const showSchema = async (req) => {
       o.observe(pane, { attributes: true, attributeFilter: ['class'] });
     }
   } else doRender();
-`));
+`)
+    );
 
     const legend = div(
       { class: "mt-3 d-flex flex-wrap gap-3 align-items-start" },
@@ -168,15 +170,13 @@ const showSchema = async (req) => {
       ),
       script(
         domReady(`
-(function() {
-  function poll() {
-    view_post(${JSON.stringify(viewname)}, 'schema_status', {}, function(resp) {
-      if (resp && !resp.generating) location.reload();
-      else setTimeout(poll, 3000);
-    });
-  }
-  setTimeout(poll, 3000);
-})();
+const poll = () => {
+  view_post(${JSON.stringify(viewname)}, 'schema_status', {}, (resp) => {
+    if (resp && !resp.generating) location.reload();
+    else setTimeout(poll, 3000);
+  });
+};
+setTimeout(poll, 3000);
 `)
       )
     );
