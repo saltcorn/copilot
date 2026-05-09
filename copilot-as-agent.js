@@ -62,6 +62,7 @@ const get_agent_view = () => {
     min_role: 1,
     configuration: {
       agent_action,
+      show_prev_runs: true,
       viewname,
     },
   });
