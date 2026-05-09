@@ -18,7 +18,6 @@ module.exports = {
   dependencies: ["@saltcorn/large-language-model", "@saltcorn/agents"],
   viewtemplates: features.workflows
     ? [
-        require("./chat-copilot"),
         require("./user-copilot"),
         require("./copilot-as-agent"),
         require("./app-constructor/view.js"),
