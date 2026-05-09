@@ -293,12 +293,24 @@ function copilotAppendDoneRow(taskId, rowResp) {
 function copilotRunTask(btn, taskId) {
   btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
   btn.disabled = true;
+  const runNextBtn = document.getElementById('copilot-run-next-btn');
+  const startBtn = document.getElementById('copilot-start-btn');
+  if (runNextBtn) runNextBtn.disabled = true;
+  if (startBtn) startBtn.disabled = true;
+  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+  const taskName = row ? (row.cells[0]?.textContent?.trim() || '') : '';
+  const statusTextEl = document.getElementById('copilot-status-text');
+  if (statusTextEl) statusTextEl.innerHTML =
+    'Running: <span class="fw-bold">' + (taskName || 'task') + '</span>';
   view_post(${JSON.stringify(viewname)}, 'run_task', {id: taskId}, () => {
     const poll = () => {
       view_post(${JSON.stringify(
         viewname
       )}, 'task_status', {ids: [String(taskId)]}, (resp) => {
         if (resp && resp.any_done) {
+          if (statusTextEl) statusTextEl.textContent = 'Currently not running';
+          if (runNextBtn) runNextBtn.disabled = false;
+          if (startBtn) startBtn.disabled = false;
           view_post(${JSON.stringify(
             viewname
           )}, 'task_row_done', {id: taskId}, (rowResp) => {
@@ -456,6 +468,10 @@ function copilotStartRunning(btn) {
         : runningOnLoad
         ? script(
             domReady(`
+const runNextBtn = document.getElementById('copilot-run-next-btn');
+const startBtn = document.getElementById('copilot-start-btn');
+if (runNextBtn) runNextBtn.disabled = true;
+if (startBtn) startBtn.disabled = true;
 const pollTasks = () => {
   const spinners = document.querySelectorAll('.task-spinner[data-task-id]');
   if (!spinners.length) return;
@@ -604,23 +620,27 @@ Important trigger planning rules:
 Important view planning rules:
 * Each task must create exactly one view. Never put two or more views in the same task. Edit, Show, and List for the same table are always three separate tasks with three separate names, descriptions, and dependencies.
 * Do NOT plan separate tasks for "create" and "edit" on the same table. In Saltcorn, a single Edit view handles both (no id = create, id present = edit). One task, one Edit view, description says "create and edit".
-* Edit, Show, and List views for a table form a natural group and should normally each be planned as their own task. A List without a Show leaves users with no way to inspect details; omit or adjust only when the requirements explicitly say the data is read-only or not editable. When all three are planned, the ordering of tasks must be: Edit and Show first (in either order, they are independent of each other), then List last, because the List depends on both.
-* A List view task must depend on the Edit view task and the Show view task for the same table (if both exist), since its rows link to them. Set depends_on accordingly.
+* Edit, Show, and List views for a table always go together as three separate tasks. Whenever you plan a List view AND a Show view for the same table, you MUST also plan an Edit view for that table — a List without an Edit leaves users unable to create or modify records. Only omit the Edit view when the requirements explicitly say the data is read-only.
+* The three tasks must be ordered: Edit and Show first (independent of each other, in any order), List last. The List task MUST list both the Edit task and the Show task in its depends_on — without exception. If you plan a List that depends on neither, that is a bug in the plan.
+* Before finalising the plan, for every List view task, verify that its depends_on includes the corresponding Edit task and the corresponding Show task (if they exist). If either is missing, add it.
 * When a List view links to a Show view or Edit view, the task description must say: "Add a viewlink column to [view_name] for the current row" — not just "link each row". This wording makes it unambiguous that a viewlink column must be added to the list for each target view.
 * In general, if a view embeds or links to another view, the linked view's task must be listed as a dependency.
 * When a table has foreign key fields referencing the users table, the task description must explicitly state for each one whether it is an ownership field (automatically set from the logged-in user, omit from the form) or a selector field (the user picks a value, include a selector in the form). Example: "user_id records the owner and is set automatically; shared_with_user_id must have a user selector."
 * For FK fields that represent a parent context (e.g. trip_id on packing_items), always include the field as a normal selector in the Edit view form. Do NOT say to omit it. Saltcorn automatically pre-fills the selector from the URL query parameter when the view is opened from a parent context, and the user can select it manually when the view is used standalone.
 * For every task that creates a view, include the exact view name in the task description. View names must be lowercase, snake_case, unique across all tasks in the plan, and descriptive enough to identify the table and purpose — for example 'packing_items_edit' rather than just 'edit'.
-
 Important user account rules:
 * The platform (Saltcorn) provides a built-in user account system with login, registration, and session management. Do NOT plan any tasks for user registration, login pages, password management, authentication flows, or email verification — these are already handled by the platform. Users register at /auth/signup and log in at /auth/login.
 * User identity is always available as the logged-in user. Ownership fields (FK to users) are set automatically from the session; no custom logic is needed.
 * If a requirement mentions "user accounts", "secure login", "saving data per user", "user-specific data", or "sharing between users", treat it as already satisfied by the platform's built-in user system. Do not generate any task in response to such a requirement.
 
+Important role rules:
+* Every view and page task description MUST state the min_role explicitly, e.g. "Set min_role to admin (1)." or "Set min_role to user (80).". Never omit it.
+* Role values: admin=1, staff=40, user=80, public=100. Use the value that matches who will use the view or page — admin for management, staff for staff-only, user for logged-in users (clients, members, etc.), public only when the view or page must be accessible without login.
+
 Important home page rules:
 * Every role should land on the right page after visiting /. Plan a single task "Set home pages by role" that depends on all relevant page tasks and configures home_page_by_role for every role in one step.
 * Role IDs: public=100, user=80, staff=40, admin=1.
-* Landing/marketing page (public-facing intro): min_role must be "public". It MUST include visible links to /auth/login (Log in) and /auth/signup (Create an account). Set as home for role 100 (public).
+* Landing/marketing page (public-facing intro): min_role must be 100 (public). It MUST include visible links to /auth/login (Log in) and /auth/signup (Create an account). Set as home for role 100 (public).
 * If there is an admin dashboard page, set it as home for role 1 (admin).
 * If there is a dashboard or main page for regular users or staff, set it as home for role 80 (user) and/or role 40 (staff) as appropriate.
 * The "Set home pages by role" task description must list every role→page mapping explicitly using the exact page names planned in this task list, e.g.: "Set home_page_by_role: public (100) → landing, user (80) → client_dashboard, staff (40) → staff_dashboard, admin (1) → app_admin_dashboard." Never use "admin_dashboard" as a page name — it is reserved by the platform.
@@ -667,10 +687,10 @@ Before finalising the plan, you may call get_view_config for any existing view y
 
       const planCall = toolCalls.find((tc) => tc.tool_name === "plan_tasks");
       if (planCall) {
-        const plannedNames = new Set(
-          planCall.input.tasks.map((t) => t.name).filter(Boolean)
-        );
-        for (const task of planCall.input.tasks) {
+        const tasks = planCall.input.tasks;
+        const plannedNames = new Set(tasks.map((t) => t.name).filter(Boolean));
+
+        for (const task of tasks) {
           const validDeps = (task.depends_on || []).filter((nm) => {
             if (!plannedNames.has(nm)) {
               getState().log(

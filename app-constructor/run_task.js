@@ -65,13 +65,15 @@ Important: On landing pages, place Log in / Create account buttons in no more th
 
 Important: Do not name any page or view "Admin dashboard" — that name is reserved by the Saltcorn platform. For pages intended for role 1 (admin), use a name like "App admin dashboard" or prefix it with the application name (e.g. "Law Firm admin dashboard").
 
-Important: When a page is rendered via an HTML file rather than a standard Saltcorn layout, the file itself has its own access role (min_role_read) separate from the page's min_role. After creating or updating such a page, use set_entity with entity_type "file" to set min_role_read on the HTML file to the same role as the page. Use get_entity with entity_type "file" and the filename to read the current value first.
+Important: When creating a page or view, always set min_role based on the intended audience: 1 for admin-only, 40 for staff and above, 80 for logged-in users and above, 100 for public. Never default to public (100) unless the page or view is explicitly intended for unauthenticated users (e.g. a landing page). A dashboard or view for clients/users is role 80, a staff page or view is role 40, an admin page or view is role 1.
 
 Important: Two-factor authentication (2FA/TOTP) is fully built into the platform. To configure it, call set_entity directly with entity_type "system-configuration-value" and entity_name "twofa_policy_by_role". The entity_definition must be the plain JSON object itself — for example: {"1": "Mandatory", "100": "Disabled"}. Do NOT wrap it in {"type": "json", "value": ...} or any other envelope. Read the current value first with get_entity and merge rather than overwrite. Do NOT create a workflow or trigger to do this.
 
 Important: To set a page as the home page for a role, call set_entity directly with entity_type "system-configuration-value" and entity_name "home_page_by_role". The value is a JSON object mapping role IDs to page names — Role IDs: public=100, user=80, staff=40, admin=1. The entity_definition must be the plain JSON object itself — for example: {"100": "landing", "80": "client_dashboard"}. Do NOT wrap it in {"type": "json", "value": ...} or any other envelope. Read the current value first with get_entity so you can merge rather than overwrite. Do NOT create a workflow or trigger to do this — use set_entity directly.
 
 Important: If the task description mentions adding a viewlink, linking rows to another view, or a button that opens another view from a list — that viewlink column MUST be present in the finished view. Do not skip it. Viewlinks require calling get_relation_paths first to obtain the relation string before generating the layout.
+
+Important: Before creating or updating any view or page that embeds, links to, or opens another view (including viewlinks, action buttons, and ajax_modal calls), call list_entities (entity_type "view") to get all existing view names. Only reference views that appear in that list — never invent a name or assume a view exists. If a view is not in the list, omit the reference entirely. Do the same for pages: call list_entities (entity_type "page") before linking to any page by name.
 
 Your task now is:
 ${md.body.description}`;
@@ -161,6 +163,13 @@ const runNextTask = async (once = false) => {
       : null;
     await runTask(startable[0].id, { user: taskUser, __: (s) => s });
     if (!once) await runNextTask();
+  } else if (!once) {
+    const settings = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: "settings",
+    });
+    if (settings?.body?.running)
+      await settings.update({ body: { ...settings.body, running: false } });
   }
 };
 
