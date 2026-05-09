@@ -934,5 +934,6 @@ module.exports = {
   tableless: true,
   run,
   deprecated: true,
+  description: "Use Agents from the agent module instead",
   routes: { interact, delprevrun },
 };
