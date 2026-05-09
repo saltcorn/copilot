@@ -933,5 +933,6 @@ module.exports = {
   get_state_fields,
   tableless: true,
   run,
+  deprecated: true,
   routes: { interact, delprevrun },
 };
