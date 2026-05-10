@@ -52,20 +52,27 @@ class GeneratePageSkill {
   }
   get userActions() {
     return {
-      async build_copilot_page_gen({ user, name, title, description, html }) {
+      async build_copilot_page_gen({
+        user,
+        name,
+        title,
+        description,
+        html,
+        min_role = 100,
+      }) {
         const file = await File.from_contents(
           `${name}.html`,
           "text/html",
           html,
           user?.id,
-          100,
+          min_role
         );
 
         await Page.create({
           name,
           title,
           description,
-          min_role: 100,
+          min_role,
           layout: { html_file: file.path_to_serve },
         });
         setTimeout(() => getState().refresh_pages(), 200);
@@ -114,7 +121,7 @@ class GeneratePageSkill {
 
  <script src="/static_assets/js/saltcorn-common.js"></script>
  <script src="/static_assets/js/saltcorn.js">
-`,
+`
         );
         const html = str.includes("```html")
           ? str.split("```html")[1].split("```")[0]
@@ -126,6 +133,7 @@ class GeneratePageSkill {
             name: tool_call.input.name,
             title: tool_call.input.title,
             description: tool_call.input.description,
+            min_role: tool_call.input.min_role ?? 100,
             html,
           });
           return {
@@ -148,7 +156,7 @@ class GeneratePageSkill {
           add_user_action: {
             name: "build_copilot_page_gen",
             type: "button",
-            label: "Save page "+tool_call.input.name,
+            label: "Save page " + tool_call.input.name,
             input: { html },
           },
         };
@@ -163,7 +171,7 @@ class GeneratePageSkill {
           response.includes("Unable to provide HTML for this page")
         )
           return response;
-           if (
+        if (
           typeof response === "string" &&
           response.includes("The HTML code for the ")
         )
@@ -193,6 +201,12 @@ class GeneratePageSkill {
               description:
                 "A longer description that is not visible but appears in the page header and is indexed by search engines",
               type: "string",
+            },
+            min_role: {
+              description:
+                "Minimum role required to access this page. Use 1 for admin-only, 40 for staff and above, 80 for logged-in users and above, 100 for public. Set this based on the intended audience described in the task.",
+              type: "integer",
+              enum: [1, 40, 80, 100],
             },
             page_type: {
               description:

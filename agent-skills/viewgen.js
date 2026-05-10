@@ -437,12 +437,15 @@ class GenerateViewSkill {
             for (const field of form.fields) {
               if (prefilledFields.has(field.name)) continue;
               //TODO showIf
+              const isShowif = field.name.endsWith("_showif");
               properties[field.name] = {
                 description:
                   field.copilot_description ||
-                  `${field.label}.${
-                    field.sublabel ? ` ${field.sublabel}` : ""
-                  }`,
+                  (isShowif
+                    ? `${field.label}. The correct default is an empty string — leave it blank to always show this element. Only provide a JavaScript expression if the task description explicitly states that this element should be conditionally hidden based on a URL state variable or the current user. Never invent field names or copy examples.`
+                    : `${field.label}.${
+                        field.sublabel ? ` ${field.sublabel}` : ""
+                      }`),
                 ...fieldProperties(field),
               };
               if (!properties[field.name].type) {
