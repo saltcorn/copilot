@@ -73,6 +73,7 @@ ${ds.join("\n")}`);
   },
   isAsync: true,
   description: "Return a standard prompt for writing code",
+  hidden: true,
   arguments: [
     {
       name: "options",

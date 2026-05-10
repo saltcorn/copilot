@@ -41,5 +41,6 @@ module.exports = {
   },
   isAsync: true,
   description: "Generate a workflow",
+  hidden: true,
   arguments: [{ name: "description", type: "String" }],
 };

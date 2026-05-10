@@ -57,6 +57,7 @@ module.exports = {
   },
   isAsync: true,
   description: "Generate JavaScript code for an action",
+  hidden: true,
   arguments: [
     { name: "description", type: "String" },
     { name: "existing_code", type: "String" },

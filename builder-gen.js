@@ -1609,6 +1609,7 @@ module.exports = {
   },
   isAsync: true,
   description: "Generate a builder layout",
+  hidden: true,
   arguments: [
     { name: "prompt", type: "String" },
     { name: "mode", type: "String" },
