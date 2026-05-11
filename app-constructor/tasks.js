@@ -255,7 +255,7 @@ function copilotInitStopping() {
   const startBtn = document.getElementById('copilot-start-btn');
   const noticeEl = document.getElementById('copilot-stop-notice');
   const runNextBtn = document.getElementById('copilot-run-next-btn');
-  document.querySelectorAll('[data-task-run]').forEach(b => { b.disabled = true; });
+  for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = true;
   const movedToDone = copilotDoneIds();
   const poll = () => {
     view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
@@ -286,7 +286,7 @@ function copilotInitStopping() {
           startBtn.onclick = () => copilotStartRunning(startBtn);
         }
         if (runNextBtn) runNextBtn.style.display = '';
-        document.querySelectorAll('[data-task-run]').forEach(b => { b.disabled = false; });
+        for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = false;
       }
     });
   };
@@ -306,48 +306,38 @@ function copilotAppendDoneRow(taskId, rowResp) {
   }
 }
 
-function copilotRunTask(btn, taskId) {
-  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
-  const depsText = row ? (row.cells[2]?.textContent?.trim() || '') : '';
-  const deps = depsText ? depsText.split(',').map(s => s.trim()).filter(Boolean) : [];
-  if (deps.length > 0) {
-    const doneNames = new Set();
-    const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
-      .find(h => h.textContent.trim() === 'Done');
-    if (doneHeader) {
-      let sib = doneHeader.closest('tr').nextElementSibling;
-      while (sib) {
-        const name = sib.cells[0]?.textContent?.trim();
-        if (name) doneNames.add(name);
-        sib = sib.nextElementSibling;
-      }
-    }
-    const unmet = deps.filter(d => !doneNames.has(d));
-    if (unmet.length > 0) {
-      const msg = 'These dependencies are not yet done:\\n\\n  ' + unmet.join('\\n  ') + '\\n\\nRun this task anyway?';
+function copilotRunTask(btn, taskId, force) {
+  view_post(${JSON.stringify(
+    viewname
+  )}, 'run_task', {id: taskId, force: !!force}, (resp) => {
+    if (resp && resp.unmet_deps && resp.unmet_deps.length > 0) {
+      const msg = 'These dependencies are not yet done:\\n\\n  ' + resp.unmet_deps.join('\\n  ') + '\\n\\nRun this task anyway?';
       if (!confirm(msg)) return;
+      copilotRunTask(btn, taskId, true);
+      return;
     }
-  }
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-  btn.disabled = true;
-  const runNextBtn = document.getElementById('copilot-run-next-btn');
-  const startBtn = document.getElementById('copilot-start-btn');
-  if (runNextBtn) runNextBtn.disabled = true;
-  if (startBtn) startBtn.disabled = true;
-  document.querySelectorAll('[data-task-run]').forEach(b => { if (b !== btn) b.disabled = true; });
-  const taskName = row ? (row.cells[0]?.textContent?.trim() || '') : '';
-  const statusTextEl = document.getElementById('copilot-status-text');
-  copilotSetRunningStatus(taskName);
-  view_post(${JSON.stringify(viewname)}, 'run_task', {id: taskId}, () => {
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btn.disabled = true;
+    const runNextBtn = document.getElementById('copilot-run-next-btn');
+    const startBtn = document.getElementById('copilot-start-btn');
+    if (runNextBtn) runNextBtn.disabled = true;
+    if (startBtn) startBtn.disabled = true;
+    for (const b of document.querySelectorAll('[data-task-run]')) {
+      if (b !== btn) b.disabled = true;
+    }
+    const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+    const taskName = row ? (row.cells[0]?.textContent?.trim() || '') : '';
+    const statusTextEl = document.getElementById('copilot-status-text');
+    copilotSetRunningStatus(taskName);
     const poll = () => {
       view_post(${JSON.stringify(
         viewname
-      )}, 'task_status', {ids: [String(taskId)]}, (resp) => {
-        if (resp && resp.any_done) {
+      )}, 'task_status', {ids: [String(taskId)]}, (statusResp) => {
+        if (statusResp && statusResp.any_done) {
           if (statusTextEl) statusTextEl.textContent = 'Currently not running';
           if (runNextBtn) runNextBtn.disabled = false;
           if (startBtn) startBtn.disabled = false;
-          document.querySelectorAll('[data-task-run]').forEach(b => { b.disabled = false; });
+          for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = false;
           view_post(${JSON.stringify(
             viewname
           )}, 'task_row_done', {id: taskId}, (rowResp) => {
@@ -508,7 +498,7 @@ const runNextBtn = document.getElementById('copilot-run-next-btn');
 const startBtn = document.getElementById('copilot-start-btn');
 if (runNextBtn) runNextBtn.disabled = true;
 if (startBtn) startBtn.disabled = true;
-document.querySelectorAll('[data-task-run]').forEach(b => { b.disabled = true; });
+for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = true;
 const pollTasks = () => {
   const spinners = document.querySelectorAll('.task-spinner[data-task-id]');
   if (!spinners.length) return;
@@ -849,6 +839,26 @@ const del_task = async (table_id, viewname, config, body, { req, res }) => {
 const run_task = async (table_id, viewname, config, body, { req, res }) => {
   const reqUser = req?.user;
   if (body.id) {
+    if (!body.force) {
+      const task = await MetaData.findOne({ id: Number(body.id) });
+      const deps = task?.body?.depends_on || [];
+      if (deps.length > 0) {
+        const allTasks = await MetaData.find({
+          type: "CopilotConstructMgr",
+          name: "task",
+        });
+        const doneNames = new Set(
+          allTasks
+            .filter((t) => t.body.status === "Done")
+            .map((t) => t.body.name)
+        );
+        const unmet = deps.filter((d) => !doneNames.has(d));
+        if (unmet.length > 0)
+          return {
+            json: { unmet_deps: unmet, task_name: task.body.name || "" },
+          };
+      }
+    }
     runTask(body.id, { user: reqUser, __: req.__ }).catch((e) =>
       console.error("run_task error", e)
     );
