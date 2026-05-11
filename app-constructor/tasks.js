@@ -240,6 +240,17 @@ const makeTaskList = async (req) => {
         { grouped: true }
       ),
       script(`
+function copilotSetRunningStatus(name) {
+  const el = document.getElementById('copilot-status-text');
+  if (!el) return;
+  el.textContent = '';
+  el.appendChild(document.createTextNode('Running: '));
+  const strong = document.createElement('span');
+  strong.className = 'fw-bold';
+  strong.textContent = name || 'task';
+  el.appendChild(strong);
+}
+
 function copilotInitStopping() {
   const startBtn = document.getElementById('copilot-start-btn');
   const noticeEl = document.getElementById('copilot-stop-notice');
@@ -326,8 +337,7 @@ function copilotRunTask(btn, taskId) {
   document.querySelectorAll('[data-task-run]').forEach(b => { if (b !== btn) b.disabled = true; });
   const taskName = row ? (row.cells[0]?.textContent?.trim() || '') : '';
   const statusTextEl = document.getElementById('copilot-status-text');
-  if (statusTextEl) statusTextEl.innerHTML =
-    'Running: <span class="fw-bold">' + (taskName || 'task') + '</span>';
+  copilotSetRunningStatus(taskName);
   view_post(${JSON.stringify(viewname)}, 'run_task', {id: taskId}, () => {
     const poll = () => {
       view_post(${JSON.stringify(
@@ -468,8 +478,7 @@ function copilotStartRunning(btn) {
           } else if (task.status === 'Running') {
             hasRunning = true;
             copilotShowSpinner(task.id);
-            if (statusTextEl) statusTextEl.innerHTML =
-              'Running: <span class="fw-bold">' + (task.name || 'task') + '</span>';
+            copilotSetRunningStatus(task.name);
           } else if (task.status !== 'Done') {
             hasPending = true;
           }
