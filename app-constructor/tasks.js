@@ -37,7 +37,7 @@ const {
   tr,
   td,
 } = require("@saltcorn/markup/tags");
-const { getState } = require("@saltcorn/data/db/state");
+const { getState, features } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
 const { runTask, runNextTask } = require("./run_task");
@@ -202,14 +202,17 @@ const makeTaskList = async (req) => {
           {
             label: "",
             key: (r) =>
-              r.body.status === "To do" || !r.body.status
+              (r.body.status === "To do" || !r.body.status) &&
+              features.view_route_modal
                 ? button(
                     {
-                      class: "btn btn-outline-secondary btn-sm",
-                      title: "Mark as done without running",
-                      onclick: `view_post("${viewname}", "mark_done_task", {id:${r.id}})`,
+                      class: "btn btn-outline-primary btn-sm",
+                      title: "Edit description",
+                      onclick: `ajax_modal('/view/${encodeURIComponent(
+                        viewname
+                      )}/edit_task_desc?id=${r.id}', {method:'POST'})`,
                     },
-                    i({ class: "fas fa-check" })
+                    i({ class: "fas fa-edit" })
                   )
                 : "",
           },
@@ -241,6 +244,7 @@ function copilotInitStopping() {
   const startBtn = document.getElementById('copilot-start-btn');
   const noticeEl = document.getElementById('copilot-stop-notice');
   const runNextBtn = document.getElementById('copilot-run-next-btn');
+  document.querySelectorAll('[data-task-run]').forEach(b => { b.disabled = true; });
   const movedToDone = copilotDoneIds();
   const poll = () => {
     view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
@@ -271,6 +275,7 @@ function copilotInitStopping() {
           startBtn.onclick = () => copilotStartRunning(startBtn);
         }
         if (runNextBtn) runNextBtn.style.display = '';
+        document.querySelectorAll('[data-task-run]').forEach(b => { b.disabled = false; });
       }
     });
   };
@@ -291,13 +296,34 @@ function copilotAppendDoneRow(taskId, rowResp) {
 }
 
 function copilotRunTask(btn, taskId) {
+  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+  const depsText = row ? (row.cells[2]?.textContent?.trim() || '') : '';
+  const deps = depsText ? depsText.split(',').map(s => s.trim()).filter(Boolean) : [];
+  if (deps.length > 0) {
+    const doneNames = new Set();
+    const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
+      .find(h => h.textContent.trim() === 'Done');
+    if (doneHeader) {
+      let sib = doneHeader.closest('tr').nextElementSibling;
+      while (sib) {
+        const name = sib.cells[0]?.textContent?.trim();
+        if (name) doneNames.add(name);
+        sib = sib.nextElementSibling;
+      }
+    }
+    const unmet = deps.filter(d => !doneNames.has(d));
+    if (unmet.length > 0) {
+      const msg = 'These dependencies are not yet done:\\n\\n  ' + unmet.join('\\n  ') + '\\n\\nRun this task anyway?';
+      if (!confirm(msg)) return;
+    }
+  }
   btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
   btn.disabled = true;
   const runNextBtn = document.getElementById('copilot-run-next-btn');
   const startBtn = document.getElementById('copilot-start-btn');
   if (runNextBtn) runNextBtn.disabled = true;
   if (startBtn) startBtn.disabled = true;
-  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+  document.querySelectorAll('[data-task-run]').forEach(b => { if (b !== btn) b.disabled = true; });
   const taskName = row ? (row.cells[0]?.textContent?.trim() || '') : '';
   const statusTextEl = document.getElementById('copilot-status-text');
   if (statusTextEl) statusTextEl.innerHTML =
@@ -311,6 +337,7 @@ function copilotRunTask(btn, taskId) {
           if (statusTextEl) statusTextEl.textContent = 'Currently not running';
           if (runNextBtn) runNextBtn.disabled = false;
           if (startBtn) startBtn.disabled = false;
+          document.querySelectorAll('[data-task-run]').forEach(b => { b.disabled = false; });
           view_post(${JSON.stringify(
             viewname
           )}, 'task_row_done', {id: taskId}, (rowResp) => {
@@ -472,6 +499,7 @@ const runNextBtn = document.getElementById('copilot-run-next-btn');
 const startBtn = document.getElementById('copilot-start-btn');
 if (runNextBtn) runNextBtn.disabled = true;
 if (startBtn) startBtn.disabled = true;
+document.querySelectorAll('[data-task-run]').forEach(b => { b.disabled = true; });
 const pollTasks = () => {
   const spinners = document.querySelectorAll('.task-spinner[data-task-id]');
   if (!spinners.length) return;
@@ -617,6 +645,12 @@ Important trigger planning rules:
 * If a trigger should be accessible as a button in a view, the task description must name the target view and say to add an action segment with action_name set to the trigger's name. If the view already exists, combine trigger creation and view update in the same task. If the view is created in a later task, that task's description must mention adding the trigger button, and it must depend on the trigger task.
 * Do NOT plan any task that writes to a virtual (read-only) calculated field. Virtual fields are computed automatically and cannot be stored — any trigger or workflow that tries to update them will be refused. If you find yourself planning a trigger to keep a calculated field "current", delete that task — the field already updates itself.
 
+Important existing-entity rules:
+* Before planning any view or page task, check the list of already-implemented views and pages above. If an existing view or page already covers the required functionality — even under a slightly different name — do NOT create a new one. Reference the existing entity by its exact name in dependent tasks.
+* Never create a new view that is a renamed variant of an existing one (e.g. prefixing with "my_", "user_", "filtered_"). If the existing view needs filtering for a specific context, embed it as-is and describe the filtering in the embedding page or view task.
+* For every role's required dashboard or key page, verify it is either in the existing pages list or has a task planned for it. A requirement that mentions a dashboard or home screen for a role and has no corresponding existing page MUST have a task.
+* If a page was previously created under one name and a requirement refers to the same concept under a different name, use the existing page's actual name — do not plan a second page for the same purpose.
+
 Important view planning rules:
 * Each task must create exactly one view. Never put two or more views in the same task. Edit, Show, and List for the same table are always three separate tasks with three separate names, descriptions, and dependencies.
 * Do NOT plan separate tasks for "create" and "edit" on the same table. In Saltcorn, a single Edit view handles both (no id = create, id present = edit). One task, one Edit view, description says "create and edit".
@@ -637,6 +671,11 @@ Important role rules:
 * Every view and page task description MUST state the min_role explicitly, e.g. "Set min_role to admin (1)." or "Set min_role to user (80).". Never omit it.
 * Role values: admin=1, staff=40, user=80, public=100. Use the value that matches who will use the view or page — admin for management, staff for staff-only, user for logged-in users (clients, members, etc.), public only when the view or page must be accessible without login.
 
+Important dashboard rules:
+* A dashboard page that shows aggregate statistics (totals, counts, revenue, etc.) must NEVER use client-side JavaScript fetch stubs or placeholder values. Every stat card must be backed by a real Saltcorn Statistic view embedded with an embed-view tag.
+* For each statistic shown on a dashboard, plan a separate Statistic view task (e.g. "total_billable_hours_stat", "revenue_by_client_stat"). The dashboard page task must list all these Statistic view tasks in its depends_on.
+* Statistic view tasks must be planned before the dashboard page task and have descriptive names that make their metric clear.
+
 Important home page rules:
 * Every role should land on the right page after visiting /. Plan a single task "Set home pages by role" that depends on all relevant page tasks and configures home_page_by_role for every role in one step.
 * Role IDs: public=100, user=80, staff=40, admin=1.
@@ -651,6 +690,7 @@ Important plugin rules:
 Important dependency rules:
 * Every name in a task's depends_on MUST exactly match the name field of another task in the same plan_tasks call. Never reference a name that is not present in the tasks array — not a concept, not a table name, not a made-up label. If you find yourself writing a depends_on entry whose name does not appear as a task name in the list, either add the missing task or remove the dependency.
 * Before calling plan_tasks, mentally verify: for every task, every name in its depends_on array appears as the name of another task in the array.
+* Before calling plan_tasks, check for circular dependencies. A circular dependency means task A depends on B, and B depends on A (directly or transitively). A circular dependency causes a deadlock — neither task can ever start. To fix it: identify which dependency in the cycle is the weakest (i.e. view A only needs to embed view B, but B does not strictly require A to exist). Remove that dependency from A's depends_on so A can be created first. Then decide whether B's content is still useful without being embedded in A at creation time. If the embed is important, add a separate update task (e.g. "update_A_embed_B") whose description says to update view A to embed view B, and whose depends_on lists both A and B. Only add this extra update task when the embed is genuinely important for the finished product — do not create update tasks for minor or optional embeds, as each extra task is expensive. A good rule of thumb: add an update task only if omitting the embed from the final view would visibly break a user workflow.
 
 Important schema/table rules:
 * The database schema is already fully designed and implemented before task planning begins. ALL tables and fields needed by the application already exist. Do NOT plan any tasks that create tables, add fields, modify fields, or change the schema in any way. If you find yourself writing a task whose output is a table or a field, delete it — that work is already done.
@@ -895,17 +935,51 @@ const stop = async (table_id, viewname, config, body, { req, res }) => {
   return { json: { success: true } };
 };
 
-const mark_done_task = async (
-  table_id,
-  viewname,
-  config,
-  body,
-  { req, res }
-) => {
-  const r = await MetaData.findOne({ id: body.id });
+const edit_task_desc = async (table_id, vname, config, body, { req, res }) => {
+  const id = body.id || req.query?.id;
+  const r = await MetaData.findOne({ id: Number(id) });
+  if (!r) return { json: { error: "Task not found" } };
+  const html =
+    div(
+      { class: "mb-3" },
+      textarea(
+        {
+          id: "edit-task-desc-text",
+          class: "form-control",
+          rows: "10",
+        },
+        text_attr(r.body.description || "")
+      )
+    ) +
+    div(
+      { class: "d-flex gap-2 mt-3" },
+      button(
+        {
+          type: "button",
+          class: "btn btn-primary",
+          onclick: `view_post(${JSON.stringify(vname)}, 'save_task_desc', {id:${
+            r.id
+          }, description: document.getElementById('edit-task-desc-text').value}, () => { $('#scmodal').modal('hide'); location.reload(); })`,
+        },
+        "Save"
+      ),
+      button(
+        {
+          type: "button",
+          class: "btn btn-secondary",
+          "data-bs-dismiss": "modal",
+        },
+        "Cancel"
+      )
+    );
+  return { html, title: `Edit: ${r.body.name || "task"}` };
+};
+
+const save_task_desc = async (table_id, vname, config, body, { req, res }) => {
+  const r = await MetaData.findOne({ id: Number(body.id) });
   if (!r) throw new Error("Task not found");
-  await r.update({ body: { ...r.body, status: "Done" } });
-  return { json: { reload_page: true } };
+  await r.update({ body: { ...r.body, description: body.description } });
+  return { json: { success: true } };
 };
 
 const del_all_tasks = async (
@@ -927,7 +1001,8 @@ const task_routes = {
   gen_tasks,
   del_task,
   del_all_tasks,
-  mark_done_task,
+  edit_task_desc,
+  save_task_desc,
   run_task,
   planning_status,
   task_status,

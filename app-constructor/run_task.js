@@ -57,6 +57,10 @@ Visual style: ${spec.body.visual_style}
 
 Important: The database schema is already fully implemented. Do NOT use generate_tables or modify any tables or fields — all tables and fields already exist.
 
+Important: JsCode server-mode views run on the server and must return an HTML string. The following globals are available: Table, View, User, File, db, user, req, state, markupTags, Actions, emitEvent, moment. The state object contains URL query parameters — use state.start_date, state.end_date etc. to read user inputs submitted via a GET form. Never use process.env, window, document, or fetch in server mode. Never return a { code: "..." } object — always return an HTML string. require() is NOT available — do not import lodash or any other module. Use moment or plain JavaScript Date for all date formatting and arithmetic.
+
+Important: When querying a table with range conditions (e.g. date ranges) in JsCode views or triggers, use operator-suffixed key names in the where object — NOT nested objects. Correct: where["entry_date >="] = start_date; where["entry_date <="] = end_date;. Wrong: where.entry_date = { gte: start_date, lte: end_date }; — Saltcorn does not support nested comparison objects on date fields and will pass the object as a raw string to Postgres.
+
 Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn. Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls. Only fields that exist as actual database columns (regular fields and stored calculated fields) can be written. If a calculated field needs updating, it will refresh automatically when the fields it depends on change.
 
 Important: The "users" table is built-in. Passwords are platform-managed — never add a password field to a view. Signup uses the built-in page at /auth/signup, login at /auth/login. Do NOT create triggers for registration or email verification — the platform handles this natively.
@@ -64,6 +68,8 @@ Important: The "users" table is built-in. Passwords are platform-managed — nev
 Important: On landing pages, place Log in / Create account buttons in no more than two locations (e.g. navbar and one hero call-to-action). Do not repeat them in a third "Get started" section or anywhere else. For links that take an already-authenticated user to their dashboard, use href="/" — not /auth/login.
 
 Important: Do not name any page or view "Admin dashboard" — that name is reserved by the Saltcorn platform. For pages intended for role 1 (admin), use a name like "App admin dashboard" or prefix it with the application name (e.g. "Law Firm admin dashboard").
+
+Important: Dashboard stat cards must show real data using embedded Saltcorn Statistic views (using embed-view tags, e.g. <embed-view viewname="total_hours_stat"></embed-view>). Never use client-side JavaScript fetch stubs, commented-out fetch code, or static placeholder values (e.g. "—", "Loading...") for statistics. If a Statistic view for a metric does not exist yet, it must have been created in an earlier task — do not invent placeholder JS instead.
 
 Important: When creating a page or view, always set min_role based on the intended audience: 1 for admin-only, 40 for staff and above, 80 for logged-in users and above, 100 for public. Never default to public (100) unless the page or view is explicitly intended for unauthenticated users (e.g. a landing page). A dashboard or view for clients/users is role 80, a staff page or view is role 40, an admin page or view is role 1.
 
