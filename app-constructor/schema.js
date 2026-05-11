@@ -242,7 +242,7 @@ The tables listed above already exist in the database. Do NOT modify or extend t
 - New tables not yet in the database: include them in the tables array with all their fields as usual.
 
 For every field that must be unique (e.g. unique email, unique slug, unique combination keys expressed as individual unique fields), set unique=true on that field.
-For every field that must not be empty, set not_null=true.
+For every field that must not be empty, set not_null=true. Description, notes, and other free-text fields should NOT be not_null unless the requirements explicitly state they are required.
 Do NOT leave uniqueness or required constraints for a later step — express them fully in this schema.
 
 Note: ownership configuration (automatically populating a FK-to-users field from the logged-in user) is a VIEW-level concern and cannot be expressed in the schema. Do not attempt to annotate fields as "ownership fields" here — simply define the foreign key field normally. Ownership will be configured when the Edit views are generated.

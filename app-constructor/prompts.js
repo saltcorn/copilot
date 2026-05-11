@@ -61,7 +61,9 @@ const existing_entities_list = ({ views, triggers, pages, tableById = {} }) => {
   const sections = [];
   if (views.length)
     sections.push(
-      `The following views are already implemented — do NOT plan tasks to create them:\n` +
+      `The following views are already implemented — do NOT plan tasks to create them. ` +
+        `If you find yourself constructing a new view name that avoids a collision with an existing one ` +
+        `(e.g. by prepending "my_", "user_", or "filtered_"), that is a signal you should use the existing view instead:\n` +
         views
           .map((v) => {
             const tablePart =
@@ -88,8 +90,15 @@ const existing_entities_list = ({ views, triggers, pages, tableById = {} }) => {
     );
   if (pages.length)
     sections.push(
-      `The following pages are already implemented — do NOT plan tasks to create them:\n` +
-        pages.map((p) => `- ${p.name}`).join("\n")
+      `The following pages are already implemented — do NOT plan tasks to create them. ` +
+        `If a requirement is served by one of these pages (even under a different name), use the existing page name. ` +
+        `If you find yourself constructing a new name that avoids a collision with an existing name ` +
+        `(e.g. by prepending "my_", appending "_v2", or changing a word), that is a signal you should use the existing page instead:\n` +
+        pages
+          .map(
+            (p) => `- ${p.name}${p.description ? ` — ${p.description}` : ""}`
+          )
+          .join("\n")
     );
   return sections.join("\n\n");
 };
