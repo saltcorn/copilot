@@ -46,6 +46,7 @@ const {
   saltcorn_description,
   existing_tables_list,
   existing_entities_list,
+  installed_plugins_list,
   available_plugins_list,
 } = require("./prompts");
 
@@ -546,14 +547,31 @@ setTimeout(poll, 3000);
       );
     }
     return div(
-      { class: "mt-2" },
+      { class: "mt-2", id: "task-gen-area" },
       p("No tasks found"),
       button(
         {
           class: "btn btn-primary",
-          onclick: `press_store_button(this);view_post("${viewname}", "gen_tasks")`,
+          onclick: `copilotGenTasks()`,
         },
         "Plan tasks"
+      ),
+      script(
+        domReady(`
+window.copilotGenTasks = function() {
+  const area = document.getElementById('task-gen-area');
+  if (area) area.innerHTML = '<p><i class="fas fa-spinner fa-spin me-2"></i>Planning tasks, please wait...</p>';
+  view_post(${JSON.stringify(viewname)}, 'gen_tasks', {}, () => {
+    const poll = () => {
+      view_post(${JSON.stringify(viewname)}, 'planning_status', {}, (resp) => {
+        if (resp && !resp.planning) location.reload();
+        else setTimeout(poll, 3000);
+      });
+    };
+    setTimeout(poll, 3000);
+  });
+};
+`)
       )
     );
   }
@@ -602,8 +620,8 @@ const doGenTasks = async (spec, rs, schema, userId) => {
     try {
       storePlugins = await Plugin.store_plugins_available();
     } catch (_) {}
+    const installedPluginsSection = installed_plugins_list(installedNames);
     const pluginsSection = available_plugins_list(storePlugins, installedNames);
-
     const systemPrompt =
       "You are a project manager. The user wants to build an application, and you must analyse their application description";
 
@@ -633,7 +651,7 @@ The plan should outline the continued development of the application on top of t
 Your plan can add additional tables if needed or adjust the table fields, but normally the tables
 should be designed optimally for this application.
 
-${entitiesSection ? entitiesSection + "\n\n" : ""}${
+${entitiesSection ? entitiesSection + "\n\n" : ""}${installedPluginsSection ? installedPluginsSection + "\n\n" : ""}${
         pluginsSection ? pluginsSection + "\n\n" : ""
       }The plan should focus on building views, triggers (including workflows) and pages.
 
@@ -657,10 +675,12 @@ Important view planning rules:
 * The three tasks must be ordered: Edit and Show first (independent of each other, in any order), List last. The List task MUST list both the Edit task and the Show task in its depends_on — without exception. If you plan a List that depends on neither, that is a bug in the plan.
 * Before finalising the plan, for every List view task, verify that its depends_on includes the corresponding Edit task and the corresponding Show task (if they exist). If either is missing, add it.
 * When a List view links to a Show view or Edit view, the task description must say: "Add a viewlink column to [view_name] for the current row" — not just "link each row". This wording makes it unambiguous that a viewlink column must be added to the list for each target view.
+* Every List view task description must include a delete action column unless the table is explicitly read-only. State it explicitly: "Add a delete action column."
 * In general, if a view embeds or links to another view, the linked view's task must be listed as a dependency.
 * When a table has foreign key fields referencing the users table, the task description must explicitly state for each one whether it is an ownership field (automatically set from the logged-in user, omit from the form) or a selector field (the user picks a value, include a selector in the form). Example: "user_id records the owner and is set automatically; shared_with_user_id must have a user selector."
 * For FK fields that represent a parent context (e.g. trip_id on packing_items), always include the field as a normal selector in the Edit view form. Do NOT say to omit it. Saltcorn automatically pre-fills the selector from the URL query parameter when the view is opened from a parent context, and the user can select it manually when the view is used standalone.
 * For every task that creates a view, include the exact view name in the task description. View names must be lowercase, snake_case, unique across all tasks in the plan, and descriptive enough to identify the table and purpose — for example 'packing_items_edit' rather than just 'edit'.
+* Do NOT plan an Edit view for any table whose description says it is auto-populated or not editable by users (e.g. audit logs, import/export job tracking tables). These tables may have List and Show views for read-only visibility, but never an Edit view.
 Important user account rules:
 * The platform (Saltcorn) provides a built-in user account system with login, registration, and session management. Do NOT plan any tasks for user registration, login pages, password management, authentication flows, or email verification — these are already handled by the platform. Users register at /auth/signup and log in at /auth/login.
 * User identity is always available as the logged-in user. Ownership fields (FK to users) are set automatically from the session; no custom logic is needed.
@@ -682,6 +702,12 @@ Important home page rules:
 * If there is an admin dashboard page, set it as home for role 1 (admin).
 * If there is a dashboard or main page for regular users or staff, set it as home for role 80 (user) and/or role 40 (staff) as appropriate.
 * The "Set home pages by role" task description must list every role→page mapping explicitly using the exact page names planned in this task list, e.g.: "Set home_page_by_role: public (100) → landing, user (80) → client_dashboard, staff (40) → staff_dashboard, admin (1) → app_admin_dashboard." Never use "admin_dashboard" as a page name — it is reserved by the platform.
+
+Important bulk import/export rules:
+* A plain Edit view creates or edits a single record — it is NOT a bulk import tool. Never plan an Edit view as a solution for bulk data import.
+* List views have no built-in export feature — do not plan an export button or column as part of a list view.
+* Bulk import and export functionality (e.g. CSV) must always be placed on a dedicated management or admin page as embedded views, using whatever import/export viewtemplate is available from an installed plugin.
+* Bulk import and bulk export for the same table are always two separate tasks with two separate view names. Never combine them into a single task.
 
 Important plugin rules:
 * If multiple plugins need to be installed, combine them ALL into a single task named "Install plugins" that lists every required plugin name. Do NOT create a separate task per plugin.
@@ -824,7 +850,7 @@ const gen_tasks = async (table_id, viewname, config, body, { req, res }) => {
   doGenTasks(spec, rs, schema, req.user?.id).catch((e) =>
     console.error("gen_tasks error", e)
   );
-  return { json: { reload_page: true } };
+  return { json: { success: true } };
 };
 
 const del_task = async (table_id, viewname, config, body, { req, res }) => {

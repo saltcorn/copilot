@@ -153,13 +153,21 @@ Core features: ${spec.body.core_features}
 Out of scope: ${spec.body.out_of_scope}
 Visual style: ${spec.body.visual_style}
 
+Important rules for generating requirements:
+* Every requirement must be directly traceable to something stated in the description, audience, or core features above. Do not infer, invent, or add features that are not explicitly mentioned — even if they seem like an obvious addition.
+* Do not generate any requirement that falls under the Out of scope section above.
+* Only generate requirements for core functionality. Do not generate requirements for features described as optional, "nice to have", "could support", or "can be added later" — omit them entirely.
+* Do NOT generate a requirement for integration with any external third-party system (e.g. QuickBooks, Xero, Stripe, Slack, external APIs, webhooks) unless the specification explicitly names the system AND describes exactly what must be exchanged. A vague mention like "integration with accounting systems" is not sufficient — skip it.
+* Do not generate requirements that are already handled by the platform (e.g. user registration, login, password management — these are built-in).
+* Priority reflects how central the feature is to the core purpose of the application. Assign 5 to features without which the application cannot function at all, 3-4 to features that are important but not blocking, 1-2 to minor convenience features. Do not assign 5 to everything.
+
 Now use the make_requirements tool to list the requirements for this software application
 `,
       {
         tools: [requirements_tool],
         ...tool_choice("make_requirements"),
         systemPrompt:
-          "You are a project manager. The user wants to build an application, and you must analyse their application description",
+          "You are a project manager extracting requirements from a written specification. Only include what is explicitly stated — do not infer or add plausible extras.",
       }
     );
     const tc = answer.getToolCalls()[0];
