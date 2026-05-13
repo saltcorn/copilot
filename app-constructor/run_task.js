@@ -87,6 +87,8 @@ Important: A plain Edit view creates or edits a single record — it is NOT a bu
 
 Important: Every HTML page (page_type HTML) must include a toast notification area so that alerts and success messages are visible. Place this div just before the closing </body> tag: <div id="toasts-area" class="toast-container position-fixed top-0 start-50 p-0" style="z-index:999;" aria-live="polite" aria-atomic="true"></div>
 
+Important: Every tool call must contain only the final, complete result — never intermediate reasoning, planning notes, markdown code fences, TODO comments, or placeholder text. Compose the full content in your reasoning first, then pass only the finished result to the tool. A page or view that contains any of these is broken and will be visible to end users exactly as written.
+
 Your task now is:
 ${md.body.description}`;
   const safeReq = req?.__ ? req : { ...req, __: (s) => s, user: req?.user };

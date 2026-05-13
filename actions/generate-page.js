@@ -65,7 +65,9 @@ class GeneratePage {
     };
   }
   static async system_prompt() {
-    return `If the user asks to generate a page, a web page or a landing page, use the generate_page to generate a page.`;
+    return `If the user asks to generate a page, a web page or a landing page, use the generate_page to generate a page.
+
+Critical: When generating HTML, your response must be the complete, final HTML document and nothing else. Do not include reasoning, planning notes, explanatory text, TODO comments, markdown code fences, or placeholder content. Everything you write will be stored verbatim and rendered directly to users — there is no review step between your output and the live page.`;
   }
   static async follow_on_generate({ name, page_type }) {
     if (page_type === "Marketing page") {
