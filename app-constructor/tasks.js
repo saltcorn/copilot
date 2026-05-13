@@ -174,12 +174,12 @@ const makeTaskList = async (req) => {
                 .map((dep) =>
                   doneNames.has(dep)
                     ? span(
-                        { class: "text-success me-2", style: "white-space:nowrap", title: dep },
+                        { class: "dep-indicator text-success me-2", style: "white-space:nowrap", title: dep },
                         i({ class: "fas fa-check-circle me-1", style: "font-size:0.75em" }),
                         dep
                       )
                     : span(
-                        { class: "text-danger me-2", style: "white-space:nowrap", title: dep },
+                        { class: "dep-indicator text-danger me-2", style: "white-space:nowrap", title: dep },
                         i({ class: "fas fa-circle me-1", style: "font-size:0.75em" }),
                         dep
                       )
@@ -312,6 +312,28 @@ function copilotInitStopping() {
   setTimeout(poll, 1000);
 }
 
+function copilotUpdateDepColors() {
+  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
+    .find(h => h.textContent.trim() === 'Done');
+  const doneNames = new Set();
+  if (doneHeader) {
+    let sib = doneHeader.closest('tr').nextElementSibling;
+    while (sib) {
+      const firstTd = sib.querySelector('td');
+      if (firstTd) doneNames.add(firstTd.textContent.trim());
+      sib = sib.nextElementSibling;
+    }
+  }
+  for (const el of document.querySelectorAll('.dep-indicator')) {
+    const dep = el.getAttribute('title');
+    const done = doneNames.has(dep);
+    el.className = 'dep-indicator me-2 ' + (done ? 'text-success' : 'text-danger');
+    el.style.whiteSpace = 'nowrap';
+    const icon = el.querySelector('i');
+    if (icon) icon.className = (done ? 'fas fa-check-circle' : 'fas fa-circle') + ' me-1';
+  }
+}
+
 function copilotAppendDoneRow(taskId, rowResp) {
   const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
   if (row) row.remove();
@@ -323,6 +345,7 @@ function copilotAppendDoneRow(taskId, rowResp) {
     tmp.innerHTML = rowResp.html;
     tbody.appendChild(tmp.firstChild);
   }
+  copilotUpdateDepColors();
 }
 
 function copilotRunTask(btn, taskId, force) {
