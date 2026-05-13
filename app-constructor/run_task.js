@@ -85,6 +85,8 @@ Important: Before creating or updating any view or page that embeds, links to, o
 
 Important: A plain Edit view creates or edits a single record — it is NOT a bulk CSV import tool. Never use an Edit view as a solution for CSV import. List views have no built-in CSV export feature — do not add an export button or column to a List view. CSV import and export functionality must always be placed on a dedicated management or admin page as embedded views, using whatever import/export viewtemplate is available.
 
+Important: Every HTML page (page_type HTML) must include a toast notification area so that alerts and success messages are visible. Place this div just before the closing </body> tag: <div id="toasts-area" class="toast-container position-fixed top-0 start-50 p-0" style="z-index:999;" aria-live="polite" aria-atomic="true"></div>
+
 Your task now is:
 ${md.body.description}`;
   const safeReq = req?.__ ? req : { ...req, __: (s) => s, user: req?.user };

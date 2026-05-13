@@ -157,6 +157,9 @@ const makeTaskList = async (req) => {
   if (rs.length) {
     const runningOnLoad =
       !stopping && rs.some((t) => t.body.status === "Running");
+    const doneNames = new Set(
+      rs.filter((t) => t.body.status === "Done").map((t) => t.body.name)
+    );
     return div(
       { class: "mt-2" },
       status,
@@ -166,7 +169,22 @@ const makeTaskList = async (req) => {
           { label: "Description", key: (m) => m.body.description },
           {
             label: "Depends on",
-            key: (m) => (m.body.depends_on || []).join(", "),
+            key: (m) =>
+              (m.body.depends_on || [])
+                .map((dep) =>
+                  doneNames.has(dep)
+                    ? span(
+                        { class: "text-success me-2", style: "white-space:nowrap", title: dep },
+                        i({ class: "fas fa-check-circle me-1", style: "font-size:0.75em" }),
+                        dep
+                      )
+                    : span(
+                        { class: "text-danger me-2", style: "white-space:nowrap", title: dep },
+                        i({ class: "fas fa-circle me-1", style: "font-size:0.75em" }),
+                        dep
+                      )
+                )
+                .join(""),
           },
           { label: "Priority", key: (m) => m.body.priority },
           { label: "Status", key: (m) => m.body.status || "To do" },

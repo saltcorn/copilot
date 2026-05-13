@@ -71,7 +71,9 @@ class GeneratePage {
     if (page_type === "Marketing page") {
       return {
         prompt:
-          "Generate the HTML for the web page using the Bootstrap 5 CSS framework.",
+          "Generate the HTML for the web page using the Bootstrap 5 CSS framework. " +
+          'Include a toast notification area just before the closing </body> tag: ' +
+          '<div id="toasts-area" class="toast-container position-fixed top-0 start-50 p-0" style="z-index:999;" aria-live="polite" aria-atomic="true"></div>',
       };
     }
     const prompt = `Now generate the contents of the ${name} page`;
