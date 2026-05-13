@@ -65,13 +65,17 @@ class GeneratePage {
     };
   }
   static async system_prompt() {
-    return `If the user asks to generate a page, a web page or a landing page, use the generate_page to generate a page.`;
+    return `If the user asks to generate a page, a web page or a landing page, use the generate_page to generate a page.
+
+Critical: When generating HTML, your response must be the complete, final HTML document and nothing else. Do not include reasoning, planning notes, explanatory text, TODO comments, markdown code fences, or placeholder content. Everything you write will be stored verbatim and rendered directly to users — there is no review step between your output and the live page.`;
   }
   static async follow_on_generate({ name, page_type }) {
     if (page_type === "Marketing page") {
       return {
         prompt:
-          "Generate the HTML for the web page using the Bootstrap 5 CSS framework.",
+          "Generate the HTML for the web page using the Bootstrap 5 CSS framework. " +
+          'Include a toast notification area just before the closing </body> tag: ' +
+          '<div id="toasts-area" class="toast-container position-fixed top-0 start-50 p-0" style="z-index:999;" aria-live="polite" aria-atomic="true"></div>',
       };
     }
     const prompt = `Now generate the contents of the ${name} page`;

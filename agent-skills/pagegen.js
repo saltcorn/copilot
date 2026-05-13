@@ -107,10 +107,11 @@ class GeneratePageSkill {
         const version_tag = db.connectObj.version_tag;
         const asset = (name) => `/static_assets/${version_tag}/${name}`;
         const str = await generate(
-          `Now generate the contents of the ${
+          `Generate the complete HTML for the ${
             tool_call.input.name
-          } HTML page. If I asked you to embed a view,
- use the <embed-view> self-closing tag to do so, setting the view name in the viewname attribute. For example,
+          } page. Your response must be the raw HTML document only — no explanatory text before or after, no markdown code fences, no reasoning, no placeholder comments. The output is saved and rendered directly to users without any review step, so anything you write outside valid HTML will be visible on the page.
+
+ If I asked you to embed a view, use the <embed-view> self-closing tag to do so, setting the view name in the viewname attribute. For example,
  to embed the view LeadForm inside a div, write: <div><embed-view viewname="LeadForm"></div>
 
  If you need to include the standard bootstrap CSS and javascript files, they are available as:

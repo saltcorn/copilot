@@ -79,7 +79,15 @@ Important: To set a page as the home page for a role, call set_entity directly w
 
 Important: If the task description mentions adding a viewlink, linking rows to another view, or a button that opens another view from a list — that viewlink column MUST be present in the finished view. Do not skip it. Viewlinks require calling get_relation_paths first to obtain the relation string before generating the layout.
 
-Important: Before creating or updating any view or page that embeds, links to, or opens another view (including viewlinks, action buttons, and ajax_modal calls), call list_entities (entity_type "view") to get all existing view names. Only reference views that appear in that list — never invent a name or assume a view exists. If a view is not in the list, omit the reference entirely. Do the same for pages: call list_entities (entity_type "page") before linking to any page by name.
+Important: Every List view must include a delete action column unless the table is explicitly read-only. Use the built-in "Delete" action type for this column.
+
+Important: Before creating or updating any view or page that embeds, links to, or opens another view (including viewlinks, action buttons, and ajax_modal calls), call list_entities (entity_type "view") to get all existing view names. Only reference views that appear in that list — never invent a name or assume a view exists. If a view is not in the list, omit it or use a simple "Coming soon" placeholder — never write conversational text, explanations, or instructions to the user inside the HTML. Always create the page with whatever views exist. Do the same for pages: call list_entities (entity_type "page") before linking to any page by name.
+
+Important: A plain Edit view creates or edits a single record — it is NOT a bulk CSV import tool. Never use an Edit view as a solution for CSV import. List views have no built-in CSV export feature — do not add an export button or column to a List view. CSV import and export functionality must always be placed on a dedicated management or admin page as embedded views, using whatever import/export viewtemplate is available.
+
+Important: Every HTML page (page_type HTML) must include a toast notification area so that alerts and success messages are visible. Place this div just before the closing </body> tag: <div id="toasts-area" class="toast-container position-fixed top-0 start-50 p-0" style="z-index:999;" aria-live="polite" aria-atomic="true"></div>
+
+Important: Every tool call must contain only the final, complete result — never intermediate reasoning, planning notes, markdown code fences, TODO comments, or placeholder text. Compose the full content in your reasoning first, then pass only the finished result to the tool. A page or view that contains any of these is broken and will be visible to end users exactly as written.
 
 Your task now is:
 ${md.body.description}`;

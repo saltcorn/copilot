@@ -156,6 +156,11 @@ class GenerateTables {
                 type: "string",
                 description: "The name of the table",
               },
+              description: {
+                type: "string",
+                description:
+                  "A short human-readable description of what this table stores and its role in the application",
+              },
               fields: {
                 type: "array",
                 items: this.field_item_schema(),
@@ -263,6 +268,28 @@ class GenerateTables {
     The type_and_configuration.data_type for a calculated field should reflect the return type of
     the expression (e.g. Integer, Float, String, Bool).
 
+    ## Table descriptions
+
+    Every table you define MUST include a description — a short sentence explaining what
+    the table stores and its role in the application. This description is shown in
+    subsequent prompts to give the planner context about the schema, so make it
+    informative (e.g. "Stores billable time entries logged by lawyers against a project").
+
+    ## Bulk data import and export
+
+    Do NOT create tables whose purpose is to trigger a bulk import or export (e.g. a
+    table with a File field that a user fills in via an Edit view to start an import).
+    Bulk import and export is a UI concern — there are plugins that provide dedicated
+    viewtemplates operating directly on the target table, which is a much better
+    solution than a workaround table with a file field and an Edit view.
+
+    A tracking table that records the status and outcome of an automated import or
+    export process (e.g. import_jobs) is acceptable, but only if the table is populated
+    automatically by the process — not filled in manually by a user. Such tables must
+    have a description that clearly says they are auto-populated and must not be edited
+    by hand (e.g. "Auto-populated by the import process. Records status and errors for
+    each import run. Not editable by users.").
+
     ## Existing tables
 
     The database already contains the following tables:
@@ -293,7 +320,8 @@ class GenerateTables {
 
   static async execute({ tables }, req) {
     const sctables = this.process_tables(tables);
-    for (const table of sctables) await Table.create(table.name);
+    for (const table of sctables)
+      await Table.create(table.name, { description: table.description || "" });
     for (const table of sctables) {
       for (const field of table.fields) {
         field.table = Table.findOne({ name: table.name });
@@ -424,6 +452,7 @@ class GenerateTables {
         : [];
       return new Table({
         name: table.table_name,
+        description: table.description || "",
         fields: sanitizedFields.map((f) => this.process_field(f, tables)),
       });
     });

@@ -1,3 +1,5 @@
+const { getState } = require("@saltcorn/data/db/state");
+
 const saltcorn_description = `This application will be implemented in Saltcorn, a database application development
 environment. 
 
@@ -103,6 +105,28 @@ const existing_entities_list = ({ views, triggers, pages, tableById = {} }) => {
   return sections.join("\n\n");
 };
 
+const installed_plugins_list = (installedNames) => {
+  const state = getState();
+  const lines = [];
+  for (const name of installedNames) {
+    const resolvedName = state.plugin_module_names[name] || name;
+    const mod = state.plugins[resolvedName];
+    if (!mod) continue;
+    const contents = mod.contents;
+    const description = mod.description;
+    if (!contents && !description) continue;
+    let line = `### ${name}`;
+    if (description) line += `\n${description}`;
+    if (contents) line += `\n${contents}`;
+    lines.push(line);
+  }
+  if (!lines.length) return "";
+  return (
+    `The following plugins are already installed and their viewtemplates, field types, and actions are available for use:\n\n` +
+    lines.join("\n\n")
+  );
+};
+
 const available_plugins_list = (storePlugins, installedNames) => {
   const uninstalled = storePlugins.filter((p) => !installedNames.has(p.name));
   if (!uninstalled.length) return "";
@@ -125,5 +149,6 @@ module.exports = {
   saltcorn_description,
   existing_tables_list,
   existing_entities_list,
+  installed_plugins_list,
   available_plugins_list,
 };
