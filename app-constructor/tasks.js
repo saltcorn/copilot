@@ -42,6 +42,7 @@ const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
 const { runTask, runNextTask } = require("./run_task");
 const { task_tool } = require("./tools");
+const { getResearchAnswersText } = require("./research");
 const {
   saltcorn_description,
   existing_tables_list,
@@ -644,6 +645,7 @@ const doGenTasks = async (spec, rs, schema, userId) => {
     body: {},
   });
   try {
+    const researchText = await getResearchAnswersText();
     const tables = await Table.find({});
     const tableById = Object.fromEntries(tables.map((t) => [t.id, t.name]));
     const views = await View.find({});
@@ -673,7 +675,7 @@ const doGenTasks = async (spec, rs, schema, userId) => {
       `Generate a plan for building this application:
 
 ${spec.body.specification}
-
+${researchText ? `\nThe user was asked clarifying questions about the application. Here are the questions and their answers:\n\n${researchText}\n` : ""}
 These are the requirements of the application:
 
 ${rs.map((r) => `* ${r.body.requirement}`).join("\n")}

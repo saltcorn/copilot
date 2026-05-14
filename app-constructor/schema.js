@@ -37,6 +37,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
+const { getResearchAnswersText } = require("./research");
 const { saltcorn_description, existing_tables_list } = require("./prompts");
 const GenerateTables = require("../actions/generate-tables");
 const { buildMermaidMarkup } = GenerateTables;
@@ -216,13 +217,14 @@ const doGenSchema = async (spec, rs, userId) => {
     user_id: userId,
   });
   try {
+    const researchText = await getResearchAnswersText();
     const databaseDesignTool = new GenerateTablesSkill({}).provideTools();
     const existing_tables = await Table.find({});
     const answer = await getState().functions.llm_generate.run(
       `Generate the database schema for this application:
 
 ${spec.body.specification}
-
+${researchText ? `\nThe user was asked clarifying questions about the application. Here are the questions and their answers:\n\n${researchText}\n` : ""}
 These are the requirements of the application:
 
 ${rs.map((r) => `* ${r.body.requirement}`).join("\n")}

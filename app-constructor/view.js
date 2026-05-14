@@ -44,6 +44,7 @@ const { feedbackList, feedback_routes } = require("./feedback");
 const { progressList, progress_routes } = require("./progress");
 const { runNextTask } = require("./run_task");
 const { makeTaskChart } = require("./taskchart");
+const { researchPanel, research_routes } = require("./research");
 
 const get_state_fields = () => [];
 
@@ -74,6 +75,7 @@ const makeSpecForm = async (req) => {
 
 const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const specForm = await makeSpecForm(req);
+  const research = await researchPanel(req);
   const reqList = await requirementsList(req);
   const taskList = await makeTaskList(req);
   const errList = await errorList(req);
@@ -88,6 +90,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
     lazyLoadViews: true,
     titles: [
       "Specification",
+      "Research",
       "Requirements",
       "Schema",
       "Tasks",
@@ -101,6 +104,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
         type: "blank",
         contents: div({ class: "mt-2" }, renderForm(specForm, req.csrfToken())),
       },
+      { type: "blank", contents: research },
       { type: "blank", contents: reqList },
       { type: "blank", contents: schema },
       { type: "blank", contents: taskList },
@@ -183,6 +187,7 @@ module.exports = {
   routes: {
     submit_specs,
     ...req_routes,
+    ...research_routes,
     ...task_routes,
     ...error_routes,
     ...feedback_routes,
