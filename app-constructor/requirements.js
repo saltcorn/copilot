@@ -37,6 +37,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
+const { getResearchAnswersText } = require("./research");
 
 const requirementsList = async (req) => {
   const rs = await MetaData.find(
@@ -144,15 +145,12 @@ const doGenReqs = async (spec, userId) => {
     user_id: userId,
   });
   try {
+    const researchText = await getResearchAnswersText();
     const answer = await getState().functions.llm_generate.run(
       `Generate the requirements for this application:
 
-Description: ${spec.body.description}
-Audience: ${spec.body.audience}
-Core features: ${spec.body.core_features}
-Out of scope: ${spec.body.out_of_scope}
-Visual style: ${spec.body.visual_style}
-
+${spec.body.specification}
+${researchText ? `\nThe user was asked clarifying questions about the application. Here are the questions and their answers:\n\n${researchText}\n` : ""}
 Important rules for generating requirements:
 * Every requirement must be directly traceable to something stated in the description, audience, or core features above. Do not infer, invent, or add features that are not explicitly mentioned — even if they seem like an obvious addition.
 * Do not generate any requirement that falls under the Out of scope section above.

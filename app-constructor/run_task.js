@@ -49,11 +49,7 @@ const runTask = async (md_id, req) => {
   });
   const prompt = `You are engaged in building the following application:
 
-Description: ${spec.body.description}
-Audience: ${spec.body.audience}
-Core features: ${spec.body.core_features}
-Out of scope: ${spec.body.out_of_scope}
-Visual style: ${spec.body.visual_style}
+${spec.body.specification}
 
 Important: The database schema is already fully implemented. Do NOT use generate_tables or modify any tables or fields — all tables and fields already exist.
 

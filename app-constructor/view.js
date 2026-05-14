@@ -44,6 +44,7 @@ const { feedbackList, feedback_routes } = require("./feedback");
 const { progressList, progress_routes } = require("./progress");
 const { runNextTask } = require("./run_task");
 const { makeTaskChart } = require("./taskchart");
+const { researchPanel, research_routes } = require("./research");
 
 const get_state_fields = () => [];
 
@@ -56,37 +57,14 @@ const makeSpecForm = async (req) => {
   });
 
   return new Form({
-    blurb: "Provide a high-level description of the application",
+    blurb: "Describe the application you want to build",
     fields: [
       {
-        name: "description",
-        label: "Description",
+        name: "specification",
+        label: "Specification",
         type: "String",
         fieldview: "textarea",
-      },
-      {
-        name: "audience",
-        label: "Audience",
-        type: "String",
-        fieldview: "textarea",
-      },
-      {
-        name: "core_features",
-        label: "Core features",
-        type: "String",
-        fieldview: "textarea",
-      },
-      {
-        name: "out_of_scope",
-        label: "Out of scope",
-        type: "String",
-        fieldview: "textarea",
-      },
-      {
-        name: "visual_style",
-        label: "Visual style",
-        type: "String",
-        fieldview: "textarea",
+        attributes: { rows: 10 },
       },
     ],
     xhrSubmit: true,
@@ -97,6 +75,7 @@ const makeSpecForm = async (req) => {
 
 const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const specForm = await makeSpecForm(req);
+  const research = await researchPanel(req);
   const reqList = await requirementsList(req);
   const taskList = await makeTaskList(req);
   const errList = await errorList(req);
@@ -111,6 +90,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
     lazyLoadViews: true,
     titles: [
       "Specification",
+      "Research",
       "Requirements",
       "Schema",
       "Tasks",
@@ -124,6 +104,7 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
         type: "blank",
         contents: div({ class: "mt-2" }, renderForm(specForm, req.csrfToken())),
       },
+      { type: "blank", contents: research },
       { type: "blank", contents: reqList },
       { type: "blank", contents: schema },
       { type: "blank", contents: taskList },
@@ -206,6 +187,7 @@ module.exports = {
   routes: {
     submit_specs,
     ...req_routes,
+    ...research_routes,
     ...task_routes,
     ...error_routes,
     ...feedback_routes,
