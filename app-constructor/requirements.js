@@ -147,11 +147,7 @@ const doGenReqs = async (spec, userId) => {
     const answer = await getState().functions.llm_generate.run(
       `Generate the requirements for this application:
 
-Description: ${spec.body.description}
-Audience: ${spec.body.audience}
-Core features: ${spec.body.core_features}
-Out of scope: ${spec.body.out_of_scope}
-Visual style: ${spec.body.visual_style}
+${spec.body.specification}
 
 Important rules for generating requirements:
 * Every requirement must be directly traceable to something stated in the description, audience, or core features above. Do not infer, invent, or add features that are not explicitly mentioned — even if they seem like an obvious addition.

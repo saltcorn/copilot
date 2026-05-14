@@ -221,11 +221,7 @@ const doGenSchema = async (spec, rs, userId) => {
     const answer = await getState().functions.llm_generate.run(
       `Generate the database schema for this application:
 
-Description: ${spec.body.description}
-Audience: ${spec.body.audience}
-Core features: ${spec.body.core_features}
-Out of scope: ${spec.body.out_of_scope}
-Visual style: ${spec.body.visual_style}
+${spec.body.specification}
 
 These are the requirements of the application:
 

@@ -56,37 +56,14 @@ const makeSpecForm = async (req) => {
   });
 
   return new Form({
-    blurb: "Provide a high-level description of the application",
+    blurb: "Describe the application you want to build",
     fields: [
       {
-        name: "description",
-        label: "Description",
+        name: "specification",
+        label: "Specification",
         type: "String",
         fieldview: "textarea",
-      },
-      {
-        name: "audience",
-        label: "Audience",
-        type: "String",
-        fieldview: "textarea",
-      },
-      {
-        name: "core_features",
-        label: "Core features",
-        type: "String",
-        fieldview: "textarea",
-      },
-      {
-        name: "out_of_scope",
-        label: "Out of scope",
-        type: "String",
-        fieldview: "textarea",
-      },
-      {
-        name: "visual_style",
-        label: "Visual style",
-        type: "String",
-        fieldview: "textarea",
+        attributes: { rows: 10 },
       },
     ],
     xhrSubmit: true,
