@@ -1,6 +1,4 @@
 const MetaData = require("@saltcorn/data/models/metadata");
-const Form = require("@saltcorn/data/models/form");
-const { renderForm, mkTable } = require("@saltcorn/markup");
 const {
   div,
   script,
@@ -11,7 +9,6 @@ const {
   label,
   textarea,
   form,
-  input,
   h5,
   small,
 } = require("@saltcorn/markup/tags");
@@ -39,45 +36,29 @@ const questions_tool = {
   },
 };
 
-const researchPanel = async (req) => {
-  const answers_md = await MetaData.findOne({
+const spinnerHtml =
+  "<p>" +
+  i({ class: "fas fa-spinner fa-spin me-2" }) +
+  "Generating questions, please wait...</p>";
+
+// Pure HTML for each state — no embedded scripts
+const researchPanelHtml = async (req) => {
+  const generating = await MetaData.findOne({
     type: "CopilotConstructMgr",
-    name: "research_answers",
+    name: "generating_research",
   });
+  if (generating) return spinnerHtml;
+
   const questions_md = await MetaData.findOne({
     type: "CopilotConstructMgr",
     name: "research_questions",
   });
 
-  const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "generating_research",
-  });
-
-  if (generating) {
-    return div(
-      { class: "mt-2" },
-      p(
-        i({ class: "fas fa-spinner fa-spin me-2" }),
-        "Generating questions, please wait..."
-      ),
-      script(
-        domReady(`
-(function() {
-  const poll = () => {
-    view_post(${JSON.stringify(viewname)}, 'research_status', {}, (resp) => {
-      if (resp && !resp.generating) location.reload();
-      else setTimeout(poll, 3000);
-    });
-  };
-  setTimeout(poll, 3000);
-})();
-`)
-      )
-    );
-  }
-
   if (questions_md) {
+    const answers_md = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: "research_answers",
+    });
     const questions = questions_md.body.questions || [];
     const saved = answers_md?.body || {};
 
@@ -88,25 +69,20 @@ const researchPanel = async (req) => {
           { class: "mb-3" },
           label({ class: "form-label fw-semibold", for: fname }, q),
           textarea(
-            {
-              class: "form-control",
-              id: fname,
-              name: fname,
-              rows: 3,
-            },
+            { class: "form-control", id: fname, name: fname, rows: 3 },
             saved[fname] || ""
           )
         );
       })
       .join("");
 
-    return div(
-      { class: "mt-2", id: "research-panel" },
-      h5("Clarifying questions"),
+    return (
+      h5("Clarifying questions") +
       small(
         { class: "text-muted d-block mb-3" },
-        "Answer these questions to help generate more accurate requirements and tasks. You can skip any question."
-      ),
+        "Answer these questions to help generate more accurate requirements and tasks. " +
+          "You can skip any question."
+      ) +
       form(
         { id: "research-form" },
         fieldRows,
@@ -114,7 +90,7 @@ const researchPanel = async (req) => {
           {
             type: "button",
             class: "btn btn-primary me-2",
-            onclick: `copilotSubmitResearch()`,
+            onclick: "copilotSubmitResearch()",
           },
           "Save answers"
         ),
@@ -122,60 +98,63 @@ const researchPanel = async (req) => {
           {
             type: "button",
             class: "btn btn-outline-secondary",
-            onclick: `copilotRegenResearch()`,
+            onclick: "copilotRegenResearch()",
           },
           "Regenerate questions"
         )
-      ),
-      script(
-        domReady(`
-window.copilotSubmitResearch = () => {
-  const data = {};
-  const form = document.getElementById('research-form');
-  for (const el of form.querySelectorAll('textarea')) data[el.name] = el.value;
-  view_post(${JSON.stringify(viewname)}, 'submit_research', data);
-};
-window.copilotRegenResearch = () => {
-  const area = document.getElementById('research-panel');
-  if (area) area.innerHTML = '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating questions, please wait...</p>';
-  view_post(${JSON.stringify(viewname)}, 'gen_research', {}, () => {});
-  const poll = () => {
-    view_post(${JSON.stringify(viewname)}, 'research_status', {}, (resp) => {
-      if (resp && !resp.generating) location.reload();
-      else setTimeout(poll, 3000);
-    });
-  };
-  setTimeout(poll, 3000);
-};
-`)
       )
     );
   }
 
-  return div(
-    { class: "mt-2", id: "research-panel" },
-    p("Generate clarifying questions based on your specification."),
+  return (
+    p("Generate clarifying questions based on your specification.") +
     button(
-      {
-        class: "btn btn-primary",
-        onclick: `copilotGenResearch()`,
-      },
+      { class: "btn btn-primary", onclick: "copilotGenResearch()" },
       "Generate questions"
-    ),
+    )
+  );
+};
+
+// Outer wrapper rendered once on page load — includes the single script block
+const researchPanel = async (req) => {
+  const generating = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "generating_research",
+  });
+  const innerHtml = await researchPanelHtml(req);
+
+  return div(
+    { class: "mt-2" },
+    div({ id: "research-panel" }, innerHtml),
     script(
       domReady(`
-window.copilotGenResearch = () => {
-  document.getElementById('research-panel').innerHTML =
-    '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating questions, please wait...</p>';
-  view_post(${JSON.stringify(viewname)}, 'gen_research', {}, () => {});
+const _vn = ${JSON.stringify(viewname)};
+function researchStartPoll() {
   const poll = () => {
-    view_post(${JSON.stringify(viewname)}, 'research_status', {}, (resp) => {
-      if (resp && !resp.generating) location.reload();
-      else setTimeout(poll, 3000);
+    view_post(_vn, 'research_status', {}, (resp) => {
+      if (resp && !resp.generating) {
+        view_post(_vn, 'research_html', {}, (r) => {
+          if (r && r.html) document.getElementById('research-panel').innerHTML = r.html;
+        });
+      } else setTimeout(poll, 3000);
     });
   };
   setTimeout(poll, 3000);
+}
+window.copilotGenResearch = window.copilotRegenResearch = () => {
+  document.getElementById('research-panel').innerHTML = ${JSON.stringify(
+    spinnerHtml
+  )};
+  view_post(_vn, 'gen_research', {}, () => {});
+  researchStartPoll();
 };
+window.copilotSubmitResearch = () => {
+  const data = {};
+  const f = document.getElementById('research-form');
+  for (const el of f.querySelectorAll('textarea')) data[el.name] = el.value;
+  view_post(_vn, 'submit_research', data);
+};
+${generating ? "researchStartPoll();" : ""}
 `)
     )
   );
@@ -262,6 +241,17 @@ const research_status = async (
   return { json: { generating: !!generating } };
 };
 
+const research_html = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
+  const html = await researchPanelHtml(req);
+  return { json: { html } };
+};
+
 const submit_research = async (
   table_id,
   viewname,
@@ -284,7 +274,7 @@ const submit_research = async (
       user_id: req.user?.id,
     });
   }
-  return { json: { success: true, notify: "Answers saved" } };
+  return { json: { success: true, notify_success: "Answers saved" } };
 };
 
 const getResearchAnswersText = async () => {
@@ -313,6 +303,7 @@ const getResearchAnswersText = async () => {
 const research_routes = {
   gen_research,
   research_status,
+  research_html,
   submit_research,
 };
 
