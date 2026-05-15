@@ -95,11 +95,7 @@ module.exports = {
     const reqAnswer = await getState().functions.llm_generate.run(
       `The following application is being built:
 
-Description: ${spec.body.description}
-Audience: ${spec.body.audience}
-Core features: ${spec.body.core_features}
-Out of scope: ${spec.body.out_of_scope}
-Visual style: ${spec.body.visual_style}
+${spec.body.specification}
 
 A new piece of feedback has come in from a user:
 
@@ -129,14 +125,10 @@ Now use the make_requirements tool to create a single or several (a single is pr
     const taskAnswer = await getState().functions.llm_generate.run(
       `The following application is being built:
 
-Description: ${spec.body.description}
-Audience: ${spec.body.audience}
-Core features: ${spec.body.core_features}
-Out of scope: ${spec.body.out_of_scope}
-Visual style: ${spec.body.visual_style}
+${spec.body.specification}
 
 This application will be implemented in Saltcorn, a database application development
-environment. 
+environment.
 
 A new piece of feedback has come in from a user:
 

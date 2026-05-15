@@ -97,15 +97,13 @@ const requirementsList = async (req) => {
       ),
       script(
         domReady(`
-(function() {
-  const poll = () => {
-    view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
-      if (resp && !resp.generating) location.reload();
-      else setTimeout(poll, 3000);
-    });
-  };
-  setTimeout(poll, 3000);
-})();
+const poll = () => {
+  view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
+    if (resp && !resp.generating) location.reload();
+    else setTimeout(poll, 3000);
+  });
+};
+setTimeout(poll, 3000);
 `)
       )
     );
