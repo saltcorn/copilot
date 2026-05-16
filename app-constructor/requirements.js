@@ -38,6 +38,7 @@ const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
 const { getResearchAnswersText } = require("./research");
+const { research_answers_section } = require("./prompts");
 
 const requirementsList = async (req) => {
   const rs = await MetaData.find(
@@ -148,7 +149,7 @@ const doGenReqs = async (spec, userId) => {
       `Generate the requirements for this application:
 
 ${spec.body.specification}
-${researchText ? `\nThe user was asked clarifying questions about the application. Here are the questions and their answers:\n\n${researchText}\n` : ""}
+${research_answers_section(researchText)}
 Important rules for generating requirements:
 * Every requirement must be directly traceable to something stated in the description, audience, or core features above. Do not infer, invent, or add features that are not explicitly mentioned — even if they seem like an obvious addition.
 * Do not generate any requirement that falls under the Out of scope section above.

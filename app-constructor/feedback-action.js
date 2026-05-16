@@ -1,9 +1,24 @@
-const { eval_expression } = require("@saltcorn/data/models/expression");
 const MetaData = require("@saltcorn/data/models/metadata");
+const Table = require("@saltcorn/data/models/table");
+const View = require("@saltcorn/data/models/view");
+const Trigger = require("@saltcorn/data/models/trigger");
+const Page = require("@saltcorn/data/models/page");
+const Plugin = require("@saltcorn/data/models/plugin");
 const { interpolate } = require("@saltcorn/data/utils");
 const { getState } = require("@saltcorn/data/db/state");
 const { requirements_tool, task_tool } = require("./tools");
 const { tool_choice } = require("./common");
+const { getResearchAnswersText } = require("./research");
+const {
+  saltcorn_description,
+  existing_tables_list,
+  existing_entities_list,
+  installed_plugins_list,
+  available_plugins_list,
+  task_planning_rules,
+  task_planning_closing,
+  research_answers_section,
+} = require("./prompts");
 
 module.exports = {
   description: "Provide user feedback to the AppConstructor",
@@ -71,6 +86,7 @@ module.exports = {
       title_field,
       description_field,
       url_field,
+      research_context,
     },
   }) => {
     const use_title =
@@ -92,17 +108,25 @@ module.exports = {
       name: "spec",
     });
     if (!spec) return;
+
+    const researchText = await getResearchAnswersText();
+    const feedbackResearchSection = research_context
+      ? `\nThe user also answered clarifying questions about this feedback:\n\n${research_context}\n`
+      : "";
+
     const reqAnswer = await getState().functions.llm_generate.run(
       `The following application is being built:
 
 ${spec.body.specification}
-
+${research_answers_section(researchText)}
 A new piece of feedback has come in from a user:
 
 Title: ${use_title}
 Description: ${use_description}
+${feedbackResearchSection}
+Now use the make_requirements tool to create a single or several (a single is preferred) new requirements that captures this new piece of feedback.
 
-Now use the make_requirements tool to create a single or several (a single is prefered) new requirements that captures this new piece of feedback.
+* Priority reflects how central the feature is to the core purpose of the application. Assign 5 to features without which the application cannot function at all, 3-4 to features that are important but not blocking, 1-2 to minor convenience features. Do not assign 5 to everything.
 `,
       {
         tools: [requirements_tool],
@@ -114,6 +138,11 @@ Now use the make_requirements tool to create a single or several (a single is pr
     const tc = reqAnswer.getToolCalls()[0];
     console.log("gotr new requiremenrts", tc.input.requirements);
 
+    const allReqs = await MetaData.find({
+      type: "CopilotConstructMgr",
+      name: "requirement",
+    });
+
     for (const reqm of tc.input.requirements)
       await MetaData.create({
         type: "CopilotConstructMgr",
@@ -122,29 +151,59 @@ Now use the make_requirements tool to create a single or several (a single is pr
         user_id: req.user?.id,
       });
 
+    const tables = await Table.find({});
+    const tableById = Object.fromEntries(tables.map((t) => [t.id, t.name]));
+    const views = await View.find({});
+    const triggers = await Trigger.find({});
+    const pages = await Page.find({});
+    const entitiesSection = existing_entities_list({
+      views,
+      triggers,
+      pages,
+      tableById,
+    });
+    const installedPlugins = await Plugin.find({});
+    const installedNames = new Set(installedPlugins.map((p) => p.name));
+    let storePlugins = [];
+    try {
+      storePlugins = await Plugin.store_plugins_available();
+    } catch (_) {}
+    const installedPluginsSection = installed_plugins_list(installedNames);
+    const pluginsSection = available_plugins_list(storePlugins, installedNames);
+
     const taskAnswer = await getState().functions.llm_generate.run(
-      `The following application is being built:
+      `Generate implementation tasks for a new piece of feedback for this application:
 
 ${spec.body.specification}
-
-This application will be implemented in Saltcorn, a database application development
-environment.
-
+${research_answers_section(researchText)}
 A new piece of feedback has come in from a user:
 
 Title: ${use_title}
 Description: ${use_description}
+${feedbackResearchSection}
+The existing application requirements are:
 
-A product manager has determined that the following requirements should be added to the list of application requirements:
+${allReqs.map((r) => `* ${r.body.requirement}`).join("\n")}
+
+A product manager has determined that the following new requirements should be added to implement this feedback:
 
 ${tc.input.requirements.map((r) => "  * " + r.requirement).join("\n")}
 
-Your plan for implementing this new fedback and requirements should not include any clarification or questions to the product owner. The 
-information you have been given so far is all that is available. Every step in the plan 
-should be immediately implementable in Saltcorn. You are writing the steps in the plan
-for a person who is competent in using saltcorn but has no other business knowledge.
+${saltcorn_description}
 
-Now use the plan_tasks tool to create the tasks to implement this new feedback
+The database has already been built. The following tables are now present in the database:
+
+${existing_tables_list(tables)}
+
+The plan should outline continued development of the application on top of this database.
+Your plan can add additional tables if needed or adjust the table fields, but normally the tables
+should be designed optimally for this application.
+
+${entitiesSection ? entitiesSection + "\n\n" : ""}${installedPluginsSection ? installedPluginsSection + "\n\n" : ""}${pluginsSection ? pluginsSection + "\n\n" : ""}${task_planning_rules}
+
+${task_planning_closing}
+
+Now use the plan_tasks tool to create the tasks to implement this new feedback.
 `,
       {
         tools: [task_tool],
