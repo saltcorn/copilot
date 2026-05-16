@@ -42,6 +42,56 @@ const spinnerHtml =
   i({ class: "fas fa-spinner fa-spin me-2" }) +
   "Generating questions, please wait...</p>";
 
+const collapseSection = (id, title, content, expanded = true) =>
+  div(
+    { class: "d-flex align-items-center gap-2 mb-2" },
+    button(
+      {
+        class: "btn btn-sm btn-outline-secondary",
+        type: "button",
+        "data-bs-toggle": "collapse",
+        "data-bs-target": `#${id}`,
+        "aria-expanded": String(expanded),
+        "aria-controls": id,
+      },
+      i({ class: "fas fa-chevron-down fa-xs" })
+    ),
+    h5({ class: "mb-0" }, title)
+  ) +
+  div(
+    {
+      id,
+      class: `form-group border border-2 p-3 rounded collapse${
+        expanded ? " show" : ""
+      }`,
+    },
+    content
+  );
+
+const collapseItem = (id, title, content, expanded = true) =>
+  div(
+    { class: "d-flex align-items-center gap-2 mb-2 mt-3" },
+    button(
+      {
+        class: "btn btn-sm btn-outline-secondary",
+        type: "button",
+        "data-bs-toggle": "collapse",
+        "data-bs-target": `#${id}`,
+        "aria-expanded": String(expanded),
+        "aria-controls": id,
+      },
+      i({ class: "fas fa-chevron-down fa-xs" })
+    ),
+    p({ class: "fw-semibold mb-0" }, title)
+  ) +
+  div(
+    {
+      id,
+      class: `border-start border-2 ps-3 collapse${expanded ? " show" : ""}`,
+    },
+    content
+  );
+
 const FEEDBACK_TABLE = "app_constructor_feedback";
 
 // Pure HTML for the feedback questions section — safe for innerHTML injection
@@ -53,7 +103,10 @@ const feedbackResearchHtml = async () => {
   if (generating) {
     return div(
       { class: "mt-4 border-top pt-3" },
-      p(i({ class: "fas fa-spinner fa-spin me-2" }), "Generating feedback questions...")
+      p(
+        i({ class: "fas fa-spinner fa-spin me-2" }),
+        "Generating feedback questions..."
+      )
     );
   }
 
@@ -83,7 +136,10 @@ const feedbackResearchHtml = async () => {
           return div(
             { class: "mb-2" },
             label(
-              { class: "form-label small fw-semibold", for: `fbq_${row.id}_${fname}` },
+              {
+                class: "form-label small fw-semibold",
+                for: `fbq_${row.id}_${fname}`,
+              },
               q
             ),
             textarea(
@@ -98,30 +154,32 @@ const feedbackResearchHtml = async () => {
           );
         })
         .join("");
-      return div(
-        { class: "mb-4" },
-        p({ class: "fw-semibold mb-2" }, row.title),
-        form({ id: `fbr-form-${row.id}` }, fieldRows),
-        button(
-          {
-            type: "button",
-            class: "btn btn-sm btn-primary",
-            onclick: `copilotSaveFeedbackResearch(${row.id})`,
-          },
-          "Save answers"
-        )
+      return collapseItem(
+        `fbrItem${row.id}`,
+        row.title,
+        form({ id: `fbr-form-${row.id}` }, fieldRows) +
+          button(
+            {
+              type: "button",
+              class: "btn btn-sm btn-primary mt-2",
+              onclick: `copilotSaveFeedbackResearch(${row.id})`,
+            },
+            "Save answers"
+          )
       );
     })
     .join("");
 
   return div(
     { class: "mt-4 border-top pt-3" },
-    h5("Feedback questions"),
-    small(
-      { class: "text-muted d-block mb-3" },
-      "Answer these questions about each piece of feedback to provide better context for approval."
-    ),
-    sections
+    collapseSection(
+      "feedbackResearchCollapse",
+      "Feedback questions",
+      small(
+        { class: "text-muted d-block mb-3" },
+        "Answer these questions about each piece of feedback to provide better context for approval."
+      ) + sections
+    )
   );
 };
 
@@ -160,33 +218,34 @@ const researchPanelHtml = async (req) => {
       })
       .join("");
 
-    return (
-      h5("Clarifying questions") +
+    return collapseSection(
+      "specResearchCollapse",
+      "Specification questions",
       small(
         { class: "text-muted d-block mb-3" },
         "Answer these questions to help generate more accurate requirements and tasks. " +
           "You can skip any question."
       ) +
-      form(
-        { id: "research-form" },
-        fieldRows,
-        button(
-          {
-            type: "button",
-            class: "btn btn-primary me-2",
-            onclick: "copilotSubmitResearch()",
-          },
-          "Save answers"
-        ),
-        button(
-          {
-            type: "button",
-            class: "btn btn-outline-secondary",
-            onclick: "copilotRegenResearch()",
-          },
-          "Regenerate questions"
+        form(
+          { id: "research-form" },
+          fieldRows,
+          button(
+            {
+              type: "button",
+              class: "btn btn-primary me-2",
+              onclick: "copilotSubmitResearch()",
+            },
+            "Save answers"
+          ),
+          button(
+            {
+              type: "button",
+              class: "btn btn-outline-secondary",
+              onclick: "copilotRegenResearch()",
+            },
+            "Regenerate questions"
+          )
         )
-      )
     );
   }
 
@@ -212,10 +271,17 @@ const researchPanel = async (req) => {
   const innerHtml = await researchPanelHtml(req);
   const feedbackResearchInner = await feedbackResearchHtml();
 
+  const specPanel = div({ id: "research-panel" }, innerHtml);
+  const feedbackPanel = div(
+    { id: "feedback-research-panel" },
+    feedbackResearchInner
+  );
+
   return div(
     { class: "mt-2" },
-    div({ id: "research-panel" }, innerHtml),
-    div({ id: "feedback-research-panel" }, feedbackResearchInner),
+    feedbackResearchInner
+      ? feedbackPanel + specPanel
+      : specPanel + feedbackPanel,
     script(
       domReady(`
 const _vn = ${JSON.stringify(viewname)};
@@ -412,7 +478,10 @@ const getResearchAnswersText = async () => {
 
 const doGenFeedbackResearch = async (rows) => {
   try {
-    const spec = await MetaData.findOne({ type: "CopilotConstructMgr", name: "spec" });
+    const spec = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: "spec",
+    });
     for (const row of rows) {
       const alreadyHas = await MetaData.findOne({
         type: "CopilotConstructMgr",
@@ -420,9 +489,10 @@ const doGenFeedbackResearch = async (rows) => {
       });
       if (alreadyHas) continue;
       const answer = await getState().functions.llm_generate.run(
-        `${spec?.body?.specification
-          ? `The following application is being built:\n\n${spec.body.specification}\n\n`
-          : ""
+        `${
+          spec?.body?.specification
+            ? `The following application is being built:\n\n${spec.body.specification}\n\n`
+            : ""
         }A user has submitted the following feedback:
 
 Title: ${row.title}
@@ -462,7 +532,13 @@ Now call the ask_questions tool with your questions.`,
   }
 };
 
-const gen_feedback_research = async (table_id, vn, config, body, { req, res }) => {
+const gen_feedback_research = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
   // If the Insert virtual trigger already started generation, just signal the client to poll
   const alreadyRunning = await MetaData.findOne({
     type: "CopilotConstructMgr",
@@ -492,7 +568,13 @@ const gen_feedback_research = async (table_id, vn, config, body, { req, res }) =
   return { json: { generating: true } };
 };
 
-const feedback_research_status = async (table_id, vn, config, body, { req, res }) => {
+const feedback_research_status = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
   const generating = await MetaData.findOne({
     type: "CopilotConstructMgr",
     name: "generating_feedback_research",
@@ -500,13 +582,23 @@ const feedback_research_status = async (table_id, vn, config, body, { req, res }
   return { json: { generating: !!generating } };
 };
 
-const feedback_research_html = async (table_id, vn, config, body, { req, res }) => {
+const feedback_research_html = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
   const html = await feedbackResearchHtml();
   return { json: { html } };
 };
 
 const save_feedback_research_answers = async (
-  table_id, vn, config, body, { req, res }
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
 ) => {
   const { _csrf, feedback_id, ...answers } = body;
   const id = parseInt(feedback_id);

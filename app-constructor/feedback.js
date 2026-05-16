@@ -25,12 +25,40 @@ const { questions_tool } = require("./research");
 
 const FEEDBACK_TABLE = "app_constructor_feedback";
 
+const feedbackClarifyModal = (idPrefix) =>
+  `<div class="modal fade" id="${idPrefix}-clarify-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-body pt-4">
+        <p class="mb-1 fw-semibold">Generate clarifying questions?</p>
+        <p class="text-muted small mb-0">Before saving, I can analyse your feedback and ask a few short questions to help clarify the requirements. Answering them produces more accurate tasks — but you can also save right away.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" onclick="${
+          idPrefix === "fb" ? "copilotSubmitFeedbackForm" : "fbsSubmit"
+        }()">Save without questions</button>
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal" onclick="${
+          idPrefix === "fb" ? "copilotGenQuestionsForForm" : "fbsGenQuestions"
+        }()">Generate questions</button>
+      </div>
+    </div>
+  </div>
+</div>`;
+
 const feedbackFormHtml = () =>
   div(
-    { id: "feedback-form-area", class: "mt-3 border p-3 rounded", style: "display:none" },
+    {
+      id: "feedback-form-area",
+      class: "mt-3 border p-3 rounded",
+      style: "display:none",
+    },
     div(
       { id: "feedback-form-step1" },
-      p({ class: "fw-semibold mb-3" }, "Add feedback"),
+      p({ class: "fw-semibold mb-1" }, "Add feedback"),
+      small(
+        { class: "text-muted d-block mb-3" },
+        "Describe a feature request, bug, or improvement. You can optionally answer clarifying questions to help the AI understand your feedback better."
+      ),
       div(
         { class: "mb-3" },
         label({ class: "form-label", for: "fb-title" }, "Title"),
@@ -47,7 +75,11 @@ const feedbackFormHtml = () =>
         input({ type: "text", class: "form-control", id: "fb-url" })
       ),
       div(
-        { id: "fb-step1-spinner", class: "my-2 text-muted", style: "display:none" },
+        {
+          id: "fb-step1-spinner",
+          class: "my-2 text-muted",
+          style: "display:none",
+        },
         i({ class: "fas fa-spinner fa-spin me-2" }),
         "Generating questions..."
       ),
@@ -57,10 +89,9 @@ const feedbackFormHtml = () =>
           {
             type: "button",
             class: "btn btn-primary me-2",
-            id: "fb-gen-btn",
-            onclick: "copilotGenQuestionsForForm()",
+            onclick: "copilotSaveFeedbackOrPrompt()",
           },
-          "Generate questions"
+          "Save feedback"
         ),
         button(
           {
@@ -99,7 +130,8 @@ const feedbackFormHtml = () =>
           "Back"
         )
       )
-    )
+    ),
+    feedbackClarifyModal("fb")
   );
 
 const feedbackStandalonePageContent = () => {
@@ -108,7 +140,11 @@ const feedbackStandalonePageContent = () => {
   const formHtml =
     div(
       { id: "fbs-step1" },
-      h5({ class: "mb-3" }, "Submit feedback"),
+      h5({ class: "mb-1" }, "Submit feedback"),
+      small(
+        { class: "text-muted d-block mb-3" },
+        "Describe a feature request, bug, or improvement. You can optionally answer clarifying questions to help the AI understand your feedback better."
+      ),
       div(
         { class: "mb-3" },
         label({ class: "form-label", for: "fbs-title" }, "Title"),
@@ -135,10 +171,9 @@ const feedbackStandalonePageContent = () => {
           {
             type: "button",
             class: "btn btn-primary",
-            id: "fbs-gen-btn",
-            onclick: "fbsGenQuestions()",
+            onclick: "fbsSaveOrPrompt()",
           },
-          "Generate questions"
+          "Save feedback"
         )
       )
     ) +
@@ -174,12 +209,26 @@ const feedbackStandalonePageContent = () => {
       { id: "fbs-success", class: "text-success mt-3", style: "display:none" },
       i({ class: "fas fa-check-circle me-2" }),
       "Thank you! Your feedback has been submitted."
-    );
+    ) +
+    feedbackClarifyModal("fbs");
 
   const clientScript = script(
     domReady(`
 const safeViewName = ${safeViewNameJson};
-let _fbsQuestions = [];
+let _fbsQuestions;
+window.fbsSaveOrPrompt = () => {
+  const title = document.getElementById('fbs-title').value.trim();
+  if (!title) {
+    document.getElementById('fbs-title').classList.add('is-invalid');
+    return;
+  }
+  document.getElementById('fbs-title').classList.remove('is-invalid');
+  if (_fbsQuestions !== undefined) {
+    fbsSubmit();
+  } else {
+    new bootstrap.Modal(document.getElementById('fbs-clarify-modal')).show();
+  }
+};
 window.fbsGenQuestions = () => {
   const title = document.getElementById('fbs-title').value.trim();
   if (!title) {
@@ -228,7 +277,7 @@ window.fbsSubmit = () => {
   const description = document.getElementById('fbs-desc').value.trim();
   const url = document.getElementById('fbs-url').value.trim();
   const payload = { title, description, url };
-  for (const [idx, q] of _fbsQuestions.entries()) {
+  for (const [idx, q] of (_fbsQuestions || []).entries()) {
     payload['question_' + (idx + 1)] = q;
     const ta = document.getElementById('fbs-answer-' + idx);
     payload['a' + (idx + 1)] = ta ? ta.value : '';
@@ -446,11 +495,23 @@ window.copilotShowFeedbackForm = () => {
   document.getElementById('fb-desc').value = '';
   document.getElementById('fb-url').value = '';
   document.getElementById('fb-step1-spinner').style.display = 'none';
-  const genBtn = document.getElementById('fb-gen-btn');
-  if (genBtn) genBtn.disabled = false;
+  window._fbFormQuestions = undefined;
 };
 window.copilotCancelFeedbackForm = () => {
   document.getElementById('feedback-form-area').style.display = 'none';
+};
+window.copilotSaveFeedbackOrPrompt = () => {
+  const title = document.getElementById('fb-title').value.trim();
+  if (!title) {
+    document.getElementById('fb-title').classList.add('is-invalid');
+    return;
+  }
+  document.getElementById('fb-title').classList.remove('is-invalid');
+  if (window._fbFormQuestions !== undefined) {
+    copilotSubmitFeedbackForm();
+  } else {
+    new bootstrap.Modal(document.getElementById('fb-clarify-modal')).show();
+  }
 };
 window.copilotGenQuestionsForForm = () => {
   const title = document.getElementById('fb-title').value.trim();
@@ -519,7 +580,12 @@ window.copilotSubmitFeedbackForm = () => {
 `)
   );
 
-  return div({ class: "mt-2" }, topSection, table ? feedbackFormHtml() : "", clientScript);
+  return div(
+    { class: "mt-2" },
+    topSection,
+    table ? feedbackFormHtml() : "",
+    clientScript
+  );
 };
 
 // AJAX route — returns the views content HTML for in-place refresh
@@ -562,11 +628,10 @@ const start_approve_feedback = async (
   if (researchMd) {
     const questions = researchMd.body.questions || [];
     const answers = researchMd.body.answers || {};
-    const pairs = questions
-      .map((q, idx) => {
-        const a = answers[`q${idx + 1}`];
-        return `Q: ${q}\nA: ${a && a.trim() ? a.trim() : "(no answer)"}`;
-      });
+    const pairs = questions.map((q, idx) => {
+      const a = answers[`q${idx + 1}`];
+      return `Q: ${q}\nA: ${a && a.trim() ? a.trim() : "(no answer)"}`;
+    });
     if (pairs.length) research_context = pairs.join("\n\n");
   }
 
