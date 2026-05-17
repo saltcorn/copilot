@@ -54,10 +54,22 @@ const {
   research_answers_section,
 } = require("./prompts");
 
+const feedbackBadge = (body) =>
+  body.source === "feedback"
+    ? span(
+        {
+          class: "badge bg-warning text-dark ms-2 fw-normal",
+          title: `From feedback: ${body.feedback_title || ""}`,
+        },
+        i({ class: "fas fa-comment-alt me-1" }),
+        "feedback"
+      )
+    : "";
+
 const doneTaskRowHtml = (task) =>
   tr(
     { "data-row-id": task.id },
-    td(task.body.name || ""),
+    td((task.body.name || "") + feedbackBadge(task.body)),
     td(task.body.description || ""),
     td((task.body.depends_on || []).join(", ")),
     td(task.body.priority || ""),
@@ -169,7 +181,10 @@ const makeTaskList = async (req) => {
       status,
       mkTable(
         [
-          { label: "Name", key: (m) => m.body.name },
+          {
+            label: "Name",
+            key: (m) => (m.body.name || "") + feedbackBadge(m.body),
+          },
           { label: "Description", key: (m) => m.body.description },
           {
             label: "Depends on",

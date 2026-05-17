@@ -100,7 +100,7 @@ module.exports = {
     await MetaData.create({
       type: "CopilotConstructMgr",
       name: "feedback",
-      body: { title: use_title, description: use_description, url: use_url },
+      body: { title: use_title, description: use_description, url: use_url, research_context },
       user_id: user?.id,
     });
     const spec = await MetaData.findOne({
@@ -147,7 +147,7 @@ Now use the make_requirements tool to create a single or several (a single is pr
       await MetaData.create({
         type: "CopilotConstructMgr",
         name: "requirement",
-        body: reqm,
+        body: { ...reqm, source: "feedback", feedback_title: use_title },
         user_id: req.user?.id,
       });
 
@@ -219,7 +219,7 @@ Now use the plan_tasks tool to create the tasks to implement this new feedback.
       await MetaData.create({
         type: "CopilotConstructMgr",
         name: "task",
-        body: task,
+        body: { ...task, source: "feedback", feedback_title: use_title },
         user_id: req.user?.id,
       });
   },

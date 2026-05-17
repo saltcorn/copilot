@@ -55,7 +55,21 @@ const requirementsList = async (req) => {
       { class: "mt-2" },
       mkTable(
         [
-          { label: "Requirement", key: (m) => m.body.requirement },
+          {
+            label: "Requirement",
+            key: (m) =>
+              m.body.requirement +
+              (m.body.source === "feedback"
+                ? span(
+                    {
+                      class: "badge bg-warning text-dark ms-2 fw-normal",
+                      title: `From feedback: ${m.body.feedback_title || ""}`,
+                    },
+                    i({ class: "fas fa-comment-alt me-1" }),
+                    "feedback"
+                  )
+                : ""),
+          },
           {
             label: "Priority",
             key: (m) =>

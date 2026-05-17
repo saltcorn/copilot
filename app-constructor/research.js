@@ -1,5 +1,4 @@
 const MetaData = require("@saltcorn/data/models/metadata");
-const Table = require("@saltcorn/data/models/table");
 const {
   div,
   script,
@@ -42,147 +41,6 @@ const spinnerHtml =
   i({ class: "fas fa-spinner fa-spin me-2" }) +
   "Generating questions, please wait...</p>";
 
-const collapseSection = (id, title, content, expanded = true) =>
-  div(
-    { class: "d-flex align-items-center gap-2 mb-2" },
-    button(
-      {
-        class: "btn btn-sm btn-outline-secondary",
-        type: "button",
-        "data-bs-toggle": "collapse",
-        "data-bs-target": `#${id}`,
-        "aria-expanded": String(expanded),
-        "aria-controls": id,
-      },
-      i({ class: "fas fa-chevron-down fa-xs" })
-    ),
-    h5({ class: "mb-0" }, title)
-  ) +
-  div(
-    {
-      id,
-      class: `form-group border border-2 p-3 rounded collapse${
-        expanded ? " show" : ""
-      }`,
-    },
-    content
-  );
-
-const collapseItem = (id, title, content, expanded = true) =>
-  div(
-    { class: "d-flex align-items-center gap-2 mb-2 mt-3" },
-    button(
-      {
-        class: "btn btn-sm btn-outline-secondary",
-        type: "button",
-        "data-bs-toggle": "collapse",
-        "data-bs-target": `#${id}`,
-        "aria-expanded": String(expanded),
-        "aria-controls": id,
-      },
-      i({ class: "fas fa-chevron-down fa-xs" })
-    ),
-    p({ class: "fw-semibold mb-0" }, title)
-  ) +
-  div(
-    {
-      id,
-      class: `border-start border-2 ps-3 collapse${expanded ? " show" : ""}`,
-    },
-    content
-  );
-
-const FEEDBACK_TABLE = "app_constructor_feedback";
-
-// Pure HTML for the feedback questions section — safe for innerHTML injection
-const feedbackResearchHtml = async () => {
-  const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "generating_feedback_research",
-  });
-  if (generating) {
-    return div(
-      { class: "mt-4 border-top pt-3" },
-      p(
-        i({ class: "fas fa-spinner fa-spin me-2" }),
-        "Generating feedback questions..."
-      )
-    );
-  }
-
-  const table = Table.findOne({ name: FEEDBACK_TABLE });
-  if (!table) return "";
-
-  const feedbackRows = await table.getRows({}, { orderBy: "id" });
-  if (!feedbackRows.length) return "";
-
-  const items = [];
-  for (const row of feedbackRows) {
-    const md = await MetaData.findOne({
-      type: "CopilotConstructMgr",
-      name: `feedback_research_${row.id}`,
-    });
-    if (md) items.push({ row, md });
-  }
-  if (!items.length) return "";
-
-  const sections = items
-    .map(({ row, md }) => {
-      const questions = md.body.questions || [];
-      const answers = md.body.answers || {};
-      const fieldRows = questions
-        .map((q, idx) => {
-          const fname = `q${idx + 1}`;
-          return div(
-            { class: "mb-2" },
-            label(
-              {
-                class: "form-label small fw-semibold",
-                for: `fbq_${row.id}_${fname}`,
-              },
-              q
-            ),
-            textarea(
-              {
-                class: "form-control form-control-sm",
-                id: `fbq_${row.id}_${fname}`,
-                name: fname,
-                rows: 2,
-              },
-              answers[fname] || ""
-            )
-          );
-        })
-        .join("");
-      return collapseItem(
-        `fbrItem${row.id}`,
-        row.title,
-        form({ id: `fbr-form-${row.id}` }, fieldRows) +
-          button(
-            {
-              type: "button",
-              class: "btn btn-sm btn-primary mt-2",
-              onclick: `copilotSaveFeedbackResearch(${row.id})`,
-            },
-            "Save answers"
-          )
-      );
-    })
-    .join("");
-
-  return div(
-    { class: "mt-4 border-top pt-3" },
-    collapseSection(
-      "feedbackResearchCollapse",
-      "Feedback questions",
-      small(
-        { class: "text-muted d-block mb-3" },
-        "Answer these questions about each piece of feedback to provide better context for approval."
-      ) + sections
-    )
-  );
-};
-
 // Pure HTML for each state — no embedded scripts
 const researchPanelHtml = async (req) => {
   const generating = await MetaData.findOne({
@@ -218,34 +76,33 @@ const researchPanelHtml = async (req) => {
       })
       .join("");
 
-    return collapseSection(
-      "specResearchCollapse",
-      "Specification questions",
+    return (
+      h5({ class: "mb-2" }, "Specification questions") +
       small(
         { class: "text-muted d-block mb-3" },
         "Answer these questions to help generate more accurate requirements and tasks. " +
           "You can skip any question."
       ) +
-        form(
-          { id: "research-form" },
-          fieldRows,
-          button(
-            {
-              type: "button",
-              class: "btn btn-primary me-2",
-              onclick: "copilotSubmitResearch()",
-            },
-            "Save answers"
-          ),
-          button(
-            {
-              type: "button",
-              class: "btn btn-outline-secondary",
-              onclick: "copilotRegenResearch()",
-            },
-            "Regenerate questions"
-          )
+      form(
+        { id: "research-form" },
+        fieldRows,
+        button(
+          {
+            type: "button",
+            class: "btn btn-primary me-2",
+            onclick: "copilotSubmitResearch()",
+          },
+          "Save answers"
+        ),
+        button(
+          {
+            type: "button",
+            class: "btn btn-outline-secondary",
+            onclick: "copilotRegenResearch()",
+          },
+          "Regenerate questions"
         )
+      )
     );
   }
 
@@ -264,24 +121,11 @@ const researchPanel = async (req) => {
     type: "CopilotConstructMgr",
     name: "generating_research",
   });
-  const genFeedbackResearch = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "generating_feedback_research",
-  });
   const innerHtml = await researchPanelHtml(req);
-  const feedbackResearchInner = await feedbackResearchHtml();
-
-  const specPanel = div({ id: "research-panel" }, innerHtml);
-  const feedbackPanel = div(
-    { id: "feedback-research-panel" },
-    feedbackResearchInner
-  );
 
   return div(
     { class: "mt-2" },
-    feedbackResearchInner
-      ? feedbackPanel + specPanel
-      : specPanel + feedbackPanel,
+    div({ id: "research-panel" }, innerHtml),
     script(
       domReady(`
 const _vn = ${JSON.stringify(viewname)};
@@ -310,27 +154,7 @@ window.copilotSubmitResearch = () => {
   for (const el of f.querySelectorAll('textarea')) data[el.name] = el.value;
   view_post(_vn, 'submit_research', data);
 };
-window.feedbackResearchStartPoll = () => {
-  const poll = () => {
-    view_post(_vn, 'feedback_research_status', {}, (resp) => {
-      if (resp && !resp.generating) {
-        view_post(_vn, 'feedback_research_html', {}, (r) => {
-          if (r && r.html)
-            document.getElementById('feedback-research-panel').innerHTML = r.html;
-        });
-      } else setTimeout(poll, 3000);
-    });
-  };
-  setTimeout(poll, 3000);
-};
-window.copilotSaveFeedbackResearch = (feedbackId) => {
-  const data = { feedback_id: feedbackId };
-  const f = document.getElementById('fbr-form-' + feedbackId);
-  for (const el of f.querySelectorAll('textarea')) data[el.name] = el.value;
-  view_post(_vn, 'save_feedback_research_answers', data);
-};
 ${generating ? "researchStartPoll();" : ""}
-${genFeedbackResearch ? "feedbackResearchStartPoll();" : ""}
 `)
     )
   );
@@ -476,150 +300,11 @@ const getResearchAnswersText = async () => {
   return pairs.join("\n\n");
 };
 
-const doGenFeedbackResearch = async (rows) => {
-  try {
-    const spec = await MetaData.findOne({
-      type: "CopilotConstructMgr",
-      name: "spec",
-    });
-    for (const row of rows) {
-      const alreadyHas = await MetaData.findOne({
-        type: "CopilotConstructMgr",
-        name: `feedback_research_${row.id}`,
-      });
-      if (alreadyHas) continue;
-      const answer = await getState().functions.llm_generate.run(
-        `${
-          spec?.body?.specification
-            ? `The following application is being built:\n\n${spec.body.specification}\n\n`
-            : ""
-        }A user has submitted the following feedback:
-
-Title: ${row.title}
-${row.description ? `Description: ${row.description}\n` : ""}
-Generate clarifying questions about this feedback that would help understand
-what specific changes or additions are needed.
-Ask only about genuinely ambiguous or underspecified aspects.
-Keep questions clear and concise. 5 is a hard maximum — ask fewer if the feedback is already clear.
-
-Now call the ask_questions tool with your questions.`,
-        {
-          tools: [questions_tool],
-          ...tool_choice("ask_questions"),
-          systemPrompt:
-            "You are a requirements analyst helping to clarify user feedback. " +
-            "Ask only what is truly needed to understand the feedback — fewer is better.",
-        }
-      );
-      const tc = answer.getToolCalls()[0];
-      await MetaData.create({
-        type: "CopilotConstructMgr",
-        name: `feedback_research_${row.id}`,
-        body: {
-          feedback_id: row.id,
-          title: row.title,
-          questions: tc.input.questions,
-          answers: {},
-        },
-      });
-    }
-  } finally {
-    const md = await MetaData.findOne({
-      type: "CopilotConstructMgr",
-      name: "generating_feedback_research",
-    });
-    if (md) await md.delete();
-  }
-};
-
-const gen_feedback_research = async (
-  table_id,
-  vn,
-  config,
-  body,
-  { req, res }
-) => {
-  // If the Insert virtual trigger already started generation, just signal the client to poll
-  const alreadyRunning = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "generating_feedback_research",
-  });
-  if (alreadyRunning) return { json: { generating: true } };
-
-  const table = Table.findOne({ name: FEEDBACK_TABLE });
-  if (!table) return { json: { generating: false } };
-
-  const feedbackRows = await table.getRows({}, { orderBy: "id" });
-  if (!feedbackRows.length) return { json: { generating: false } };
-
-  const newRows = [];
-  for (const row of feedbackRows) {
-    const existing = await MetaData.findOne({
-      type: "CopilotConstructMgr",
-      name: `feedback_research_${row.id}`,
-    });
-    if (!existing) newRows.push(row);
-  }
-  if (!newRows.length) return { json: { generating: false } };
-
-  doGenFeedbackResearch(newRows).catch((e) =>
-    console.error("gen_feedback_research error", e)
-  );
-  return { json: { generating: true } };
-};
-
-const feedback_research_status = async (
-  table_id,
-  vn,
-  config,
-  body,
-  { req, res }
-) => {
-  const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "generating_feedback_research",
-  });
-  return { json: { generating: !!generating } };
-};
-
-const feedback_research_html = async (
-  table_id,
-  vn,
-  config,
-  body,
-  { req, res }
-) => {
-  const html = await feedbackResearchHtml();
-  return { json: { html } };
-};
-
-const save_feedback_research_answers = async (
-  table_id,
-  vn,
-  config,
-  body,
-  { req, res }
-) => {
-  const { _csrf, feedback_id, ...answers } = body;
-  const id = parseInt(feedback_id);
-  const md = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: `feedback_research_${id}`,
-  });
-  if (!md) return { json: { error: "Not found" } };
-  await md.update({ body: { ...md.body, answers } });
-  return { json: { success: true, notify_success: "Answers saved" } };
-};
-
 const research_routes = {
   gen_research,
   research_status,
   research_html,
   submit_research,
-  gen_feedback_research,
-  feedback_research_status,
-  feedback_research_html,
-  save_feedback_research_answers,
 };
 
 module.exports = {
