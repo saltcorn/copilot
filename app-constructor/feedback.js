@@ -20,21 +20,24 @@ const {
   label,
   textarea,
   small,
-  select,
-  option,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
-const { viewname, tool_choice } = require("./common");
+const { viewname } = require("./common");
 const { questions_tool } = require("./research");
 
 const FEEDBACK_TABLE = "app_constructor_feedback";
 
+/**
+ * Returns the Bootstrap modal HTML that prompts the user to analyse or skip.
+ * Embedded once inside feedbackFormContent's layout.
+ * @returns {string}
+ */
 const feedbackClarifyModal = () =>
   `<div class="modal fade" id="fb-clarify-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header border-0 pb-0">
-        <h5 class="modal-title fw-semibold">Generate clarifying questions?</h5>
+        <h5 class="modal-title fw-semibold">Analyse feedback?</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body pt-2">
@@ -42,13 +45,18 @@ const feedbackClarifyModal = () =>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" onclick="fbSubmit()">Save without questions</button>
-        <button type="button" class="btn btn-primary" data-bs-dismiss="modal" onclick="fbAnalyseFeedback()">Generate questions</button>
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal" onclick="fbAnalyseFeedback()">Analyse</button>
       </div>
     </div>
   </div>
 </div>`;
 
-const feedbackStandalonePageContent = () => {
+/**
+ * Generates the HTML and client-side JS for the feedback submission form.
+ * Stored into the Saltcorn page layout at setup time.
+ * @returns {string}
+ */
+const feedbackFormContent = () => {
   const safeViewNameJson = JSON.stringify(viewname);
 
   const formHtml =
@@ -73,7 +81,12 @@ const feedbackStandalonePageContent = () => {
         div(
           { class: "mb-3" },
           label({ class: "form-label", for: "fb-url" }, "Page URL"),
-          input({ type: "text", class: "form-control", id: "fb-url", placeholder: "Optional — the page this feedback relates to" })
+          input({
+            type: "text",
+            class: "form-control",
+            id: "fb-url",
+            placeholder: "Optional — the page this feedback relates to",
+          })
         )
       ),
       div(
@@ -89,7 +102,7 @@ const feedbackStandalonePageContent = () => {
         ),
         small(
           { class: "text-muted d-block mt-1" },
-          "Generates clarifying questions to improve accuracy."
+          "Checks if anything needs clarifying before saving."
         )
       ),
       div(
@@ -123,6 +136,15 @@ const feedbackStandalonePageContent = () => {
       ),
       div({ id: "fb-questions-area" }),
       div(
+        {
+          id: "fb-clear-area",
+          class: "alert alert-success py-2 mt-2",
+          style: "display:none",
+        },
+        i({ class: "fas fa-check-circle me-2" }),
+        "Feedback is clear — no questions needed."
+      ),
+      div(
         { class: "mt-3" },
         button(
           {
@@ -145,10 +167,24 @@ const feedbackStandalonePageContent = () => {
     domReady(`
 const safeViewName = ${safeViewNameJson};
 let _fbQuestions;
-(function() {
-  const urlField = document.getElementById('fb-url');
-  if (urlField) urlField.value = window.location.href;
-})();
+function fbGetUrl() {
+  const url = document.getElementById('fb-url')?.value?.trim() || '';
+  if (!url) return '';
+  try {
+    if (decodeURIComponent(url).includes('/view/' + safeViewName)) return '';
+  } catch (_) {}
+  return url;
+}
+const _urlField = document.getElementById('fb-url');
+if (_urlField) {
+  try {
+    const _href = window.location.href;
+    if (!decodeURIComponent(_href).includes('/view/' + safeViewName))
+      _urlField.value = _href;
+  } catch (_) {
+    _urlField.value = window.location.href;
+  }
+}
 window.fbSaveOrPrompt = () => {
   const title = document.getElementById('fb-title').value.trim();
   if (!title) {
@@ -192,7 +228,8 @@ window.fbAnalyseFeedback = () => {
   document.getElementById('fb-spinner').style.display = '';
   document.getElementById('fb-analyse-area').style.display = 'none';
   document.getElementById('fb-regen-area').style.display = 'none';
-  view_post(safeViewName, 'gen_questions_for_form', { title, description }, (resp) => {
+  const url = fbGetUrl();
+  view_post(safeViewName, 'analyse_feedback', { title, description, url }, (resp) => {
     document.getElementById('fb-spinner').style.display = 'none';
     if (!resp || resp.error) {
       document.getElementById('fb-analyse-area').style.display = '';
@@ -201,7 +238,8 @@ window.fbAnalyseFeedback = () => {
     const questions = resp.questions || [];
     _fbQuestions = questions;
     if (questions.length === 0) {
-      document.getElementById('fb-analyse-area').style.display = '';
+      document.getElementById('fb-clear-area').style.display = '';
+      document.getElementById('fb-regen-area').style.display = '';
       return;
     }
     fbPopulateQuestions(questions);
@@ -212,6 +250,7 @@ window.fbAnalyseFeedback = () => {
 window.fbDismissQuestions = () => {
   _fbQuestions = undefined;
   document.getElementById('fb-questions-area').innerHTML = '';
+  document.getElementById('fb-clear-area').style.display = 'none';
   document.getElementById('fb-fields').style.display = '';
   document.getElementById('fb-regen-area').style.display = 'none';
   document.getElementById('fb-analyse-area').style.display = '';
@@ -224,7 +263,7 @@ window.fbSubmit = () => {
   }
   document.getElementById('fb-title').classList.remove('is-invalid');
   const description = document.getElementById('fb-desc').value.trim();
-  const url = document.getElementById('fb-url').value.trim();
+  const url = fbGetUrl();
   const payload = { title, description, url };
   for (const [idx, q] of (_fbQuestions || []).entries()) {
     payload['question_' + (idx + 1)] = q;
@@ -247,7 +286,7 @@ window.fbSubmit = () => {
   );
 };
 
-// Pure HTML for both pending and processed sections — no scripts, safe for innerHTML injection
+/** Inner content of #feedback-views-area — data only, no JS. Swapped in on ajax refresh. */
 const feedbackViewsContent = async () => {
   const safeViewName = JSON.stringify(viewname);
   const table = Table.findOne({ name: FEEDBACK_TABLE });
@@ -255,6 +294,20 @@ const feedbackViewsContent = async () => {
   let pendingSection = "";
   if (table) {
     const rows = await table.getRows({}, { orderBy: "id" });
+
+    const approvingIds = new Set(
+      (
+        await Promise.all(
+          rows.map(async (r) => {
+            const md = await MetaData.findOne({
+              type: "CopilotConstructMgr",
+              name: `approving_feedback_${r.id}`,
+            });
+            return md ? r.id : null;
+          })
+        )
+      ).filter(Boolean)
+    );
 
     const addButton = button(
       {
@@ -289,14 +342,23 @@ const feedbackViewsContent = async () => {
                 },
                 "Edit"
               ) +
-              button(
-                {
-                  class: "btn btn-success btn-sm me-1",
-                  id: `approve-btn-${r.id}`,
-                  onclick: `copilotApprove(${r.id})`,
-                },
-                "Approve"
-              ) +
+              (approvingIds.has(r.id)
+                ? button(
+                    {
+                      class: "btn btn-success btn-sm me-1",
+                      disabled: true,
+                      "data-approving-id": r.id,
+                    },
+                    i({ class: "fas fa-spinner fa-spin" })
+                  )
+                : button(
+                    {
+                      class: "btn btn-success btn-sm me-1",
+                      id: `approve-btn-${r.id}`,
+                      onclick: `copilotApprove(${r.id})`,
+                    },
+                    "Approve"
+                  )) +
               button(
                 {
                   class: "btn btn-outline-danger btn-sm",
@@ -319,7 +381,7 @@ const feedbackViewsContent = async () => {
   );
   const processedSection = div(
     { class: "mt-4" },
-    h5("Processed feedback"),
+    h5("Approved feedback"),
     processed.length
       ? div(
           mkTable(
@@ -361,6 +423,7 @@ const feedbackViewsContent = async () => {
   return pendingSection + processedSection;
 };
 
+/** Outer shell of the feedback tab — renders once, includes modals, JS, and #feedback-views-area. */
 const feedbackList = async () => {
   const table = Table.findOne({ name: FEEDBACK_TABLE });
   const safeViewName = JSON.stringify(viewname);
@@ -385,9 +448,27 @@ const feedbackList = async () => {
   const clientScript = script(
     domReady(`
 const safeViewName = ${safeViewName};
+const _pollingIds = new Set();
+function startApprovalPolling() {
+  document.querySelectorAll('[data-approving-id]').forEach(el => {
+    const id = parseInt(el.dataset.approvingId);
+    if (_pollingIds.has(id)) return;
+    _pollingIds.add(id);
+    const poll = () => {
+      view_post(safeViewName, 'approval_status', { id }, (resp) => {
+        if (resp && !resp.approving) { _pollingIds.delete(id); refreshFeedbackViews(); }
+        else setTimeout(poll, 3000);
+      });
+    };
+    setTimeout(poll, 3000);
+  });
+}
 window.refreshFeedbackViews = () => {
   view_post(safeViewName, 'feedback_views_html', {}, (r) => {
-    if (r && r.html) document.getElementById('feedback-views-area').innerHTML = r.html;
+    if (r && r.html) {
+      document.getElementById('feedback-views-area').innerHTML = r.html;
+      startApprovalPolling();
+    }
   });
 };
 window.copilotSetupFeedback = () => {
@@ -414,10 +495,11 @@ window.copilotAddFeedbackToMenu = () => {
 window.copilotApprove = (id) => {
   const btn = document.getElementById('approve-btn-' + id);
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+  _pollingIds.add(id);
   view_post(safeViewName, 'start_approve_feedback', { id }, () => {
     const poll = () => {
       view_post(safeViewName, 'approval_status', { id }, (resp) => {
-        if (resp && !resp.approving) refreshFeedbackViews();
+        if (resp && !resp.approving) { _pollingIds.delete(id); refreshFeedbackViews(); }
         else setTimeout(poll, 3000);
       });
     };
@@ -444,7 +526,6 @@ window.copilotSaveFeedbackEdit = () => {
     title: document.getElementById('fbed-title').value,
     description: document.getElementById('fbed-desc').value,
     url: document.getElementById('fbed-url').value,
-    status: document.getElementById('fbed-status').value,
   };
   document.querySelectorAll('.fbed-answer').forEach(el => {
     payload[el.dataset.q] = el.value;
@@ -457,7 +538,7 @@ window.copilotSaveFeedbackEdit = () => {
   });
 };
 window.copilotShowProcessedFeedback = (id) => {
-  view_post(safeViewName, 'get_processed_feedback_html', { id }, (resp) => {
+  view_post(safeViewName, 'show_processed_feedback', { id }, (resp) => {
     if (!resp || !resp.html) return;
     document.getElementById('fb-details-modal-body').innerHTML = resp.html;
     new bootstrap.Modal(document.getElementById('fb-details-modal')).show();
@@ -467,8 +548,10 @@ window.copilotShowFeedbackModal = () => {
   ajax_modal('/page/app_constructor_feedback_form');
 };
 document.addEventListener('hidden.bs.modal', (e) => {
-  if (e.target.id !== 'fb-edit-modal') refreshFeedbackViews();
+  if (e.target.id !== 'fb-edit-modal' && e.target.id !== 'fb-clarify-modal') refreshFeedbackViews();
 });
+document.addEventListener('shown.bs.tab', () => startApprovalPolling());
+startApprovalPolling();
 `)
   );
 
@@ -542,7 +625,11 @@ document.addEventListener('hidden.bs.modal', (e) => {
         div(
           { class: "modal-footer" },
           button(
-            { type: "button", class: "btn btn-secondary", "data-bs-dismiss": "modal" },
+            {
+              type: "button",
+              class: "btn btn-secondary",
+              "data-bs-dismiss": "modal",
+            },
             "Close"
           )
         )
@@ -550,10 +637,18 @@ document.addEventListener('hidden.bs.modal', (e) => {
     )
   );
 
-  return div({ class: "mt-2" }, topSection, editModal, detailsModal, clientScript);
+  return div(
+    { class: "mt-2" },
+    topSection,
+    editModal,
+    detailsModal,
+    clientScript
+  );
 };
 
-// AJAX route — returns the views content HTML for in-place refresh
+/**
+ * Route: returns the rendered feedbackViewsContent HTML for in-place ajax refresh.
+ */
 const feedback_views_html = async (
   table_id,
   vn,
@@ -565,6 +660,10 @@ const feedback_views_html = async (
   return { json: { html } };
 };
 
+/**
+ * Route: starts async approval of a pending feedback row.
+ * Runs feedbackAction in the background, then deletes the row and its research metadata.
+ */
 const start_approve_feedback = async (
   table_id,
   vn,
@@ -639,6 +738,9 @@ const start_approve_feedback = async (
   return { json: { success: true } };
 };
 
+/**
+ * Route: polls whether a given feedback row is still being approved.
+ */
 const approval_status = async (table_id, vn, config, body, { req, res }) => {
   const id = parseInt(body.id);
   const md = await MetaData.findOne({
@@ -648,6 +750,9 @@ const approval_status = async (table_id, vn, config, body, { req, res }) => {
   return { json: { approving: !!md } };
 };
 
+/**
+ * Route: deletes a pending feedback row and its associated research metadata.
+ */
 const delete_feedback_row = async (
   table_id,
   vn,
@@ -666,7 +771,8 @@ const delete_feedback_row = async (
   return { json: { success: true } };
 };
 
-const get_processed_feedback_html = async (
+/** Route: returns the show HTML for a processed feedback entry, displayed in the details modal. */
+const show_processed_feedback = async (
   table_id,
   vn,
   config,
@@ -707,10 +813,20 @@ const get_processed_feedback_html = async (
     : "";
 
   return {
-    json: { html: field("Title", title) + field("Description", description) + field("URL", url) + qaHtml },
+    json: {
+      html:
+        field("Title", title) +
+        field("Description", description) +
+        field("URL", url) +
+        qaHtml,
+    },
   };
 };
 
+/**
+ * Route: returns editable HTML for a pending feedback row including all fields
+ * and any associated Q&A answers, shown in the edit modal.
+ */
 const get_feedback_edit_html = async (
   table_id,
   vn,
@@ -728,8 +844,9 @@ const get_feedback_edit_html = async (
     type: "CopilotConstructMgr",
     name: `feedback_research_${id}`,
   });
-  const questions = rmd?.body?.questions || [];
-  const answers = rmd?.body?.answers || {};
+  const rmdValid = parseInt(rmd?.body?.feedback_id) === id;
+  const questions = rmdValid ? rmd.body.questions || [] : [];
+  const answers = rmdValid ? rmd.body.answers || {} : {};
 
   const fieldsHtml =
     div(
@@ -762,19 +879,6 @@ const get_feedback_edit_html = async (
         id: "fbed-url",
         value: row.url || "",
       })
-    ) +
-    div(
-      { class: "mb-3" },
-      label({ class: "form-label fw-semibold", for: "fbed-status" }, "Status"),
-      select(
-        { class: "form-select", id: "fbed-status" },
-        ...["Pending", "Approved", "Rejected"].map((s) =>
-          option(
-            { value: s, ...(row.status === s ? { selected: true } : {}) },
-            s
-          )
-        )
-      )
     );
 
   const questionsHtml = questions.length
@@ -802,11 +906,14 @@ const get_feedback_edit_html = async (
   return { json: { html: fieldsHtml + questionsHtml } };
 };
 
+/**
+ * Route: saves edits to a pending feedback row and updates its Q&A answers metadata.
+ */
 const save_feedback_edit = async (table_id, vn, config, body, { req, res }) => {
-  const { _csrf, id: rawId, title, description, url, status, ...rest } = body;
+  const { _csrf, id: rawId, title, description, url, ...rest } = body;
   const id = parseInt(rawId);
   const table = Table.findOne({ name: FEEDBACK_TABLE });
-  await table.updateRow({ title, description, url, status }, id);
+  await table.updateRow({ title, description, url }, id);
 
   const rmd = await MetaData.findOne({
     type: "CopilotConstructMgr",
@@ -823,6 +930,9 @@ const save_feedback_edit = async (table_id, vn, config, body, { req, res }) => {
   return { json: { success: true, notify_success: "Feedback saved" } };
 };
 
+/**
+ * Route: adds a Feedback link to the navigation menu if not already present.
+ */
 const add_feedback_to_menu = async (
   table_id,
   vn,
@@ -852,6 +962,10 @@ const add_feedback_to_menu = async (
   return { json: { success: true } };
 };
 
+/**
+ * Route: one-time setup that creates the feedback table, fields, submission page
+ * and edit view. Safe to call only once — will fail if table already exists.
+ */
 const setup_feedback_system = async (
   table_id,
   vn,
@@ -962,7 +1076,7 @@ const setup_feedback_system = async (
       above: [
         {
           type: "blank",
-          contents: feedbackStandalonePageContent(),
+          contents: feedbackFormContent(),
           block: false,
         },
       ],
@@ -1026,61 +1140,138 @@ const setup_feedback_system = async (
   return { json: { success: true, notify_success: "Feedback system created" } };
 };
 
+/**
+ * Route: deletes a single processed feedback metadata entry.
+ */
 const del_feedback = async (table_id, vn, config, body, { req, res }) => {
   const r = await MetaData.findOne({ id: body.id });
   if (!r) throw new Error("Feedback not found");
   await r.delete();
+
+  // just to be sure
+  // feedback_research_${body.id} should already be cleaned up
+  const stale = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: `feedback_research_${body.id}`,
+  });
+  if (stale) {
+    getState().log(
+      5,
+      `del_feedback: found stale feedback_research_${body.id}, deleting`
+    );
+    await stale.delete();
+  }
   return { json: { success: true } };
 };
 
+/**
+ * Route: deletes all processed feedback metadata entries.
+ */
 const del_all_feedback = async (table_id, vn, config, body, { req, res }) => {
   const rs = await MetaData.find({
     type: "CopilotConstructMgr",
     name: "feedback",
   });
-  for (const r of rs) await r.delete();
+  for (const r of rs) {
+    await r.delete();
+    const stale = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: `feedback_research_${r.id}`,
+    });
+    if (stale) {
+      getState().log(5, `del_all_feedback: found stale feedback_research_${r.id}, deleting`);
+      await stale.delete();
+    }
+  }
   return { json: { success: true } };
 };
 
-const gen_questions_for_form = async (
-  table_id,
-  vn,
-  config,
-  body,
-  { req, res }
-) => {
-  const { title, description } = body;
+/**
+ * Route: asks the LLM whether the feedback needs clarification.
+ * Returns an array of questions, or an empty array if the feedback is clear.
+ */
+const analyse_feedback = async (table_id, vn, config, body, { req, res }) => {
+  const { title, description, url = "" } = body;
   const spec = await MetaData.findOne({
     type: "CopilotConstructMgr",
     name: "spec",
   });
+
+  let knownContext = null;
+  if (url) {
+    const mView = url.match(/\/view\/([^/?#]+)/);
+    const mPage = url.match(/\/page\/([^/?#]+)/);
+    const entityType = mView ? "view" : mPage ? "page" : null;
+    const entityName = mView?.[1] ?? mPage?.[1] ?? null;
+    if (entityType) {
+      knownContext = {
+        section:
+          "Known context (do NOT ask about these — they are already established facts):\n" +
+          `- The feedback targets the Saltcorn ${entityType} named "${entityName}"\n` +
+          `- URL: ${url}\n`,
+        doNotAsk:
+          `- Which ${entityType}, screen, or part of the application this concerns` +
+          ` — it is the ${entityType} "${entityName}" as stated above`,
+      };
+    } else {
+      knownContext = {
+        section: `Known context:\n- URL: ${url}\n`,
+        doNotAsk: null,
+      };
+    }
+  }
+
+  const specSection = spec?.body?.specification
+    ? "The following application is being built:\n\n" +
+      spec.body.specification +
+      "\n\n"
+    : "";
+  const contextSection = knownContext ? knownContext.section + "\n" : "";
+  const feedbackSection =
+    "User feedback:\n" +
+    `- Title: ${title}` +
+    (description ? `\n- Description: ${description}` : "");
+  const doNotAskSection = knownContext?.doNotAsk
+    ? "Facts already known — do NOT ask about these:\n" +
+      knownContext.doNotAsk +
+      "\n\n"
+    : "";
+  const decisionSection =
+    "Do you have important questions about this feedback,\n" +
+    "or do you already know what needs to be done?\n\n" +
+    "- If you know what to do — no need to call any tool, just respond with nothing.\n" +
+    "- If you have questions that are truly blocking —\n" +
+    "  call ask_questions with only those. 3 is a hard maximum.\n" +
+    "  Each question must be short, clear, and easy to understand.\n" +
+    "  Write for a non-technical user: plain language, no jargon, one idea per question.";
+
   const answer = await getState().functions.llm_generate.run(
-    `${
-      spec?.body?.specification
-        ? `The following application is being built:\n\n${spec.body.specification}\n\n`
-        : ""
-    }A user wants to submit the following feedback:
-
-Title: ${title}
-${description ? `Description: ${description}\n` : ""}
-Generate clarifying questions about this feedback that would help understand
-what specific changes or additions are needed.
-Ask only about genuinely ambiguous or underspecified aspects.
-Keep questions clear and concise. 5 is a hard maximum — ask fewer if the feedback is already clear.
-
-Now call the ask_questions tool with your questions.`,
+    specSection +
+      contextSection +
+      feedbackSection +
+      "\n\n" +
+      doNotAskSection +
+      decisionSection,
     {
       tools: [questions_tool],
-      ...tool_choice("ask_questions"),
       systemPrompt:
-        "You are a requirements analyst helping to clarify user feedback. " +
-        "Ask only what is truly needed to understand the feedback — fewer is better.",
+        "You are a requirements analyst reviewing user feedback. " +
+        "Your default is to ask NO questions — only use the tool when something\n" +
+        "is genuinely too ambiguous to act on without clarification.\n" +
+        "Never fish for detail that a competent developer could infer or decide themselves.",
     }
   );
-  const tc = answer.getToolCalls()[0];
-  return { json: { questions: tc.input.questions } };
+  const tc =
+    typeof answer.getToolCalls === "function"
+      ? answer.getToolCalls()[0]
+      : undefined;
+  return { json: { questions: tc?.input?.questions ?? [] } };
 };
 
+/**
+ * Route: inserts a new pending feedback row and stores any Q&A answers
+ * as a separate metadata record keyed by the row id.
+ */
 const submit_feedback_with_answers = async (
   table_id,
   vn,
@@ -1108,6 +1299,12 @@ const submit_feedback_with_answers = async (
     idx++;
   }
 
+  const staleRmd = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: `feedback_research_${rowId}`,
+  });
+  if (staleRmd) await staleRmd.delete();
+
   if (questions.length) {
     await MetaData.create({
       type: "CopilotConstructMgr",
@@ -1132,11 +1329,11 @@ const feedback_routes = {
   start_approve_feedback,
   approval_status,
   delete_feedback_row,
-  gen_questions_for_form,
+  analyse_feedback,
   submit_feedback_with_answers,
   get_feedback_edit_html,
   save_feedback_edit,
-  get_processed_feedback_html,
+  show_processed_feedback,
   add_feedback_to_menu,
 };
 

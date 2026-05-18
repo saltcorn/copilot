@@ -97,12 +97,6 @@ module.exports = {
         : row[description_field];
     const use_url =
       mode === "workflow" ? interpolate(url, row, user) : row[url_field];
-    await MetaData.create({
-      type: "CopilotConstructMgr",
-      name: "feedback",
-      body: { title: use_title, description: use_description, url: use_url, research_context },
-      user_id: user?.id,
-    });
     const spec = await MetaData.findOne({
       type: "CopilotConstructMgr",
       name: "spec",
@@ -114,6 +108,22 @@ module.exports = {
       ? `\nThe user also answered clarifying questions about this feedback:\n\n${research_context}\n`
       : "";
 
+    let urlSection = "";
+    if (use_url) {
+      const mView = use_url.match(/\/view\/([^/?#]+)/);
+      const mPage = use_url.match(/\/page\/([^/?#]+)/);
+      if (mView)
+        urlSection =
+          `\nThe feedback was submitted from the Saltcorn view named "${mView[1]}"` +
+          ` (URL: ${use_url}).\n`;
+      else if (mPage)
+        urlSection =
+          `\nThe feedback was submitted from the Saltcorn page named "${mPage[1]}"` +
+          ` (URL: ${use_url}).\n`;
+      else
+        urlSection = `\nThe feedback was submitted from: ${use_url}\n`;
+    }
+
     const reqAnswer = await getState().functions.llm_generate.run(
       `The following application is being built:
 
@@ -123,7 +133,7 @@ A new piece of feedback has come in from a user:
 
 Title: ${use_title}
 Description: ${use_description}
-${feedbackResearchSection}
+${urlSection}${feedbackResearchSection}
 Now use the make_requirements tool to create a single or several (a single is preferred) new requirements that captures this new piece of feedback.
 
 * Priority reflects how central the feature is to the core purpose of the application. Assign 5 to features without which the application cannot function at all, 3-4 to features that are important but not blocking, 1-2 to minor convenience features. Do not assign 5 to everything.
@@ -136,7 +146,7 @@ Now use the make_requirements tool to create a single or several (a single is pr
       },
     );
     const tc = reqAnswer.getToolCalls()[0];
-    console.log("gotr new requiremenrts", tc.input.requirements);
+    console.log("got new requiremenrts", tc.input.requirements);
 
     const allReqs = await MetaData.find({
       type: "CopilotConstructMgr",
@@ -180,7 +190,7 @@ A new piece of feedback has come in from a user:
 
 Title: ${use_title}
 Description: ${use_description}
-${feedbackResearchSection}
+${urlSection}${feedbackResearchSection}
 The existing application requirements are:
 
 ${allReqs.map((r) => `* ${r.body.requirement}`).join("\n")}
@@ -222,5 +232,12 @@ Now use the plan_tasks tool to create the tasks to implement this new feedback.
         body: { ...task, source: "feedback", feedback_title: use_title },
         user_id: req.user?.id,
       });
+
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: "feedback",
+      body: { title: use_title, description: use_description, url: use_url, research_context },
+      user_id: user?.id,
+    });
   },
 };
