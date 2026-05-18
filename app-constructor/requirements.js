@@ -38,6 +38,7 @@ const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
 const { getResearchAnswersText } = require("./research");
+const { research_answers_section } = require("./prompts");
 
 const requirementsList = async (req) => {
   const rs = await MetaData.find(
@@ -54,7 +55,21 @@ const requirementsList = async (req) => {
       { class: "mt-2" },
       mkTable(
         [
-          { label: "Requirement", key: (m) => m.body.requirement },
+          {
+            label: "Requirement",
+            key: (m) =>
+              m.body.requirement +
+              (m.body.source === "feedback"
+                ? span(
+                    {
+                      class: "badge bg-warning text-dark ms-2 fw-normal",
+                      title: `From feedback: ${m.body.feedback_title || ""}`,
+                    },
+                    i({ class: "fas fa-comment-alt me-1" }),
+                    "feedback"
+                  )
+                : ""),
+          },
           {
             label: "Priority",
             key: (m) =>
@@ -97,15 +112,13 @@ const requirementsList = async (req) => {
       ),
       script(
         domReady(`
-(function() {
-  const poll = () => {
-    view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
-      if (resp && !resp.generating) location.reload();
-      else setTimeout(poll, 3000);
-    });
-  };
-  setTimeout(poll, 3000);
-})();
+const poll = () => {
+  view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
+    if (resp && !resp.generating) location.reload();
+    else setTimeout(poll, 3000);
+  });
+};
+setTimeout(poll, 3000);
 `)
       )
     );
@@ -150,7 +163,7 @@ const doGenReqs = async (spec, userId) => {
       `Generate the requirements for this application:
 
 ${spec.body.specification}
-${researchText ? `\nThe user was asked clarifying questions about the application. Here are the questions and their answers:\n\n${researchText}\n` : ""}
+${research_answers_section(researchText)}
 Important rules for generating requirements:
 * Every requirement must be directly traceable to something stated in the description, audience, or core features above. Do not infer, invent, or add features that are not explicitly mentioned — even if they seem like an obvious addition.
 * Do not generate any requirement that falls under the Out of scope section above.
@@ -219,6 +232,24 @@ const del_all_reqs = async (table_id, viewname, config, body, { req, res }) => {
   return { json: { reload_page: true } };
 };
 
-const req_routes = { gen_reqs, req_status, del_req, del_all_reqs };
+/** Route: returns the rendered requirements list HTML for AJAX refresh. */
+const req_list_html = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
+  const html = await requirementsList(req);
+  return { json: { html } };
+};
+
+const req_routes = {
+  gen_reqs,
+  req_status,
+  del_req,
+  del_all_reqs,
+  req_list_html,
+};
 
 module.exports = { requirementsList, req_routes };

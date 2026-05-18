@@ -1,112 +1,1361 @@
+const feedbackAction = require("./feedback-action.js");
 const Field = require("@saltcorn/data/models/field");
 const Table = require("@saltcorn/data/models/table");
-const Form = require("@saltcorn/data/models/form");
 const MetaData = require("@saltcorn/data/models/metadata");
 const View = require("@saltcorn/data/models/view");
-const Trigger = require("@saltcorn/data/models/trigger");
-const { findType } = require("@saltcorn/data/models/discovery");
+const Page = require("@saltcorn/data/models/page");
 const { save_menu_items } = require("@saltcorn/data/models/config");
-const db = require("@saltcorn/data/db");
-const WorkflowRun = require("@saltcorn/data/models/workflow_run");
-const {
-  localeDateTime,
-  renderForm,
-  mkTable,
-  post_delete_btn,
-} = require("@saltcorn/markup");
+const { mkTable } = require("@saltcorn/markup");
 const {
   div,
   script,
   domReady,
-  pre,
-  code,
-  input,
-  h4,
-  style,
   h5,
   button,
-  text_attr,
   i,
   p,
-  span,
-  small,
-  form,
+  a,
+  hr,
+  input,
+  label,
   textarea,
+  small,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
-const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
+const { questions_tool } = require("./research");
 
-const feedbackList = async (req) => {
-  const errs = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "feedback",
+const FEEDBACK_TABLE = "app_constructor_feedback";
+
+/**
+ * Returns the Bootstrap modal HTML that prompts the user to analyse or skip.
+ * Embedded once inside feedbackFormContent's layout.
+ * @returns {string}
+ */
+const feedbackClarifyModal = () =>
+  `<div class="modal fade" id="fb-clarify-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-semibold">Analyse feedback?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body pt-2">
+        <p class="text-muted small mb-0">Before saving, I can analyse your feedback and ask a few short questions to help clarify the requirements. Answering them produces more accurate tasks — but you can also save right away.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" onclick="fbSubmit()">Save without questions</button>
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal" onclick="fbAnalyseFeedback()">Analyse</button>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+/**
+ * Generates the HTML and client-side JS for the feedback submission form.
+ * Stored into the Saltcorn page layout at setup time.
+ * @returns {string}
+ */
+const feedbackFormContent = () => {
+  const safeViewNameJson = JSON.stringify(viewname);
+
+  const formHtml =
+    div(
+      { id: "fb-step1" },
+      small(
+        { class: "text-muted d-block mb-3" },
+        "Describe a feature request, bug, or improvement."
+      ),
+      div(
+        { id: "fb-fields" },
+        div(
+          { class: "mb-3" },
+          label({ class: "form-label", for: "fb-title" }, "Title"),
+          input({ type: "text", class: "form-control", id: "fb-title" })
+        ),
+        div(
+          { class: "mb-3" },
+          label({ class: "form-label", for: "fb-desc" }, "Description"),
+          textarea({ class: "form-control", id: "fb-desc", rows: 3 }, "")
+        ),
+        div(
+          { class: "mb-3" },
+          label({ class: "form-label", for: "fb-url" }, "Page URL"),
+          input({
+            type: "text",
+            class: "form-control",
+            id: "fb-url",
+            placeholder: "Optional — the page this feedback relates to",
+          })
+        )
+      ),
+      div(
+        { id: "fb-analyse-area", class: "mb-2" },
+        button(
+          {
+            type: "button",
+            class: "btn btn-outline-secondary btn-sm",
+            onclick: "fbAnalyseFeedback()",
+          },
+          i({ class: "fas fa-search me-1" }),
+          "Analyse feedback"
+        ),
+        small(
+          { class: "text-muted d-block mt-1" },
+          "Checks if anything needs clarifying before saving."
+        )
+      ),
+      div(
+        { id: "fb-regen-area", class: "mb-2", style: "display:none" },
+        button(
+          {
+            type: "button",
+            class: "btn btn-outline-secondary btn-sm me-2",
+            onclick: "fbAnalyseFeedback()",
+          },
+          i({ class: "fas fa-sync me-1" }),
+          "Regenerate"
+        ),
+        button(
+          {
+            type: "button",
+            class: "btn btn-outline-danger btn-sm",
+            onclick: "fbDismissQuestions()",
+          },
+          "Dismiss"
+        )
+      ),
+      div(
+        {
+          id: "fb-spinner",
+          class: "my-2 text-muted small",
+          style: "display:none",
+        },
+        i({ class: "fas fa-spinner fa-spin me-2" }),
+        "Analysing feedback..."
+      ),
+      div({ id: "fb-questions-area" }),
+      div(
+        {
+          id: "fb-clear-area",
+          class: "alert alert-success py-2 mt-2",
+          style: "display:none",
+        },
+        i({ class: "fas fa-check-circle me-2" }),
+        "Feedback is clear — no questions needed."
+      ),
+      div(
+        { class: "mt-3" },
+        button(
+          {
+            type: "button",
+            class: "btn btn-primary",
+            onclick: "fbSaveOrPrompt()",
+          },
+          "Save feedback"
+        )
+      )
+    ) +
+    div(
+      { id: "fb-success", class: "text-success mt-3", style: "display:none" },
+      i({ class: "fas fa-check-circle me-2" }),
+      "Thank you! Your feedback has been submitted."
+    ) +
+    feedbackClarifyModal();
+
+  const clientScript = script(
+    domReady(`
+const safeViewName = ${safeViewNameJson};
+let _fbQuestions;
+function fbGetUrl() {
+  const url = document.getElementById('fb-url')?.value?.trim() || '';
+  if (!url) return '';
+  try {
+    if (decodeURIComponent(url).includes('/view/' + safeViewName)) return '';
+  } catch (_) {}
+  return url;
+}
+const _urlField = document.getElementById('fb-url');
+if (_urlField) {
+  try {
+    const _href = window.location.href;
+    if (!decodeURIComponent(_href).includes('/view/' + safeViewName))
+      _urlField.value = _href;
+  } catch (_) {
+    _urlField.value = window.location.href;
+  }
+}
+window.fbSaveOrPrompt = () => {
+  const title = document.getElementById('fb-title').value.trim();
+  if (!title) {
+    document.getElementById('fb-title').classList.add('is-invalid');
+    return;
+  }
+  document.getElementById('fb-title').classList.remove('is-invalid');
+  if (_fbQuestions !== undefined) {
+    fbSubmit();
+  } else {
+    new bootstrap.Modal(document.getElementById('fb-clarify-modal')).show();
+  }
+};
+function fbPopulateQuestions(questions) {
+  const area = document.getElementById('fb-questions-area');
+  area.innerHTML = '';
+  for (const [idx, q] of questions.entries()) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'mb-3';
+    const lbl = document.createElement('label');
+    lbl.className = 'form-label';
+    lbl.textContent = q;
+    lbl.htmlFor = 'fb-answer-' + idx;
+    const ta = document.createElement('textarea');
+    ta.className = 'form-control';
+    ta.id = 'fb-answer-' + idx;
+    ta.rows = 2;
+    wrapper.appendChild(lbl);
+    wrapper.appendChild(ta);
+    area.appendChild(wrapper);
+  }
+}
+window.fbAnalyseFeedback = () => {
+  const title = document.getElementById('fb-title').value.trim();
+  if (!title) {
+    document.getElementById('fb-title').classList.add('is-invalid');
+    return;
+  }
+  document.getElementById('fb-title').classList.remove('is-invalid');
+  const description = document.getElementById('fb-desc').value.trim();
+  document.getElementById('fb-spinner').style.display = '';
+  document.getElementById('fb-analyse-area').style.display = 'none';
+  document.getElementById('fb-regen-area').style.display = 'none';
+  const url = fbGetUrl();
+  view_post(safeViewName, 'analyse_feedback', { title, description, url }, (resp) => {
+    document.getElementById('fb-spinner').style.display = 'none';
+    if (!resp || resp.error) {
+      document.getElementById('fb-analyse-area').style.display = '';
+      return;
+    }
+    const questions = resp.questions || [];
+    _fbQuestions = questions;
+    if (questions.length === 0) {
+      document.getElementById('fb-clear-area').style.display = '';
+      document.getElementById('fb-regen-area').style.display = '';
+      return;
+    }
+    fbPopulateQuestions(questions);
+    document.getElementById('fb-fields').style.display = 'none';
+    document.getElementById('fb-regen-area').style.display = '';
   });
-  if (errs.length) {
-    return div(
-      { class: "mt-2" },
-      mkTable(
-        [
-          {
-            label: "Title",
-            key: (m) => m.body.title,
-          },
-          {
-            label: "Description",
-            key: (m) => m.body.description,
-          },
+};
+window.fbDismissQuestions = () => {
+  _fbQuestions = undefined;
+  document.getElementById('fb-questions-area').innerHTML = '';
+  document.getElementById('fb-clear-area').style.display = 'none';
+  document.getElementById('fb-fields').style.display = '';
+  document.getElementById('fb-regen-area').style.display = 'none';
+  document.getElementById('fb-analyse-area').style.display = '';
+};
+window.fbSubmit = () => {
+  const title = document.getElementById('fb-title').value.trim();
+  if (!title) {
+    document.getElementById('fb-title').classList.add('is-invalid');
+    return;
+  }
+  document.getElementById('fb-title').classList.remove('is-invalid');
+  const description = document.getElementById('fb-desc').value.trim();
+  const url = fbGetUrl();
+  const payload = { title, description, url };
+  for (const [idx, q] of (_fbQuestions || []).entries()) {
+    payload['question_' + (idx + 1)] = q;
+    const ta = document.getElementById('fb-answer-' + idx);
+    payload['a' + (idx + 1)] = ta ? ta.value : '';
+  }
+  view_post(safeViewName, 'submit_feedback_with_answers', payload, (resp) => {
+    if (resp && !resp.error) {
+      document.getElementById('fb-step1').style.display = 'none';
+      document.getElementById('fb-success').style.display = '';
+    }
+  });
+};
+`)
+  );
 
+  return div(
+    { class: "row" },
+    div({ class: "col-md-8" }, formHtml + clientScript)
+  );
+};
+
+/** Inner content of #feedback-views-area — data only, no JS. Swapped in on ajax refresh. */
+const feedbackViewsContent = async () => {
+  const safeViewName = JSON.stringify(viewname);
+  const table = Table.findOne({ name: FEEDBACK_TABLE });
+
+  let pendingSection = "";
+  if (table) {
+    const rows = await table.getRows({}, { orderBy: "id" });
+
+    const approvingIds = new Set(
+      (
+        await Promise.all(
+          rows.map(async (r) => {
+            const md = await MetaData.findOne({
+              type: "CopilotConstructMgr",
+              name: `approving_feedback_${r.id}`,
+            });
+            return md ? r.id : null;
+          })
+        )
+      ).filter(Boolean)
+    );
+
+    const addButton = button(
+      {
+        class: "btn btn-outline-primary btn-sm mt-1",
+        title: "Submit feedback",
+        onclick: "copilotShowFeedbackModal();return false;",
+      },
+      i({ class: "fas fa-plus me-1" }),
+      "Add feedback"
+    );
+
+    if (!rows.length) {
+      pendingSection =
+        h5({ class: "mb-2" }, "Pending feedback") +
+        p({ class: "text-muted mt-2" }, "No pending feedback submissions.") +
+        addButton;
+    } else {
+      const tableHtml = mkTable(
+        [
+          { label: "Title", key: (r) => r.title },
+          { label: "Description", key: (r) => r.description || "" },
+          { label: "URL", key: (r) => r.url || "" },
+          { label: "Status", key: (r) => r.status || "" },
           {
-            label: "Delete",
+            label: "Actions",
             key: (r) =>
+              a(
+                {
+                  href: "#",
+                  class: "btn btn-outline-primary btn-sm me-1",
+                  onclick: `copilotOpenFeedbackEdit(${r.id});return false;`,
+                },
+                "Edit"
+              ) +
+              (approvingIds.has(r.id)
+                ? button(
+                    {
+                      class: "btn btn-success btn-sm me-1",
+                      disabled: true,
+                      "data-approving-id": r.id,
+                    },
+                    i({ class: "fas fa-spinner fa-spin" })
+                  )
+                : button(
+                    {
+                      class: "btn btn-success btn-sm me-1",
+                      id: `approve-btn-${r.id}`,
+                      onclick: `copilotApprove(${r.id})`,
+                    },
+                    "Approve"
+                  )) +
               button(
                 {
                   class: "btn btn-outline-danger btn-sm",
-                  onclick: `view_post("${viewname}", "del_feedback", {id:${r.id}})`,
+                  onclick: `copilotDeleteFeedback(${r.id})`,
                 },
-                i({ class: "fas fa-trash-alt" }),
+                i({ class: "fas fa-trash-alt" })
               ),
           },
         ],
-        errs,
-      ),
-      button(
-        {
-          class: "btn btn-outline-danger",
-          onclick: `view_post("${viewname}", "del_all_feedback")`,
-        },
-        "Delete all",
-      ),
+        rows
+      );
+      pendingSection =
+        h5({ class: "mb-2" }, "Pending feedback") + tableHtml + addButton;
+    }
+  }
+
+  const processed = await MetaData.find(
+    { type: "CopilotConstructMgr", name: "feedback" },
+    { orderBy: "written_at" }
+  );
+  const processedSection = div(
+    { class: "mt-4" },
+    h5("Approved feedback"),
+    processed.length
+      ? div(
+          mkTable(
+            [
+              { label: "Title", key: (m) => m.body.title },
+              { label: "Description", key: (m) => m.body.description },
+              {
+                label: "",
+                key: (r) =>
+                  button(
+                    {
+                      class: "btn btn-outline-secondary btn-sm me-1",
+                      onclick: `copilotShowProcessedFeedback(${r.id})`,
+                    },
+                    i({ class: "fas fa-eye" })
+                  ) +
+                  button(
+                    {
+                      class: "btn btn-outline-danger btn-sm",
+                      onclick: `view_post(${safeViewName}, "del_feedback", {id:${r.id}}, refreshFeedbackViews)`,
+                    },
+                    i({ class: "fas fa-trash-alt" })
+                  ),
+              },
+            ],
+            processed
+          ),
+          button(
+            {
+              class: "btn btn-outline-danger btn-sm",
+              onclick: `view_post(${safeViewName}, "del_all_feedback", {}, refreshFeedbackViews)`,
+            },
+            "Delete all"
+          )
+        )
+      : p({ class: "text-muted" }, "No processed feedback yet.")
+  );
+
+  return pendingSection + processedSection;
+};
+
+/** Outer shell of the feedback tab — renders once, includes modals, JS, and #feedback-views-area. */
+const feedbackList = async () => {
+  const table = Table.findOne({ name: FEEDBACK_TABLE });
+  const safeViewName = JSON.stringify(viewname);
+
+  let topSection;
+  if (table) {
+    topSection = div(
+      { id: "feedback-views-area" },
+      await feedbackViewsContent()
     );
   } else {
-    return div({ class: "mt-2" }, p("No feedback"));
+    topSection = div(
+      { class: "mb-3", id: "feedback-views-area" },
+      button(
+        { class: "btn btn-primary", onclick: "copilotSetupFeedback()" },
+        i({ class: "fas fa-cog me-2" }),
+        "Setup feedback system"
+      )
+    );
   }
-};
 
-const del_feedback = async (table_id, viewname, config, body, { req, res }) => {
-  const r = await MetaData.findOne({
-    id: body.id,
+  const clientScript = script(
+    domReady(`
+const safeViewName = ${safeViewName};
+const _pollingIds = new Set();
+function startApprovalPolling() {
+  document.querySelectorAll('[data-approving-id]').forEach(el => {
+    const id = parseInt(el.dataset.approvingId);
+    if (_pollingIds.has(id)) return;
+    _pollingIds.add(id);
+    const poll = () => {
+      view_post(safeViewName, 'approval_status', { id }, (resp) => {
+        if (resp && !resp.approving) {
+          _pollingIds.delete(id);
+          refreshFeedbackViews();
+          refreshReqTaskAreas();
+        }
+        else setTimeout(poll, 3000);
+      });
+    };
+    setTimeout(poll, 3000);
   });
-
-  if (!r) throw new Error("Feedback not found");
-  await r.delete();
-  return { json: { reload_page: true } };
+}
+function refreshReqTaskAreas() {
+  view_post(safeViewName, 'req_list_html', {}, (r) => {
+    const el = document.getElementById('req-list-area');
+    if (r && r.html && el) el.innerHTML = r.html;
+  });
+  view_post(safeViewName, 'tasks_list_html', {}, (r) => {
+    const el = document.getElementById('task-list-area');
+    if (r && r.html && el) el.innerHTML = r.html;
+  });
+}
+window.refreshFeedbackViews = () => {
+  view_post(safeViewName, 'feedback_views_html', {}, (r) => {
+    if (r && r.html) {
+      document.getElementById('feedback-views-area').innerHTML = r.html;
+      startApprovalPolling();
+    }
+  });
 };
-const del_all_feedback = async (
+window.copilotSetupFeedback = () => {
+  const area = document.getElementById('feedback-views-area');
+  area.innerHTML = '<p><i class="fas fa-spinner fa-spin me-2"></i>Setting up...</p>';
+  view_post(safeViewName, 'setup_feedback_system', {}, (resp) => {
+    if (resp && !resp.error) {
+      area.innerHTML =
+        '<div class="alert alert-success d-flex flex-wrap align-items-center gap-2">' +
+        '<span class="me-2">Feedback system ready.</span>' +
+        '<span class="text-muted small me-3">Add a Feedback button to the navigation menu?</span>' +
+        '<button class="btn btn-sm btn-primary me-1" onclick="copilotAddFeedbackToMenu()">Yes, add to menu</button>' +
+        '<button class="btn btn-sm btn-outline-secondary" onclick="refreshFeedbackViews()">Skip</button>' +
+        '</div>';
+    } else {
+      area.innerHTML = '<button class="btn btn-primary" onclick="copilotSetupFeedback()">' +
+        '<i class="fas fa-cog me-2"></i>Setup feedback system</button>';
+    }
+  });
+};
+window.copilotAddFeedbackToMenu = () => {
+  view_post(safeViewName, 'add_feedback_to_menu', {}, () => refreshFeedbackViews());
+};
+window.copilotApprove = (id) => {
+  const btn = document.getElementById('approve-btn-' + id);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+  _pollingIds.add(id);
+  view_post(safeViewName, 'start_approve_feedback', { id }, () => {
+    const poll = () => {
+      view_post(safeViewName, 'approval_status', { id }, (resp) => {
+        if (resp && !resp.approving) {
+          _pollingIds.delete(id);
+          refreshFeedbackViews();
+          refreshReqTaskAreas();
+        }
+        else setTimeout(poll, 3000);
+      });
+    };
+    setTimeout(poll, 3000);
+  });
+};
+window.copilotDeleteFeedback = (id) => {
+  view_post(safeViewName, 'delete_feedback_row', { id }, (resp) => {
+    if (resp && !resp.error) refreshFeedbackViews();
+  });
+};
+window.copilotOpenFeedbackEdit = (id) => {
+  view_post(safeViewName, 'get_feedback_edit_html', { id }, (resp) => {
+    if (!resp || !resp.html) return;
+    document.getElementById('fb-edit-modal-body').innerHTML = resp.html;
+    document.getElementById('fb-edit-modal').dataset.feedbackId = id;
+    new bootstrap.Modal(document.getElementById('fb-edit-modal')).show();
+  });
+};
+window.copilotSaveFeedbackEdit = () => {
+  const id = document.getElementById('fb-edit-modal').dataset.feedbackId;
+  const payload = {
+    id,
+    title: document.getElementById('fbed-title').value,
+    description: document.getElementById('fbed-desc').value,
+    url: document.getElementById('fbed-url').value,
+  };
+  document.querySelectorAll('.fbed-answer').forEach(el => {
+    payload[el.dataset.q] = el.value;
+  });
+  view_post(safeViewName, 'save_feedback_edit', payload, (resp) => {
+    if (resp && !resp.error) {
+      bootstrap.Modal.getInstance(document.getElementById('fb-edit-modal')).hide();
+      refreshFeedbackViews();
+    }
+  });
+};
+window.copilotShowProcessedFeedback = (id) => {
+  view_post(safeViewName, 'show_processed_feedback', { id }, (resp) => {
+    if (!resp || !resp.html) return;
+    document.getElementById('fb-details-modal-body').innerHTML = resp.html;
+    new bootstrap.Modal(document.getElementById('fb-details-modal')).show();
+  });
+};
+window.copilotShowFeedbackModal = () => {
+  ajax_modal('/page/app_constructor_feedback_form');
+};
+document.addEventListener('hidden.bs.modal', (e) => {
+  if (e.target.id !== 'fb-edit-modal' && e.target.id !== 'fb-clarify-modal') refreshFeedbackViews();
+});
+document.addEventListener('shown.bs.tab', () => startApprovalPolling());
+startApprovalPolling();
+`)
+  );
+
+  const editModal = div(
+    {
+      class: "modal fade",
+      id: "fb-edit-modal",
+      tabindex: "-1",
+      "aria-hidden": "true",
+    },
+    div(
+      { class: "modal-dialog modal-lg" },
+      div(
+        { class: "modal-content" },
+        div(
+          { class: "modal-header" },
+          h5({ class: "modal-title" }, "Edit feedback"),
+          button({
+            type: "button",
+            class: "btn-close",
+            "data-bs-dismiss": "modal",
+            "aria-label": "Close",
+          })
+        ),
+        div({ class: "modal-body", id: "fb-edit-modal-body" }),
+        div(
+          { class: "modal-footer" },
+          button(
+            {
+              type: "button",
+              class: "btn btn-outline-secondary",
+              "data-bs-dismiss": "modal",
+            },
+            "Cancel"
+          ),
+          button(
+            {
+              type: "button",
+              class: "btn btn-primary",
+              onclick: "copilotSaveFeedbackEdit()",
+            },
+            "Save"
+          )
+        )
+      )
+    )
+  );
+
+  const detailsModal = div(
+    {
+      class: "modal fade",
+      id: "fb-details-modal",
+      tabindex: "-1",
+      "aria-hidden": "true",
+    },
+    div(
+      { class: "modal-dialog modal-lg" },
+      div(
+        { class: "modal-content" },
+        div(
+          { class: "modal-header" },
+          h5({ class: "modal-title" }, "Feedback details"),
+          button({
+            type: "button",
+            class: "btn-close",
+            "data-bs-dismiss": "modal",
+            "aria-label": "Close",
+          })
+        ),
+        div({ class: "modal-body", id: "fb-details-modal-body" }),
+        div(
+          { class: "modal-footer" },
+          button(
+            {
+              type: "button",
+              class: "btn btn-secondary",
+              "data-bs-dismiss": "modal",
+            },
+            "Close"
+          )
+        )
+      )
+    )
+  );
+
+  return div(
+    { class: "mt-2" },
+    topSection,
+    editModal,
+    detailsModal,
+    clientScript
+  );
+};
+
+/**
+ * Route: returns the rendered feedbackViewsContent HTML for in-place ajax refresh.
+ */
+const feedback_views_html = async (
   table_id,
-  viewname,
+  vn,
   config,
   body,
-  { req, res },
+  { req, res }
 ) => {
+  const html = await feedbackViewsContent();
+  return { json: { html } };
+};
+
+/**
+ * Route: starts async approval of a pending feedback row.
+ * Runs feedbackAction in the background, then deletes the row and its research metadata.
+ */
+const start_approve_feedback = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const id = parseInt(body.id);
+  const table = Table.findOne({ name: FEEDBACK_TABLE });
+  const rows = await table.getRows({ id });
+  const row = rows[0];
+  if (!row) return { json: { error: "Not found" } };
+
+  const mdName = `approving_feedback_${id}`;
+  await MetaData.create({
+    type: "CopilotConstructMgr",
+    name: mdName,
+    body: { id },
+  });
+
+  const researchMd = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: `feedback_research_${id}`,
+  });
+  let research_context = null;
+  if (researchMd) {
+    const questions = researchMd.body.questions || [];
+    const answers = researchMd.body.answers || {};
+    const pairs = questions.map((q, idx) => {
+      const a = answers[`q${idx + 1}`];
+      return `Q: ${q}\nA: ${a && a.trim() ? a.trim() : "(no answer)"}`;
+    });
+    if (pairs.length) research_context = pairs.join("\n\n");
+  }
+
+  feedbackAction
+    .run({
+      row,
+      table,
+      user: req.user,
+      mode: "table",
+      req,
+      configuration: {
+        title_field: "title",
+        description_field: "description",
+        url_field: "url",
+        research_context,
+      },
+    })
+    .then(async () => {
+      const md = await MetaData.findOne({
+        type: "CopilotConstructMgr",
+        name: mdName,
+      });
+      if (md) await md.delete();
+      await table.deleteRows({ id });
+      const rmd = await MetaData.findOne({
+        type: "CopilotConstructMgr",
+        name: `feedback_research_${id}`,
+      });
+      if (rmd) await rmd.delete();
+    })
+    .catch(async (e) => {
+      console.error("approve_feedback error", e);
+      const md = await MetaData.findOne({
+        type: "CopilotConstructMgr",
+        name: mdName,
+      });
+      if (md) await md.delete();
+    });
+
+  return { json: { success: true } };
+};
+
+/**
+ * Route: polls whether a given feedback row is still being approved.
+ */
+const approval_status = async (table_id, vn, config, body, { req, res }) => {
+  const id = parseInt(body.id);
+  const md = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: `approving_feedback_${id}`,
+  });
+  return { json: { approving: !!md } };
+};
+
+/**
+ * Route: deletes a pending feedback row and its associated research metadata.
+ */
+const delete_feedback_row = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const id = parseInt(body.id);
+  const table = Table.findOne({ name: FEEDBACK_TABLE });
+  await table.deleteRows({ id });
+  const rmd = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: `feedback_research_${id}`,
+  });
+  if (rmd) await rmd.delete();
+  return { json: { success: true } };
+};
+
+/** Route: returns the show HTML for a processed feedback entry, displayed in the details modal. */
+const show_processed_feedback = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const id = parseInt(body.id);
+  const md = await MetaData.findOne({ id });
+  if (!md) return { json: { error: "Not found" } };
+
+  const { title, description, url, research_context } = md.body;
+
+  const field = (lbl, val) =>
+    val
+      ? div(
+          { class: "mb-3" },
+          small({ class: "text-muted fw-semibold d-block" }, lbl),
+          p({ class: "mb-0" }, val)
+        )
+      : "";
+
+  const qaHtml = research_context
+    ? hr() +
+      p({ class: "fw-semibold mb-3" }, "Clarifying questions") +
+      research_context
+        .split("\n\n")
+        .map((pair) => {
+          const [qLine, aLine] = pair.split("\n");
+          const q = qLine?.replace(/^Q:\s*/, "") || "";
+          const a = aLine?.replace(/^A:\s*/, "") || "";
+          return div(
+            { class: "mb-3" },
+            small({ class: "text-muted fw-semibold d-block" }, q),
+            p({ class: "mb-0" }, a || "—")
+          );
+        })
+        .join("")
+    : "";
+
+  return {
+    json: {
+      html:
+        field("Title", title) +
+        field("Description", description) +
+        field("URL", url) +
+        qaHtml,
+    },
+  };
+};
+
+/**
+ * Route: returns editable HTML for a pending feedback row including all fields
+ * and any associated Q&A answers, shown in the edit modal.
+ */
+const get_feedback_edit_html = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const id = parseInt(body.id);
+  const table = Table.findOne({ name: FEEDBACK_TABLE });
+  const rows = await table.getRows({ id });
+  const row = rows[0];
+  if (!row) return { json: { error: "Not found" } };
+
+  const rmd = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: `feedback_research_${id}`,
+  });
+  const rmdValid = parseInt(rmd?.body?.feedback_id) === id;
+  const questions = rmdValid ? rmd.body.questions || [] : [];
+  const answers = rmdValid ? rmd.body.answers || {} : {};
+
+  const fieldsHtml =
+    div(
+      { class: "mb-3" },
+      label({ class: "form-label fw-semibold", for: "fbed-title" }, "Title"),
+      input({
+        type: "text",
+        class: "form-control",
+        id: "fbed-title",
+        value: row.title || "",
+      })
+    ) +
+    div(
+      { class: "mb-3" },
+      label(
+        { class: "form-label fw-semibold", for: "fbed-desc" },
+        "Description"
+      ),
+      textarea(
+        { class: "form-control", id: "fbed-desc", rows: 3 },
+        row.description || ""
+      )
+    ) +
+    div(
+      { class: "mb-3" },
+      label({ class: "form-label fw-semibold", for: "fbed-url" }, "URL"),
+      input({
+        type: "text",
+        class: "form-control",
+        id: "fbed-url",
+        value: row.url || "",
+      })
+    );
+
+  const questionsHtml = questions.length
+    ? hr() +
+      p({ class: "fw-semibold mb-3" }, "Clarifying questions") +
+      questions
+        .map((q, idx) => {
+          const key = `q${idx + 1}`;
+          return div(
+            { class: "mb-3" },
+            label({ class: "form-label small fw-semibold" }, q),
+            textarea(
+              {
+                class: "form-control form-control-sm fbed-answer",
+                "data-q": key,
+                rows: 2,
+              },
+              answers[key] || ""
+            )
+          );
+        })
+        .join("")
+    : "";
+
+  return { json: { html: fieldsHtml + questionsHtml } };
+};
+
+/**
+ * Route: saves edits to a pending feedback row and updates its Q&A answers metadata.
+ */
+const save_feedback_edit = async (table_id, vn, config, body, { req, res }) => {
+  const { _csrf, id: rawId, title, description, url, ...rest } = body;
+  const id = parseInt(rawId);
+  const table = Table.findOne({ name: FEEDBACK_TABLE });
+  await table.updateRow({ title, description, url }, id);
+
+  const rmd = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: `feedback_research_${id}`,
+  });
+  if (rmd) {
+    const answers = { ...rmd.body.answers };
+    for (const [k, v] of Object.entries(rest)) {
+      if (/^q\d+$/.test(k)) answers[k] = v;
+    }
+    await rmd.update({ body: { ...rmd.body, answers } });
+  }
+
+  return { json: { success: true, notify_success: "Feedback saved" } };
+};
+
+/**
+ * Route: adds a Feedback link to the navigation menu if not already present.
+ */
+const add_feedback_to_menu = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const current = getState().getConfig("menu_items", []);
+  const alreadyAdded = current.some(
+    (mi) =>
+      mi.type === "Link" &&
+      mi.url === "javascript:ajax_modal('/page/app_constructor_feedback_form')"
+  );
+  if (!alreadyAdded) {
+    await save_menu_items([
+      ...current,
+      {
+        type: "Link",
+        label: "Feedback",
+        text: "Feedback",
+        icon: "fas fa-comment-alt",
+        url: "javascript:ajax_modal('/page/app_constructor_feedback_form')",
+        min_role: 80,
+      },
+    ]);
+  }
+  return { json: { success: true } };
+};
+
+/**
+ * Route: one-time setup that creates the feedback table, fields, submission page
+ * and edit view. Safe to call only once — will fail if table already exists.
+ */
+const setup_feedback_system = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const table = await Table.create(FEEDBACK_TABLE);
+
+  await Field.create({
+    table_id: table.id,
+    name: "title",
+    label: "Title",
+    type: "String",
+    required: true,
+  });
+  await Field.create({
+    table_id: table.id,
+    name: "description",
+    label: "Description",
+    type: "String",
+  });
+  await Field.create({
+    table_id: table.id,
+    name: "url",
+    label: "URL",
+    type: "String",
+  });
+  await Field.create({
+    table_id: table.id,
+    name: "status",
+    label: "Status",
+    type: "String",
+    attributes: { options: "Pending,Approved,Rejected" },
+  });
+
+  const labelFieldRow = (labelText, fieldName, fieldview = "edit") => ({
+    style: { "margin-bottom": "1.5rem" },
+    aligns: ["end", "start"],
+    widths: [2, 10],
+    breakpoints: ["md", "md"],
+    mobileAligns: ["start"],
+    setting_col_n: 0,
+    besides: [
+      {
+        type: "blank",
+        block: false,
+        inline: false,
+        font: "",
+        style: {},
+        textStyle: "",
+        customClass: "",
+        isFormula: {},
+        contents: labelText,
+        labelFor: fieldName,
+      },
+      {
+        type: "field",
+        block: false,
+        fieldview,
+        textStyle: "",
+        field_name: fieldName,
+        configuration: {},
+      },
+    ],
+  });
+
+  const saveButtonRow = (label = "") => ({
+    style: { "margin-bottom": "1.5rem" },
+    aligns: ["end", "start"],
+    widths: [2, 10],
+    breakpoints: ["", ""],
+    setting_col_n: 0,
+    besides: [
+      null,
+      {
+        type: "action",
+        block: false,
+        rndid: "a1b2c3",
+        nsteps: "",
+        minRole: 100,
+        isFormula: {},
+        run_async: false,
+        action_icon: "",
+        action_name: "Save",
+        action_size: "",
+        action_bgcol: "",
+        action_class: "",
+        action_label: label,
+        action_style: "btn-primary",
+        action_title: "",
+        configuration: {},
+        step_only_ifs: "",
+        action_textcol: "",
+        action_bordercol: "",
+        step_action_names: "",
+      },
+    ],
+  });
+
+  // User-facing feedback submission page (two-step: generate questions then save)
+  await Page.create({
+    name: "app_constructor_feedback_form",
+    title: "Submit feedback",
+    description: "",
+    min_role: 80,
+    layout: {
+      above: [
+        {
+          type: "blank",
+          contents: feedbackFormContent(),
+          block: false,
+        },
+      ],
+    },
+    fixed_states: {},
+  });
+
+  // Admin edit view — opened as popup from the feedback tab
+  await View.create({
+    name: "app_constructor_feedback_edit",
+    viewtemplate: "Edit",
+    table_id: table.id,
+    min_role: 1,
+    configuration: {
+      layout: {
+        above: [
+          labelFieldRow("Title", "title"),
+          labelFieldRow("Description", "description", "textarea"),
+          labelFieldRow("URL", "url"),
+          labelFieldRow("Status", "status"),
+          saveButtonRow(),
+        ],
+      },
+      columns: [
+        {
+          type: "Field",
+          block: false,
+          fieldview: "edit",
+          textStyle: "",
+          field_name: "title",
+          configuration: {},
+        },
+        {
+          type: "Field",
+          block: false,
+          fieldview: "textarea",
+          textStyle: "",
+          field_name: "description",
+          configuration: {},
+        },
+        {
+          type: "Field",
+          block: false,
+          fieldview: "edit",
+          textStyle: "",
+          field_name: "url",
+          configuration: {},
+        },
+        {
+          type: "Field",
+          block: false,
+          fieldview: "edit",
+          textStyle: "",
+          field_name: "status",
+          configuration: {},
+        },
+      ],
+    },
+  });
+
+  return { json: { success: true, notify_success: "Feedback system created" } };
+};
+
+/**
+ * Route: deletes a single processed feedback metadata entry.
+ */
+const del_feedback = async (table_id, vn, config, body, { req, res }) => {
+  const r = await MetaData.findOne({ id: body.id });
+  if (!r) throw new Error("Feedback not found");
+  await r.delete();
+
+  // just to be sure
+  // feedback_research_${body.id} should already be cleaned up
+  const stale = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: `feedback_research_${body.id}`,
+  });
+  if (stale) {
+    getState().log(
+      5,
+      `del_feedback: found stale feedback_research_${body.id}, deleting`
+    );
+    await stale.delete();
+  }
+  return { json: { success: true } };
+};
+
+/**
+ * Route: deletes all processed feedback metadata entries.
+ */
+const del_all_feedback = async (table_id, vn, config, body, { req, res }) => {
   const rs = await MetaData.find({
     type: "CopilotConstructMgr",
     name: "feedback",
   });
-  for (const r of rs) await r.delete();
-  return { json: { reload_page: true } };
+  for (const r of rs) {
+    await r.delete();
+    const stale = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: `feedback_research_${r.id}`,
+    });
+    if (stale) {
+      getState().log(
+        5,
+        `del_all_feedback: found stale feedback_research_${r.id}, deleting`
+      );
+      await stale.delete();
+    }
+  }
+  return { json: { success: true } };
 };
 
-const feedback_routes = { del_feedback, del_all_feedback };
+/**
+ * Route: asks the LLM whether the feedback needs clarification.
+ * Returns an array of questions, or an empty array if the feedback is clear.
+ */
+const analyse_feedback = async (table_id, vn, config, body, { req, res }) => {
+  const { title, description, url = "" } = body;
+  const spec = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "spec",
+  });
+
+  let knownContext = null;
+  if (url) {
+    const mView = url.match(/\/view\/([^/?#]+)/);
+    const mPage = url.match(/\/page\/([^/?#]+)/);
+    const entityType = mView ? "view" : mPage ? "page" : null;
+    const entityName = mView?.[1] ?? mPage?.[1] ?? null;
+    if (entityType) {
+      knownContext = {
+        section:
+          "Known context (do NOT ask about these — they are already established facts):\n" +
+          `- The feedback targets the Saltcorn ${entityType} named "${entityName}"\n` +
+          `- URL: ${url}\n`,
+        doNotAsk:
+          `- Which ${entityType}, screen, or part of the application this concerns` +
+          ` — it is the ${entityType} "${entityName}" as stated above`,
+      };
+    } else {
+      knownContext = {
+        section: `Known context:\n- URL: ${url}\n`,
+        doNotAsk: null,
+      };
+    }
+  }
+
+  const specSection = spec?.body?.specification
+    ? "The following application is being built:\n\n" +
+      spec.body.specification +
+      "\n\n"
+    : "";
+  const contextSection = knownContext ? knownContext.section + "\n" : "";
+  const feedbackSection =
+    "User feedback:\n" +
+    `- Title: ${title}` +
+    (description ? `\n- Description: ${description}` : "");
+  const doNotAskSection = knownContext?.doNotAsk
+    ? "Facts already known — do NOT ask about these:\n" +
+      knownContext.doNotAsk +
+      "\n\n"
+    : "";
+  const decisionSection =
+    "Do you have important questions about this feedback,\n" +
+    "or do you already know what needs to be done?\n\n" +
+    "- If you know what to do — no need to call any tool, just respond with nothing.\n" +
+    "- If you have questions that are truly blocking —\n" +
+    "  call ask_questions with only those. 3 is a hard maximum.\n" +
+    "  Each question must be short, clear, and easy to understand.\n" +
+    "  Write for a non-technical user: plain language, no jargon, one idea per question.";
+
+  const answer = await getState().functions.llm_generate.run(
+    specSection +
+      contextSection +
+      feedbackSection +
+      "\n\n" +
+      doNotAskSection +
+      decisionSection,
+    {
+      tools: [questions_tool],
+      systemPrompt:
+        "You are a requirements analyst reviewing user feedback. " +
+        "Your default is to ask NO questions — only use the tool when something\n" +
+        "is genuinely too ambiguous to act on without clarification.\n" +
+        "Never fish for detail that a competent developer could infer or decide themselves.",
+    }
+  );
+  const tc =
+    typeof answer.getToolCalls === "function"
+      ? answer.getToolCalls()[0]
+      : undefined;
+  return { json: { questions: tc?.input?.questions ?? [] } };
+};
+
+/**
+ * Route: inserts a new pending feedback row and stores any Q&A answers
+ * as a separate metadata record keyed by the row id.
+ */
+const submit_feedback_with_answers = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const { _csrf, title, description, url, ...rest } = body;
+  const table = Table.findOne({ name: FEEDBACK_TABLE });
+  if (!table) return { json: { error: "Feedback table not found" } };
+
+  const rowId = await table.insertRow({
+    title,
+    description: description || null,
+    url: url || null,
+    status: "Pending",
+  });
+
+  const questions = [];
+  const answers = {};
+  let idx = 1;
+  while (rest[`question_${idx}`] !== undefined) {
+    questions.push(rest[`question_${idx}`]);
+    answers[`q${idx}`] = rest[`a${idx}`] || "";
+    idx++;
+  }
+
+  const staleRmd = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: `feedback_research_${rowId}`,
+  });
+  if (staleRmd) await staleRmd.delete();
+
+  if (questions.length) {
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: `feedback_research_${rowId}`,
+      body: {
+        feedback_id: rowId,
+        title,
+        questions,
+        answers,
+      },
+    });
+  }
+
+  return { json: { success: true } };
+};
+
+const feedback_routes = {
+  del_feedback,
+  del_all_feedback,
+  setup_feedback_system,
+  feedback_views_html,
+  start_approve_feedback,
+  approval_status,
+  delete_feedback_row,
+  analyse_feedback,
+  submit_feedback_with_answers,
+  get_feedback_edit_html,
+  save_feedback_edit,
+  show_processed_feedback,
+  add_feedback_to_menu,
+};
 
 module.exports = { feedbackList, feedback_routes };

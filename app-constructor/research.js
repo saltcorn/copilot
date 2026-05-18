@@ -77,7 +77,7 @@ const researchPanelHtml = async (req) => {
       .join("");
 
     return (
-      h5("Clarifying questions") +
+      h5({ class: "mb-2" }, "Specification questions") +
       small(
         { class: "text-muted d-block mb-3" },
         "Answer these questions to help generate more accurate requirements and tasks. " +
@@ -307,4 +307,9 @@ const research_routes = {
   submit_research,
 };
 
-module.exports = { researchPanel, research_routes, getResearchAnswersText };
+module.exports = {
+  researchPanel,
+  research_routes,
+  getResearchAnswersText,
+  questions_tool,
+};
