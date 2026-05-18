@@ -232,6 +232,24 @@ const del_all_reqs = async (table_id, viewname, config, body, { req, res }) => {
   return { json: { reload_page: true } };
 };
 
-const req_routes = { gen_reqs, req_status, del_req, del_all_reqs };
+/** Route: returns the rendered requirements list HTML for AJAX refresh. */
+const req_list_html = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
+  const html = await requirementsList(req);
+  return { json: { html } };
+};
+
+const req_routes = {
+  gen_reqs,
+  req_status,
+  del_req,
+  del_all_reqs,
+  req_list_html,
+};
 
 module.exports = { requirementsList, req_routes };

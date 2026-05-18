@@ -1038,6 +1038,18 @@ const del_all_tasks = async (
   return { json: { reload_page: true } };
 };
 
+/** Route: returns the rendered task list HTML for AJAX refresh. */
+const tasks_list_html = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
+  const html = await makeTaskList(req);
+  return { json: { html } };
+};
+
 const task_routes = {
   gen_tasks,
   del_task,
@@ -1051,6 +1063,7 @@ const task_routes = {
   task_row_done,
   start,
   stop,
+  tasks_list_html,
 };
 
 module.exports = { makeTaskList, task_routes };

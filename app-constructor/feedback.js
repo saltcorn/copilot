@@ -456,11 +456,25 @@ function startApprovalPolling() {
     _pollingIds.add(id);
     const poll = () => {
       view_post(safeViewName, 'approval_status', { id }, (resp) => {
-        if (resp && !resp.approving) { _pollingIds.delete(id); refreshFeedbackViews(); }
+        if (resp && !resp.approving) {
+          _pollingIds.delete(id);
+          refreshFeedbackViews();
+          refreshReqTaskAreas();
+        }
         else setTimeout(poll, 3000);
       });
     };
     setTimeout(poll, 3000);
+  });
+}
+function refreshReqTaskAreas() {
+  view_post(safeViewName, 'req_list_html', {}, (r) => {
+    const el = document.getElementById('req-list-area');
+    if (r && r.html && el) el.innerHTML = r.html;
+  });
+  view_post(safeViewName, 'tasks_list_html', {}, (r) => {
+    const el = document.getElementById('task-list-area');
+    if (r && r.html && el) el.innerHTML = r.html;
   });
 }
 window.refreshFeedbackViews = () => {
@@ -499,7 +513,11 @@ window.copilotApprove = (id) => {
   view_post(safeViewName, 'start_approve_feedback', { id }, () => {
     const poll = () => {
       view_post(safeViewName, 'approval_status', { id }, (resp) => {
-        if (resp && !resp.approving) { _pollingIds.delete(id); refreshFeedbackViews(); }
+        if (resp && !resp.approving) {
+          _pollingIds.delete(id);
+          refreshFeedbackViews();
+          refreshReqTaskAreas();
+        }
         else setTimeout(poll, 3000);
       });
     };
@@ -1179,7 +1197,10 @@ const del_all_feedback = async (table_id, vn, config, body, { req, res }) => {
       name: `feedback_research_${r.id}`,
     });
     if (stale) {
-      getState().log(5, `del_all_feedback: found stale feedback_research_${r.id}, deleting`);
+      getState().log(
+        5,
+        `del_all_feedback: found stale feedback_research_${r.id}, deleting`
+      );
       await stale.delete();
     }
   }
