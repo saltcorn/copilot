@@ -75,24 +75,27 @@ const doneTaskRowHtml = (task) =>
     td(task.body.priority || ""),
     td("Done"),
     td(
-      task.body.run_id
-        ? a(
-            {
-              target: "_blank",
-              href: `/view/Saltcorn%20Agent%20copilot?run_id=${task.body.run_id}`,
-            },
-            i({ class: "fas fa-external-link-alt" })
-          )
-        : ""
-    ),
-    td(""),
-    td(
-      button(
-        {
-          class: "btn btn-outline-danger btn-sm",
-          onclick: `view_post("${viewname}", "del_task", {id:${task.id}})`,
-        },
-        i({ class: "fas fa-trash-alt" })
+      div(
+        { class: "d-flex align-items-center gap-1" },
+        task.body.run_id
+          ? a(
+              {
+                target: "_blank",
+                href: `/view/Saltcorn%20Agent%20copilot?run_id=${task.body.run_id}`,
+                class: "btn btn-outline-secondary btn-sm",
+                title: "View run",
+              },
+              i({ class: "fas fa-external-link-alt" })
+            )
+          : "",
+        button(
+          {
+            class: "btn btn-outline-danger btn-sm",
+            onclick: `view_post("${viewname}", "del_task", {id:${task.id}})`,
+            title: "Delete",
+          },
+          i({ class: "fas fa-trash-alt" })
+        )
       )
     )
   );
@@ -222,22 +225,24 @@ const makeTaskList = async (req) => {
           { label: "Priority", key: (m) => m.body.priority },
           { label: "Status", key: (m) => m.body.status || "To do" },
           {
-            label: "Run",
-            key: (r) =>
-              r.body.status === "Running"
+            label: "",
+            key: (r) => {
+              const isRunning = r.body.status === "Running";
+              const isDone = r.body.status === "Done";
+              const isTodo = !r.body.status || r.body.status === "To do";
+              const runPart = isRunning
                 ? span(
-                    {
-                      class: "task-spinner",
-                      "data-task-id": r.id,
-                    },
+                    { class: "task-spinner", "data-task-id": r.id },
                     i({ class: "fas fa-spinner fa-spin text-warning" })
                   )
-                : r.body.status === "Done"
+                : isDone
                 ? r.body.run_id
                   ? a(
                       {
                         target: "_blank",
                         href: `/view/Saltcorn%20Agent%20copilot?run_id=${r.body.run_id}`,
+                        class: "btn btn-outline-secondary btn-sm",
+                        title: "View run",
                       },
                       i({ class: "fas fa-external-link-alt" })
                     )
@@ -247,37 +252,38 @@ const makeTaskList = async (req) => {
                       class: "btn btn-outline-success btn-sm",
                       "data-task-run": r.id,
                       onclick: `copilotRunTask(this,${r.id})`,
+                      title: "Run task",
                     },
                     i({ class: "fas fa-play" })
-                  ),
-          },
-          {
-            label: "",
-            key: (r) =>
-              (r.body.status === "To do" || !r.body.status) &&
-              features.view_route_modal
-                ? button(
-                    {
-                      class: "btn btn-outline-primary btn-sm",
-                      title: "Edit description",
-                      onclick: `ajax_modal('/view/${encodeURIComponent(
-                        viewname
-                      )}/edit_task_desc?id=${r.id}', {method:'POST'})`,
-                    },
-                    i({ class: "fas fa-edit" })
-                  )
-                : "",
-          },
-          {
-            label: "Delete",
-            key: (r) =>
-              button(
+                  );
+              const editPart =
+                isTodo && features.view_route_modal
+                  ? button(
+                      {
+                        class: "btn btn-outline-primary btn-sm",
+                        title: "Edit description",
+                        onclick: `ajax_modal('/view/${encodeURIComponent(
+                          viewname
+                        )}/edit_task_desc?id=${r.id}', {method:'POST'})`,
+                      },
+                      i({ class: "fas fa-edit" })
+                    )
+                  : "";
+              const deletePart = button(
                 {
                   class: "btn btn-outline-danger btn-sm",
                   onclick: `view_post("${viewname}", "del_task", {id:${r.id}})`,
+                  title: "Delete",
                 },
                 i({ class: "fas fa-trash-alt" })
-              ),
+              );
+              return div(
+                { class: "d-flex align-items-center gap-1" },
+                runPart,
+                editPart,
+                deletePart
+              );
+            },
           },
         ],
         {
@@ -447,7 +453,7 @@ function copilotShowSpinner(taskId) {
   if (row && !row.querySelector('.task-spinner')) {
     const runBtn = row.querySelector('[data-task-run]');
     if (runBtn) {
-      runBtn.closest('td').innerHTML =
+      runBtn.outerHTML =
         '<span class="task-spinner" data-task-id="' + taskId + '">' +
         '<i class="fas fa-spinner fa-spin text-warning"></i></span>';
     }
@@ -471,8 +477,8 @@ function copilotRunNext(btn) {
         if (optimisticId && !runningIds.has(optimisticId) && !movedToDone.has(optimisticId)) {
           const staleRow = document.querySelector('tr[data-row-id="' + optimisticId + '"]');
           const staleSpinner = staleRow?.querySelector('.task-spinner');
-          if (staleSpinner) staleSpinner.closest('td').innerHTML =
-            '<button class="btn btn-outline-success btn-sm" data-task-run="' + optimisticId + '" onclick="copilotRunTask(this,' + optimisticId + ')"><i class="fas fa-play"></i></button>';
+          if (staleSpinner) staleSpinner.outerHTML =
+            '<button class="btn btn-outline-success btn-sm" data-task-run="' + optimisticId + '" onclick="copilotRunTask(this,' + optimisticId + ')" title="Run task"><i class="fas fa-play"></i></button>';
         }
         for (const task of resp.tasks) {
           if (task.status === 'Done' && !movedToDone.has(task.id)) {

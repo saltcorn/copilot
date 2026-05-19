@@ -39,7 +39,12 @@ const { viewname } = require("./common");
 const { requirementsList, req_routes } = require("./requirements");
 const { showSchema, schema_routes } = require("./schema");
 const { makeTaskList, task_routes } = require("./tasks");
-const { errorList, error_routes } = require("./errors");
+const {
+  errorList,
+  doCreateErrorFixTask,
+  error_routes,
+  errTableStaticHtml,
+} = require("./errors");
 const { feedbackList, feedback_routes } = require("./feedback");
 const { progressList, progress_routes } = require("./progress");
 const { runNextTask } = require("./run_task");
@@ -198,7 +203,13 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
       { type: "blank", contents: taskChart },
       { type: "blank", contents: progress },
       { type: "blank", contents: feedbacks },
-      { type: "blank", contents: errList },
+      {
+        type: "blank",
+        contents: div(
+          errTableStaticHtml,
+          div({ id: "err-list-area" }, errList)
+        ),
+      },
     ],
     deeplink: true,
     tabsStyle: "Tabs",
@@ -341,14 +352,42 @@ const virtual_triggers = () => {
           type: "CopilotConstructMgr",
           name: "error",
         });
-        const messages = new Set(existing.map((m) => m.body?.error?.stack));
-        if (!messages.has(row.stack))
-          await MetaData.create({
+        // Allow a new record once a fix task exists — same error recurring after a fix gets another task.
+        const unfixedDuplicate =
+          row.stack &&
+          existing.find(
+            (m) =>
+              m.body?.error?.stack === row.stack && !m.body?.fix_task_created
+          );
+        if (unfixedDuplicate) return;
+
+        const source = (row.stack || "").includes("/app-constructor/")
+          ? "constructor"
+          : "application";
+
+        const errorMd = await MetaData.create({
+          type: "CopilotConstructMgr",
+          name: "error",
+          body: { status: "New", error: row, source },
+          user_id: null,
+        });
+
+        if (source === "application") {
+          const settings = await MetaData.findOne({
             type: "CopilotConstructMgr",
-            name: "error",
-            body: { status: "New", error: row },
-            user_id: null,
+            name: "settings",
           });
+          if (settings?.body?.error_heal) {
+            const spec = await MetaData.findOne({
+              type: "CopilotConstructMgr",
+              name: "spec",
+            });
+            if (spec)
+              doCreateErrorFixTask(errorMd, null).catch((e) =>
+                console.error("auto error fix task failed", e)
+              );
+          }
+        }
       },
     },
     {

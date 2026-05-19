@@ -87,7 +87,15 @@ Important: Every tool call must contain only the final, complete result — neve
 
 Your task now is:
 ${md.body.description}`;
-  const safeReq = req?.__ ? req : { ...req, __: (s) => s, user: req?.user };
+  const safeReq =
+    req?.__ && req?.getLocale
+      ? req
+      : {
+          ...req,
+          __: req?.__ || ((s) => s),
+          getLocale: req?.getLocale || (() => "en"),
+          user: req?.user,
+        };
 
   await md.update({ body: { ...md.body, status: "Running" } });
   try {
