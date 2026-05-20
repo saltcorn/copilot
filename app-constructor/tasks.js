@@ -858,6 +858,8 @@ const gen_tasks = async (table_id, viewname, config, body, { req, res }) => {
 const del_task = async (table_id, viewname, config, body, { req, res }) => {
   const r = await MetaData.findOne({
     id: body.id,
+    type: "CopilotConstructMgr",
+    name: "task",
   });
 
   if (!r) throw new Error("Task not found");
@@ -984,7 +986,11 @@ const stop = async (table_id, viewname, config, body, { req, res }) => {
 
 const edit_task_desc = async (table_id, vname, config, body, { req, res }) => {
   const id = body.id || req.query?.id;
-  const r = await MetaData.findOne({ id: Number(id) });
+  const r = await MetaData.findOne({
+    id: Number(id),
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
   if (!r) return { json: { error: "Task not found" } };
   const html =
     div(
@@ -1023,7 +1029,11 @@ const edit_task_desc = async (table_id, vname, config, body, { req, res }) => {
 };
 
 const save_task_desc = async (table_id, vname, config, body, { req, res }) => {
-  const r = await MetaData.findOne({ id: Number(body.id) });
+  const r = await MetaData.findOne({
+    id: Number(body.id),
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
   if (!r) throw new Error("Task not found");
   await r.update({ body: { ...r.body, description: body.description } });
   return { json: { success: true } };

@@ -179,7 +179,11 @@ const runNextTask = async (once = false) => {
     const taskUser = startable[0].user_id
       ? await User.findOne({ id: startable[0].user_id })
       : null;
-    await runTask(startable[0].id, { user: taskUser, __: (s) => s });
+    await runTask(startable[0].id, {
+      user: taskUser,
+      __: (s) => s,
+      getLocale: () => "en",
+    });
     if (!once) await runNextTask();
   } else if (!once) {
     const settings = await MetaData.findOne({

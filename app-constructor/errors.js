@@ -18,7 +18,7 @@ const {
   small,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
-const { viewname, tool_choice } = require("./common");
+const { viewname } = require("./common");
 const { task_tool } = require("./tools");
 const { getResearchAnswersText } = require("./research");
 const {
@@ -171,6 +171,8 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
       });
       return;
     }
+
+    if (tc.tool_name !== "plan_tasks" || !Array.isArray(tc.input.tasks)) return;
 
     for (const task of tc.input.tasks)
       await MetaData.create({
@@ -420,82 +422,12 @@ const errorList = async (req) => {
       )
     : p("No errors");
 
-  const clientScript = script(
-    domReady(`
-const _errViewName = ${safeViewNameJson};
-function refreshErrArea() {
-  view_post(_errViewName, 'err_list_html', {}, (r) => {
-    const el = document.getElementById('err-list-area');
-    if (r && r.html && el) el.innerHTML = r.html;
-  });
-}
-function startFixPolling() {
-  document.querySelectorAll('[data-fixing-id]').forEach(el => {
-    const id = parseInt(el.dataset.fixingId);
-    const poll = () => {
-      view_post(_errViewName, 'fix_error_status', { id }, (resp) => {
-        if (resp && !resp.fixing) {
-          refreshErrArea();
-          view_post(_errViewName, 'tasks_list_html', {}, (r) => {
-            const area = document.getElementById('task-list-area');
-            if (r && r.html && area) area.innerHTML = r.html;
-          });
-        } else {
-          setTimeout(poll, 3000);
-        }
-      });
-    };
-    setTimeout(poll, 3000);
-  });
-}
-window.copilotToggleErrorHealing = () => {
-  view_post(_errViewName, 'toggle_error_healing', {}, () => refreshErrArea());
-};
-window.copilotFixError = (id) => {
-  const btn = document.getElementById('fix-err-btn-' + id);
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-  }
-  view_post(_errViewName, 'fix_error_task', { id }, () => {
-    const poll = () => {
-      view_post(_errViewName, 'fix_error_status', { id }, (resp) => {
-        if (resp && !resp.fixing) {
-          refreshErrArea();
-          view_post(_errViewName, 'tasks_list_html', {}, (r) => {
-            const area = document.getElementById('task-list-area');
-            if (r && r.html && area) area.innerHTML = r.html;
-          });
-        } else {
-          setTimeout(poll, 3000);
-        }
-      });
-    };
-    setTimeout(poll, 3000);
-  });
-};
-window.copilotDelErr = (id) => {
-  view_post(_errViewName, 'del_err', { id }, () => refreshErrArea());
-};
-window.copilotDelAllErrs = () => {
-  view_post(_errViewName, 'del_all_errs', {}, () => refreshErrArea());
-};
-window.copilotShowErrDetail = (btn) => {
-  let err = {};
-  try { err = JSON.parse(btn.dataset.err || '{}'); } catch (e) {}
-  document.getElementById('err-detail-body').textContent = JSON.stringify(err, null, 2);
-  new bootstrap.Modal(document.getElementById('err-detail-modal')).show();
-};
-startFixPolling();
-`)
-  );
-
-  return div({ class: "mt-2" }, healSection, errTable, clientScript);
+  return div({ class: "mt-2" }, healSection, errTable);
 };
 
 const del_err = async (table_id, vn, config, body, { req, res }) => {
   const r = await MetaData.findOne({
-    id: body.id,
+    id: parseInt(body.id),
     type: "CopilotConstructMgr",
     name: "error",
   });
@@ -557,11 +489,7 @@ const fix_error_task = async (table_id, vn, config, body, { req, res }) => {
 /** Route: returns whether a fix task is still being generated for the given error id. */
 const fix_error_status = async (table_id, vn, config, body, { req, res }) => {
   const id = parseInt(body.id);
-  const lock = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: `fixing_error_${id}`,
-  });
-  return { json: { fixing: !!lock } };
+  return { json: { fixing: fixingErrorIds.has(id) } };
 };
 
 /** Route: returns the rendered error list HTML for AJAX refresh. */
@@ -603,7 +531,74 @@ const errTableStaticHtml = `
       </div>
     </div>
   </div>
-</div>`;
+</div>
+<script>
+(function () {
+  const _vn = ${JSON.stringify(viewname)};
+  function refreshErrArea() {
+    view_post(_vn, 'err_list_html', {}, (r) => {
+      const el = document.getElementById('err-list-area');
+      if (r && r.html && el) el.innerHTML = r.html;
+    });
+  }
+  function startFixPolling() {
+    document.querySelectorAll('[data-fixing-id]').forEach((el) => {
+      const id = parseInt(el.dataset.fixingId);
+      const poll = () => {
+        view_post(_vn, 'fix_error_status', { id }, (resp) => {
+          if (resp && !resp.fixing) {
+            refreshErrArea();
+            view_post(_vn, 'tasks_list_html', {}, (r) => {
+              const area = document.getElementById('task-list-area');
+              if (r && r.html && area) area.innerHTML = r.html;
+            });
+          } else {
+            setTimeout(poll, 3000);
+          }
+        });
+      };
+      setTimeout(poll, 3000);
+    });
+  }
+  window.copilotToggleErrorHealing = () => {
+    view_post(_vn, 'toggle_error_healing', {}, () => refreshErrArea());
+  };
+  window.copilotFixError = (id) => {
+    const btn = document.getElementById('fix-err-btn-' + id);
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+    view_post(_vn, 'fix_error_task', { id }, () => {
+      const poll = () => {
+        view_post(_vn, 'fix_error_status', { id }, (resp) => {
+          if (resp && !resp.fixing) {
+            refreshErrArea();
+            view_post(_vn, 'tasks_list_html', {}, (r) => {
+              const area = document.getElementById('task-list-area');
+              if (r && r.html && area) area.innerHTML = r.html;
+            });
+          } else {
+            setTimeout(poll, 3000);
+          }
+        });
+      };
+      setTimeout(poll, 3000);
+    });
+  };
+  window.copilotDelErr = (id) => {
+    view_post(_vn, 'del_err', { id }, () => refreshErrArea());
+  };
+  window.copilotDelAllErrs = () => {
+    view_post(_vn, 'del_all_errs', {}, () => refreshErrArea());
+  };
+  window.copilotShowErrDetail = (btn) => {
+    let err = {};
+    try { err = JSON.parse(btn.dataset.err || '{}'); } catch (e) {}
+    document.getElementById('err-detail-body').textContent = JSON.stringify(err, null, 2);
+    new bootstrap.Modal(document.getElementById('err-detail-modal')).show();
+  };
+  if (document.readyState !== 'loading') startFixPolling();
+  else document.addEventListener('DOMContentLoaded', () => startFixPolling());
+})();
+</script>`;
 
 module.exports = {
   errorList,
