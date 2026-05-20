@@ -32,20 +32,12 @@ const {
   research_answers_section,
 } = require("./prompts");
 
-/**
- * Creates a fix task for the given error MetaData record via LLM.
- * Fire-and-forget: caller should .catch() errors.
- */
+const fixingErrorIds = new Set();
+
 const doCreateErrorFixTask = async (errorMd, userId) => {
-  const lockName = `fixing_error_${errorMd.id}`;
-  let lock;
+  if (fixingErrorIds.has(errorMd.id)) return;
+  fixingErrorIds.add(errorMd.id);
   try {
-    lock = await MetaData.create({
-      type: "CopilotConstructMgr",
-      name: lockName,
-      body: {},
-      user_id: userId,
-    });
     const spec = await MetaData.findOne({
       type: "CopilotConstructMgr",
       name: "spec",
@@ -190,7 +182,7 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
 
     await errorMd.update({ body: { ...errorMd.body, fix_task_created: true } });
   } finally {
-    if (lock) await lock.delete();
+    fixingErrorIds.delete(errorMd.id);
   }
 };
 
@@ -251,19 +243,7 @@ const errorList = async (req) => {
     name: "error",
   });
 
-  const fixingIds = new Set(
-    (
-      await Promise.all(
-        errs.map(async (r) => {
-          const md = await MetaData.findOne({
-            type: "CopilotConstructMgr",
-            name: `fixing_error_${r.id}`,
-          });
-          return md ? r.id : null;
-        })
-      )
-    ).filter(Boolean)
-  );
+  const fixingIds = fixingErrorIds;
 
   // Build error_id → most recent fix task map for run links
   const allTasks = await MetaData.find({
@@ -628,6 +608,7 @@ const errTableStaticHtml = `
 module.exports = {
   errorList,
   doCreateErrorFixTask,
+  fixingErrorIds,
   error_routes,
   errTableStaticHtml,
 };

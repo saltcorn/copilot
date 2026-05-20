@@ -42,6 +42,7 @@ const { makeTaskList, task_routes } = require("./tasks");
 const {
   errorList,
   doCreateErrorFixTask,
+  fixingErrorIds,
   error_routes,
   errTableStaticHtml,
 } = require("./errors");
@@ -343,6 +344,36 @@ const submit_specs = async (table_id, viewname, config, body, { req, res }) => {
   };
 };
 
+// Creates fix tasks for application errors recorded while self-healing was off.
+const healPendingErrors = async () => {
+  const settings = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "settings",
+  });
+  if (!settings?.body?.error_heal) return;
+  const spec = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "spec",
+  });
+  if (!spec) return;
+  const errors = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "error",
+  });
+  for (const err of errors) {
+    if (
+      err.body.source !== "application" ||
+      err.body.fix_task_created ||
+      err.body.cannot_fix_reason
+    )
+      continue;
+    if (!fixingErrorIds.has(err.id))
+      doCreateErrorFixTask(err, null).catch((e) =>
+        console.error("healPendingErrors failed", e)
+      );
+  }
+};
+
 const virtual_triggers = () => {
   return [
     {
@@ -394,6 +425,7 @@ const virtual_triggers = () => {
       when_trigger: "Often",
       run: async () => {
         await runNextTask();
+        await healPendingErrors();
       },
     },
   ];
