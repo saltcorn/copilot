@@ -9,6 +9,7 @@ const { save_menu_items } = require("@saltcorn/data/models/config");
 const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
 const User = require("@saltcorn/data/models/user");
+const { getState } = require("@saltcorn/data/db/state");
 const { viewname } = require("./common");
 
 /**
@@ -135,6 +136,12 @@ ${md.body.description}`;
       user_id: req?.user?.id,
     });
     await md.update({ body: { ...md.body, status: "Done", run_id } });
+    try {
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js:
+          "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();",
+      });
+    } catch (_) {}
   } catch (e) {
     await md.update({ body: { ...md.body, status: "To do" } });
     throw e;

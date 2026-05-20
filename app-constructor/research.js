@@ -13,6 +13,7 @@ const {
   small,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
+const db = require("@saltcorn/data/db");
 const { viewname, tool_choice } = require("./common");
 
 const questions_tool = {
@@ -101,6 +102,14 @@ const researchPanelHtml = async (req) => {
             onclick: "copilotRegenResearch()",
           },
           "Regenerate questions"
+        ),
+        button(
+          {
+            type: "button",
+            class: "btn btn-outline-danger ms-2",
+            onclick: "copilotDelAllResearch()",
+          },
+          "Delete all"
         )
       )
     );
@@ -146,7 +155,14 @@ window.copilotGenResearch = window.copilotRegenResearch = () => {
     spinnerHtml
   )};
   view_post(_vn, 'gen_research', {}, () => {});
-  researchStartPoll();
+  if (!window.dynamic_updates_cfg?.enabled) researchStartPoll();
+};
+window.copilotDelAllResearch = () => {
+  view_post(_vn, 'del_all_research', {}, () => {
+    view_post(_vn, 'research_html', {}, (r) => {
+      if (r && r.html) document.getElementById('research-panel').innerHTML = r.html;
+    });
+  });
 };
 window.copilotSubmitResearch = () => {
   const data = {};
@@ -154,7 +170,7 @@ window.copilotSubmitResearch = () => {
   for (const el of f.querySelectorAll('textarea')) data[el.name] = el.value;
   view_post(_vn, 'submit_research', data);
 };
-${generating ? "researchStartPoll();" : ""}
+${generating ? "if (!window.dynamic_updates_cfg?.enabled) researchStartPoll();" : ""}
 `)
     )
   );
@@ -212,6 +228,11 @@ Now call the ask_questions tool with your questions.`,
     if (oldAnswers) await oldAnswers.delete();
   } finally {
     await generatingMd.delete();
+    try {
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js: "if(typeof copilotRefreshResearch==='function')copilotRefreshResearch();",
+      });
+    } catch (_) {}
   }
 };
 
@@ -277,6 +298,14 @@ const submit_research = async (
   return { json: { success: true, notify_success: "Answers saved" } };
 };
 
+const del_all_research = async (table_id, viewname, config, body, { req, res }) => {
+  for (const name of ["research_questions", "research_answers"]) {
+    const md = await MetaData.findOne({ type: "CopilotConstructMgr", name });
+    if (md) await md.delete();
+  }
+  return { json: { success: true } };
+};
+
 const getResearchAnswersText = async () => {
   const questions_md = await MetaData.findOne({
     type: "CopilotConstructMgr",
@@ -305,6 +334,7 @@ const research_routes = {
   research_status,
   research_html,
   submit_research,
+  del_all_research,
 };
 
 module.exports = {

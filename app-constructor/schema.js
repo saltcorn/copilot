@@ -177,7 +177,7 @@ const poll = () => {
     else setTimeout(poll, 3000);
   });
 };
-setTimeout(poll, 3000);
+if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
 `)
       )
     );
@@ -196,13 +196,15 @@ window.copilotGenSchema = () => {
   document.getElementById('schema-gen-area').innerHTML =
     '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating schema, please wait...</p>';
   view_post(${JSON.stringify(viewname)}, 'gen_schema', {}, () => {});
-  const poll = () => {
-    view_post(${JSON.stringify(viewname)}, 'schema_status', {}, (resp) => {
-      if (resp && !resp.generating) location.reload();
-      else setTimeout(poll, 3000);
-    });
-  };
-  setTimeout(poll, 3000);
+  if (!window.dynamic_updates_cfg?.enabled) {
+    const poll = () => {
+      view_post(${JSON.stringify(viewname)}, 'schema_status', {}, (resp) => {
+        if (resp && !resp.generating) location.reload();
+        else setTimeout(poll, 3000);
+      });
+    };
+    setTimeout(poll, 3000);
+  }
 };
 `)
     )
@@ -278,6 +280,11 @@ Now use the ${
     }
   } finally {
     await generatingMd.delete();
+    try {
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js: "if(typeof copilotRefreshSchema==='function')copilotRefreshSchema();",
+      });
+    } catch (_) {}
   }
 };
 
@@ -352,9 +359,15 @@ const implement_schema = async (
   return { json: { reload_page: true } };
 };
 
+const schema_list_html = async (table_id, viewname, config, body, { req, res }) => {
+  const html = await showSchema(req);
+  return { json: { html } };
+};
+
 const schema_routes = {
   gen_schema,
   schema_status,
+  schema_list_html,
   del_schema,
   implement_schema,
 };

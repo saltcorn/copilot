@@ -118,7 +118,7 @@ const poll = () => {
     else setTimeout(poll, 3000);
   });
 };
-setTimeout(poll, 3000);
+if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
 `)
       )
     );
@@ -137,13 +137,15 @@ window.copilotGenReqs = () => {
   document.getElementById('req-gen-area').innerHTML =
     '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating requirements, please wait...</p>';
   view_post(${JSON.stringify(viewname)}, 'gen_reqs', {}, () => {});
-  const poll = () => {
-    view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
-      if (resp && !resp.generating) location.reload();
-      else setTimeout(poll, 3000);
-    });
-  };
-  setTimeout(poll, 3000);
+  if (!window.dynamic_updates_cfg?.enabled) {
+    const poll = () => {
+      view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
+        if (resp && !resp.generating) location.reload();
+        else setTimeout(poll, 3000);
+      });
+    };
+    setTimeout(poll, 3000);
+  }
 };
 `)
     )
@@ -191,6 +193,11 @@ Now use the make_requirements tool to list the requirements for this software ap
       });
   } finally {
     await generatingMd.delete();
+    try {
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js: "if(typeof copilotRefreshReqs==='function')copilotRefreshReqs();",
+      });
+    } catch (_) {}
   }
 };
 

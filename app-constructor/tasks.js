@@ -348,7 +348,7 @@ function copilotInitStopping() {
       }
     });
   };
-  setTimeout(poll, 1000);
+  if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 1000);
 }
 
 function copilotUpdateDepColors() {
@@ -429,7 +429,7 @@ function copilotRunTask(btn, taskId, force) {
         }
       });
     };
-    setTimeout(poll, 3000);
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
   });
 }
 
@@ -500,7 +500,7 @@ function copilotRunNext(btn) {
         }
       });
     };
-    setTimeout(poll, 500);
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 500);
   });
 }
 
@@ -566,7 +566,7 @@ function copilotStartRunning(btn) {
         }
       });
     };
-    setTimeout(poll, 1000);
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 1000);
   });
 }
 `),
@@ -589,7 +589,7 @@ const pollTasks = () => {
     else setTimeout(pollTasks, 3000);
   });
 };
-setTimeout(pollTasks, 3000);
+if (!window.dynamic_updates_cfg?.enabled) setTimeout(pollTasks, 3000);
 `)
           )
         : "",
@@ -621,7 +621,7 @@ const poll = () => {
     else setTimeout(poll, 3000);
   });
 };
-setTimeout(poll, 3000);
+if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
 `)
         )
       );
@@ -648,7 +648,7 @@ window.copilotGenTasks = function() {
         else setTimeout(poll, 3000);
       });
     };
-    setTimeout(poll, 3000);
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
   });
 };
 `)
@@ -829,6 +829,12 @@ Before finalising the plan, you may call get_view_config for any existing view y
     }
   } finally {
     await planningMd.delete();
+    try {
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js:
+          "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();",
+      });
+    } catch (_) {}
   }
 };
 

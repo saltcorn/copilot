@@ -18,6 +18,7 @@ const {
   small,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
+const db = require("@saltcorn/data/db");
 const { viewname } = require("./common");
 const { task_tool } = require("./tools");
 const { getResearchAnswersText } = require("./research");
@@ -184,6 +185,14 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
 
     await errorMd.update({ body: { ...errorMd.body, fix_task_created: true } });
   } finally {
+    try {
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js: [
+          "if(typeof copilotRefreshErrs==='function')copilotRefreshErrs();",
+          "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();",
+        ],
+      });
+    } catch (_) {}
     fixingErrorIds.delete(errorMd.id);
   }
 };
@@ -542,6 +551,7 @@ const errTableStaticHtml = `
     });
   }
   function startFixPolling() {
+    if (window.dynamic_updates_cfg?.enabled) return;
     document.querySelectorAll('[data-fixing-id]').forEach((el) => {
       const id = parseInt(el.dataset.fixingId);
       const poll = () => {
@@ -560,6 +570,31 @@ const errTableStaticHtml = `
       setTimeout(poll, 3000);
     });
   }
+  window.copilotRefreshErrs = refreshErrArea;
+  window.copilotRefreshTasks = () => {
+    view_post(_vn, 'tasks_list_html', {}, (r) => {
+      const a = document.getElementById('task-list-area');
+      if (r && r.html && a) a.innerHTML = r.html;
+    });
+  };
+  window.copilotRefreshReqs = () => {
+    view_post(_vn, 'req_list_html', {}, (r) => {
+      const a = document.getElementById('req-list-area');
+      if (r && r.html && a) a.innerHTML = r.html;
+    });
+  };
+  window.copilotRefreshSchema = () => {
+    view_post(_vn, 'schema_list_html', {}, (r) => {
+      const a = document.getElementById('schema-list-area');
+      if (r && r.html && a) a.innerHTML = r.html;
+    });
+  };
+  window.copilotRefreshResearch = () => {
+    view_post(_vn, 'research_html', {}, (r) => {
+      const a = document.getElementById('research-panel');
+      if (r && r.html && a) a.innerHTML = r.html;
+    });
+  };
   window.copilotToggleErrorHealing = () => {
     view_post(_vn, 'toggle_error_healing', {}, () => refreshErrArea());
   };
@@ -567,6 +602,7 @@ const errTableStaticHtml = `
     const btn = document.getElementById('fix-err-btn-' + id);
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
     view_post(_vn, 'fix_error_task', { id }, () => {
+      if (window.dynamic_updates_cfg?.enabled) return;
       const poll = () => {
         view_post(_vn, 'fix_error_status', { id }, (resp) => {
           if (resp && !resp.fixing) {
