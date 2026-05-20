@@ -101,6 +101,29 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
           `${JSON.stringify(page.layout, null, 2)}\n\`\`\`\n`;
     }
 
+    const cannot_fix_tool = {
+      type: "function",
+      function: {
+        name: "cannot_fix",
+        description:
+          "Use this when the error cannot be diagnosed or fixed from the available " +
+          "information — e.g. the error is too vague, the stack trace points to platform " +
+          "internals with no clear application-level fix, or no relevant entity configuration " +
+          "is available. Do NOT invent a task just to produce output.",
+        parameters: {
+          type: "object",
+          required: ["reason"],
+          properties: {
+            reason: {
+              type: "string",
+              description:
+                "One sentence explaining why a fix task cannot be created.",
+            },
+          },
+        },
+      },
+    };
+
     const answer = await getState().functions.llm_generate.run(
       "Fix a bug in the following Saltcorn application.\n\n" +
         `${spec.body.specification}\n` +
@@ -122,25 +145,25 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
         "```\n" +
         `${entityConfigSection}\n` +
         `${task_planning_closing}\n\n` +
-        "Create exactly one task to fix this error. Rules for the task description:\n" +
+        "Either call plan_tasks with exactly one fix task, or call cannot_fix if you cannot " +
+        "determine a concrete fix from the information above. Do not invent a task just to " +
+        "produce output — prefer cannot_fix over a vague or speculative task.\n\n" +
+        "Rules for the plan_tasks description (only if you can diagnose the fix):\n" +
         "- Name the exact Saltcorn entity (view, trigger, page) to fix.\n" +
-        "- Name the exact entity and state each broken field, its current value, and the\n" +
-        "  correct value — use the entity configuration above to read the exact broken values,\n" +
-        "  and the entities list to resolve correct targets.\n" +
-        "- Cover ALL fields of the same error class (viewlink columns, _row_click_action,\n" +
-        "  view_to_create, etc.) in one task.\n" +
-        "- End the description with: 'Use get_entity to load the current config, apply the\n" +
-        "  changes above, and save with set_entity.'\n" +
-        "- Describe only what the executor must do. No things-to-preserve, no why-explanations.\n" +
-        "- Only include min_role if the access control is itself part of the bug.\n" +
-        "- One or two sentences. No prose, no paragraphs, no save/test instructions.\n" +
-        "Use the plan_tasks tool with exactly one task.",
+        "- State each broken field, its current value, and the correct value.\n" +
+        "- Cover ALL fields of the same error class in one task.\n" +
+        "- Prefer replacing a broken reference with a correct value over removing the element " +
+        "that contains it. Only remove an element when there is genuinely no valid replacement. " +
+        "Use the existing entities list to identify the correct replacement. " +
+        "Example: a viewlink column referencing a missing view should have its view name " +
+        "updated to an existing view — not have the column deleted.\n" +
+        "- End with: 'Use get_entity to load the current config, apply the changes above, and save with set_entity.'\n" +
+        "- One or two sentences. No prose, no save/test instructions.",
       {
-        tools: [task_tool],
-        ...tool_choice("plan_tasks"),
+        tools: [task_tool, cannot_fix_tool],
         systemPrompt:
-          "You are a Saltcorn developer. Analyse the error and the existing application " +
-          "entities to create one precise fix task.",
+          "You are a Saltcorn developer. Analyse the error and decide: can you produce a " +
+          "concrete, actionable fix? If yes, call plan_tasks. If not, call cannot_fix.",
       }
     );
 
@@ -149,6 +172,13 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
         ? answer.getToolCalls()[0]
         : undefined;
     if (!tc) return;
+
+    if (tc.tool_name === "cannot_fix") {
+      await errorMd.update({
+        body: { ...errorMd.body, cannot_fix_reason: tc.input.reason },
+      });
+      return;
+    }
 
     for (const task of tc.input.tasks)
       await MetaData.create({
@@ -302,6 +332,58 @@ const errorList = async (req) => {
               },
             },
             {
+              label: "Status",
+              key: (r) => {
+                if (r.body.source === "constructor") return "";
+                if (fixingIds.has(r.id))
+                  return span(
+                    {
+                      class: "badge bg-info text-dark",
+                      "data-fixing-id": r.id,
+                    },
+                    i({ class: "fas fa-spinner fa-spin me-1" }),
+                    "Creating fix task..."
+                  );
+                if (r.body.cannot_fix_reason)
+                  return div(
+                    span(
+                      { class: "badge bg-warning text-dark" },
+                      "No fix found"
+                    ),
+                    div(
+                      {
+                        class: "text-muted mt-1",
+                        style:
+                          "font-size:0.75rem;max-width:220px;white-space:normal;",
+                      },
+                      r.body.cannot_fix_reason
+                    )
+                  );
+                if (r.body.fix_task_created)
+                  return div(
+                    { class: "d-flex align-items-center gap-1" },
+                    span({ class: "badge bg-success" }, "Fix task created"),
+                    fixTaskByErrorId[r.id]?.body?.run_id
+                      ? a(
+                          {
+                            href: `/view/Saltcorn%20Agent%20copilot?run_id=${
+                              fixTaskByErrorId[r.id].body.run_id
+                            }`,
+                            target: "_blank",
+                            title: "View fix task run",
+                            class: "text-muted",
+                          },
+                          i({ class: "fas fa-external-link-alt" })
+                        )
+                      : ""
+                  );
+                return span(
+                  { class: "badge bg-light text-dark border" },
+                  "New"
+                );
+              },
+            },
+            {
               label: "",
               key: (r) => {
                 const iconRow = div(
@@ -327,40 +409,10 @@ const errorList = async (req) => {
                 const fixRow =
                   r.body.source === "constructor"
                     ? ""
-                    : fixingIds.has(r.id)
-                    ? div(
-                        { class: "mt-1" },
-                        button(
-                          {
-                            class: "btn btn-sm btn-outline-secondary",
-                            disabled: true,
-                            "data-fixing-id": r.id,
-                          },
-                          i({ class: "fas fa-spinner fa-spin me-1" }),
-                          "Creating fix task..."
-                        )
-                      )
-                    : r.body.fix_task_created
-                    ? div(
-                        { class: "d-flex align-items-center gap-1 mt-1" },
-                        span(
-                          { class: "badge bg-secondary" },
-                          "Fix task created"
-                        ),
-                        fixTaskByErrorId[r.id]?.body?.run_id
-                          ? a(
-                              {
-                                href: `/view/Saltcorn%20Agent%20copilot?run_id=${
-                                  fixTaskByErrorId[r.id].body.run_id
-                                }`,
-                                target: "_blank",
-                                title: "View fix task run",
-                                class: "text-muted",
-                              },
-                              i({ class: "fas fa-external-link-alt" })
-                            )
-                          : ""
-                      )
+                    : fixingIds.has(r.id) ||
+                      r.body.fix_task_created ||
+                      r.body.cannot_fix_reason
+                    ? ""
                     : div(
                         { class: "mt-1" },
                         button(
@@ -552,10 +604,12 @@ const errTableStaticHtml = `
 #err-list-area table { table-layout: auto; width: 100%; }
 #err-list-area table th:nth-child(1),
 #err-list-area table td:nth-child(1),
-#err-list-area table th:nth-child(3),
-#err-list-area table td:nth-child(3) { width: 1px; white-space: nowrap; }
+#err-list-area table th:nth-child(4),
+#err-list-area table td:nth-child(4) { width: 1px; white-space: nowrap; }
 #err-list-area table th:nth-child(2),
 #err-list-area table td:nth-child(2) { width: 100%; }
+#err-list-area table th:nth-child(3),
+#err-list-area table td:nth-child(3) { padding-right: 2rem; }
 </style>
 <div class="modal fade" id="err-detail-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
