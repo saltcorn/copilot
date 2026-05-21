@@ -70,43 +70,6 @@ const showSchema = async (req) => {
       ...newNames.map((n) => [n, "#198754"]),
       ...reusedNames.map((n) => [n, "#6c757d"]),
     ]);
-    const colorScript = script(
-      domReady(`
-  const colors = ${JSON.stringify(colorMap)};
-  const pre = document.querySelector('.schema-mermaid');
-  if (!pre) return;
-
-  const doRender = () => {
-    mermaid.run({ nodes: [pre], suppressErrors: true, postRenderCallback: () => {
-      for (const g of pre.querySelectorAll('g[id^="entity-"]')) {
-        const name = g.id.replace(/^entity-/, '').replace(/-\\d+$/, '');
-        const color = colors[name];
-        if (color) {
-          const p = g.querySelector('path');
-          if (p) p.setAttribute('fill', color);
-        }
-      }
-      for (const el of pre.querySelectorAll('g.label.name .nodeLabel')) {
-        el.style.color = 'white';
-        el.style.fontWeight = 'bold';
-      }
-    }});
-  };
-
-  // Defer render until tab is visible, then colorize nodes.
-  const pane = pre.closest('.tab-pane');
-  if (pane && !pane.classList.contains('active')) {
-    const link = document.querySelector('[href="#' + pane.id + '"]');
-    if (link) link.addEventListener('shown.bs.tab', doRender, { once: true });
-    else {
-      const o = new MutationObserver(() => {
-        if (pane.classList.contains('active')) { o.disconnect(); doRender(); }
-      });
-      o.observe(pane, { attributes: true, attributeFilter: ['class'] });
-    }
-  } else doRender();
-`)
-    );
 
     const legend = div(
       { class: "mt-3 d-flex flex-wrap gap-3 align-items-start" },
@@ -134,8 +97,10 @@ const showSchema = async (req) => {
 
     return div(
       { class: "mt-2" },
-      pre({ class: "schema-mermaid" }, mmdia),
-      colorScript,
+      pre(
+        { class: "schema-mermaid", "data-colors": JSON.stringify(colorMap) },
+        mmdia
+      ),
       legend,
       !implemented &&
         div(
@@ -166,19 +131,9 @@ const showSchema = async (req) => {
     return div(
       { class: "mt-2" },
       p(
+        { id: "schema-generating-state" },
         i({ class: "fas fa-spinner fa-spin me-2" }),
         "Generating schema, please wait..."
-      ),
-      script(
-        domReady(`
-const poll = () => {
-  view_post(${JSON.stringify(viewname)}, 'schema_status', {}, (resp) => {
-    if (resp && !resp.generating) location.reload();
-    else setTimeout(poll, 3000);
-  });
-};
-if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
-`)
       )
     );
   }
@@ -189,24 +144,6 @@ if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
     button(
       { class: "btn btn-primary", onclick: `copilotGenSchema()` },
       "Generate schema"
-    ),
-    script(
-      domReady(`
-window.copilotGenSchema = () => {
-  document.getElementById('schema-gen-area').innerHTML =
-    '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating schema, please wait...</p>';
-  view_post(${JSON.stringify(viewname)}, 'gen_schema', {}, () => {});
-  if (!window.dynamic_updates_cfg?.enabled) {
-    const poll = () => {
-      view_post(${JSON.stringify(viewname)}, 'schema_status', {}, (resp) => {
-        if (resp && !resp.generating) location.reload();
-        else setTimeout(poll, 3000);
-      });
-    };
-    setTimeout(poll, 3000);
-  }
-};
-`)
     )
   );
 };
@@ -226,7 +163,11 @@ const doGenSchema = async (spec, rs, userId) => {
       `Generate the database schema for this application:
 
 ${spec.body.specification}
-${researchText ? `\nThe user was asked clarifying questions about the application. Here are the questions and their answers:\n\n${researchText}\n` : ""}
+${
+  researchText
+    ? `\nThe user was asked clarifying questions about the application. Here are the questions and their answers:\n\n${researchText}\n`
+    : ""
+}
 These are the requirements of the application:
 
 ${rs.map((r) => `* ${r.body.requirement}`).join("\n")}
@@ -246,6 +187,8 @@ For every field that must not be empty, set not_null=true. Description, notes, a
 Do NOT leave uniqueness or required constraints for a later step — express them fully in this schema.
 
 Note: ownership configuration (automatically populating a FK-to-users field from the logged-in user) is a VIEW-level concern and cannot be expressed in the schema. Do not attempt to annotate fields as "ownership fields" here — simply define the foreign key field normally. Ownership will be configured when the Edit views are generated.
+
+Note: email and SMTP configuration (host, port, credentials, sender address) is managed by the Saltcorn platform administrator in system settings — it is NOT stored in the application database. Do NOT include any table for SMTP settings, email configuration, or mail server credentials. If the application needs to send emails, that is handled by a trigger action; no schema table is needed for it.
 
 Now use the ${
         databaseDesignTool.function.name
@@ -282,7 +225,8 @@ Now use the ${
     await generatingMd.delete();
     try {
       getState().emitDynamicUpdate(db.getTenantSchema(), {
-        eval_js: "if(typeof copilotRefreshSchema==='function')copilotRefreshSchema();",
+        eval_js:
+          "if(typeof copilotRefreshSchema==='function')copilotRefreshSchema();",
       });
     } catch (_) {}
   }
@@ -325,7 +269,12 @@ const del_schema = async (table_id, viewname, config, body, { req, res }) => {
     const rs = await MetaData.find({ type: "CopilotConstructMgr", name });
     for (const r of rs) await r.delete();
   }
-  return { json: { reload_page: true } };
+  return {
+    json: {
+      eval_js:
+        "if(typeof copilotRefreshSchema==='function')copilotRefreshSchema();",
+    },
+  };
 };
 
 const implement_schema = async (
@@ -356,10 +305,21 @@ const implement_schema = async (
   md.body.implemented = true;
   await md.update({ body: md.body });
 
-  return { json: { reload_page: true } };
+  return {
+    json: {
+      eval_js:
+        "if(typeof copilotRefreshSchema==='function')copilotRefreshSchema();",
+    },
+  };
 };
 
-const schema_list_html = async (table_id, viewname, config, body, { req, res }) => {
+const schema_list_html = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
   const html = await showSchema(req);
   return { json: { html } };
 };
@@ -372,4 +332,77 @@ const schema_routes = {
   implement_schema,
 };
 
-module.exports = { showSchema, schema_routes };
+const schemaStaticScript = `<script>
+(function(){
+  const _schemVn = ${JSON.stringify(viewname)};
+
+  window.copilotGenSchema = function() {
+    const area = document.getElementById('schema-gen-area');
+    if (area) area.innerHTML =
+      '<p id="schema-generating-state"><i class="fas fa-spinner fa-spin me-2"></i>Generating schema, please wait...</p>';
+    view_post(_schemVn, 'gen_schema', {}, () => {});
+    if (!window.dynamic_updates_cfg?.enabled) {
+      const poll = () => {
+        view_post(_schemVn, 'schema_status', {}, (resp) => {
+          if (resp && !resp.generating) {
+            if (typeof copilotRefreshSchema === 'function') copilotRefreshSchema();
+          } else setTimeout(poll, 3000);
+        });
+      };
+      setTimeout(poll, 3000);
+    }
+  };
+
+  window.copilotRenderSchemaMermaid = () => {
+    const pre = document.querySelector('#schema-list-area .schema-mermaid');
+    if (!pre || !pre.dataset.colors) return;
+    let colors;
+    try { colors = JSON.parse(pre.dataset.colors); } catch(_) { colors = {}; }
+    const doRender = () => {
+      mermaid.run({ nodes: [pre], suppressErrors: true, postRenderCallback: () => {
+        for (const g of pre.querySelectorAll('g[id^="entity-"]')) {
+          const name = g.id.replace(/^entity-/, '').replace(/-\\d+$/, '');
+          const color = colors[name];
+          if (color) { const p = g.querySelector('path'); if (p) p.setAttribute('fill', color); }
+        }
+        for (const el of pre.querySelectorAll('g.label.name .nodeLabel')) {
+          el.style.color = 'white';
+          el.style.fontWeight = 'bold';
+        }
+      }});
+    };
+    const pane = pre.closest('.tab-pane');
+    if (pane && !pane.classList.contains('active')) {
+      const link = document.querySelector('[href="#' + pane.id + '"]');
+      if (link) link.addEventListener('shown.bs.tab', doRender, { once: true });
+      else {
+        const o = new MutationObserver(() => {
+          if (pane.classList.contains('active')) { o.disconnect(); doRender(); }
+        });
+        o.observe(pane, { attributes: true, attributeFilter: ['class'] });
+      }
+    } else doRender();
+  };
+
+  function copilotInitSchemaState() {
+    if (document.getElementById('schema-generating-state')) {
+      const poll = () => {
+        view_post(_schemVn, 'schema_status', {}, (resp) => {
+          if (resp && !resp.generating) {
+            if (typeof copilotRefreshSchema === 'function') copilotRefreshSchema();
+          } else setTimeout(poll, 3000);
+        });
+      };
+      if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
+    } else {
+      copilotRenderSchemaMermaid();
+    }
+  }
+  window.copilotInitSchemaState = copilotInitSchemaState;
+
+  if (document.readyState !== 'loading') copilotInitSchemaState();
+  else document.addEventListener('DOMContentLoaded', copilotInitSchemaState);
+})()
+</script>`;
+
+module.exports = { showSchema, schema_routes, schemaStaticScript };

@@ -40,6 +40,47 @@ const { requirements_tool } = require("./tools");
 const { getResearchAnswersText } = require("./research");
 const { research_answers_section } = require("./prompts");
 
+const requirementsStaticScript = `<script>
+const _reqsVn = ${JSON.stringify(viewname)};
+
+window.copilotGenReqs = function() {
+  const area = document.getElementById('req-gen-area');
+  if (area) area.innerHTML =
+    '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating requirements, please wait...</p>';
+  view_post(_reqsVn, 'gen_reqs', {}, () => {});
+  if (!window.dynamic_updates_cfg?.enabled) {
+    const poll = () => {
+      view_post(_reqsVn, 'req_status', {}, (resp) => {
+        if (resp && !resp.generating) {
+          if (typeof copilotRefreshReqs === 'function') copilotRefreshReqs();
+        } else setTimeout(poll, 3000);
+      });
+    };
+    setTimeout(poll, 3000);
+  }
+};
+
+function copilotInitReqsState() {
+  const isGenerating = !!document.getElementById('reqs-generating-state');
+  if (isGenerating) {
+    const poll = () => {
+      view_post(_reqsVn, 'req_status', {}, (resp) => {
+        if (resp && !resp.generating) {
+          if (typeof copilotRefreshReqs === 'function') copilotRefreshReqs();
+        } else setTimeout(poll, 3000);
+      });
+    };
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
+  }
+}
+window.copilotInitReqsState = copilotInitReqsState;
+
+(function () {
+  if (document.readyState !== 'loading') copilotInitReqsState();
+  else document.addEventListener('DOMContentLoaded', copilotInitReqsState);
+})();
+</script>`;
+
 const requirementsList = async (req) => {
   const rs = await MetaData.find(
     {
@@ -107,19 +148,9 @@ const requirementsList = async (req) => {
     return div(
       { class: "mt-2" },
       p(
+        { id: "reqs-generating-state" },
         i({ class: "fas fa-spinner fa-spin me-2" }),
         "Generating requirements, please wait..."
-      ),
-      script(
-        domReady(`
-const poll = () => {
-  view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
-    if (resp && !resp.generating) location.reload();
-    else setTimeout(poll, 3000);
-  });
-};
-if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
-`)
       )
     );
   }
@@ -130,24 +161,6 @@ if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
     button(
       { class: "btn btn-primary", onclick: `copilotGenReqs()` },
       "Generate requirements"
-    ),
-    script(
-      domReady(`
-window.copilotGenReqs = () => {
-  document.getElementById('req-gen-area').innerHTML =
-    '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating requirements, please wait...</p>';
-  view_post(${JSON.stringify(viewname)}, 'gen_reqs', {}, () => {});
-  if (!window.dynamic_updates_cfg?.enabled) {
-    const poll = () => {
-      view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
-        if (resp && !resp.generating) location.reload();
-        else setTimeout(poll, 3000);
-      });
-    };
-    setTimeout(poll, 3000);
-  }
-};
-`)
     )
   );
 };
@@ -195,7 +208,8 @@ Now use the make_requirements tool to list the requirements for this software ap
     await generatingMd.delete();
     try {
       getState().emitDynamicUpdate(db.getTenantSchema(), {
-        eval_js: "if(typeof copilotRefreshReqs==='function')copilotRefreshReqs();",
+        eval_js:
+          "if(typeof copilotRefreshReqs==='function')copilotRefreshReqs();",
       });
     } catch (_) {}
   }
@@ -228,7 +242,12 @@ const del_req = async (table_id, viewname, config, body, { req, res }) => {
 
   if (!r) throw new Error("Requirement not found");
   await r.delete();
-  return { json: { reload_page: true } };
+  return {
+    json: {
+      eval_js:
+        "if(typeof copilotRefreshReqs==='function')copilotRefreshReqs();",
+    },
+  };
 };
 const del_all_reqs = async (table_id, viewname, config, body, { req, res }) => {
   const rs = await MetaData.find({
@@ -236,7 +255,12 @@ const del_all_reqs = async (table_id, viewname, config, body, { req, res }) => {
     name: "requirement",
   });
   for (const r of rs) await r.delete();
-  return { json: { reload_page: true } };
+  return {
+    json: {
+      eval_js:
+        "if(typeof copilotRefreshReqs==='function')copilotRefreshReqs();",
+    },
+  };
 };
 
 /** Route: returns the rendered requirements list HTML for AJAX refresh. */
@@ -259,4 +283,4 @@ const req_routes = {
   req_list_html,
 };
 
-module.exports = { requirementsList, req_routes };
+module.exports = { requirementsList, requirementsStaticScript, req_routes };

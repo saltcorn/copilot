@@ -560,7 +560,10 @@ const errTableStaticHtml = `
             refreshErrArea();
             view_post(_vn, 'tasks_list_html', {}, (r) => {
               const area = document.getElementById('task-list-area');
-              if (r && r.html && area) area.innerHTML = r.html;
+              if (r && r.html && area) {
+                area.innerHTML = r.html;
+                if (typeof copilotInitTasksState === 'function') copilotInitTasksState();
+              }
             });
           } else {
             setTimeout(poll, 3000);
@@ -574,19 +577,28 @@ const errTableStaticHtml = `
   window.copilotRefreshTasks = () => {
     view_post(_vn, 'tasks_list_html', {}, (r) => {
       const a = document.getElementById('task-list-area');
-      if (r && r.html && a) a.innerHTML = r.html;
+      if (r && r.html && a) {
+        a.innerHTML = r.html;
+        if (typeof copilotInitTasksState === 'function') copilotInitTasksState();
+      }
     });
   };
   window.copilotRefreshReqs = () => {
     view_post(_vn, 'req_list_html', {}, (r) => {
       const a = document.getElementById('req-list-area');
-      if (r && r.html && a) a.innerHTML = r.html;
+      if (r && r.html && a) {
+        a.innerHTML = r.html;
+        if (typeof copilotInitReqsState === 'function') copilotInitReqsState();
+      }
     });
   };
   window.copilotRefreshSchema = () => {
     view_post(_vn, 'schema_list_html', {}, (r) => {
       const a = document.getElementById('schema-list-area');
-      if (r && r.html && a) a.innerHTML = r.html;
+      if (r && r.html && a) {
+        a.innerHTML = r.html;
+        if (typeof copilotInitSchemaState === 'function') copilotInitSchemaState();
+      }
     });
   };
   window.copilotRefreshResearch = () => {
@@ -609,7 +621,10 @@ const errTableStaticHtml = `
             refreshErrArea();
             view_post(_vn, 'tasks_list_html', {}, (r) => {
               const area = document.getElementById('task-list-area');
-              if (r && r.html && area) area.innerHTML = r.html;
+              if (r && r.html && area) {
+                area.innerHTML = r.html;
+                if (typeof copilotInitTasksState === 'function') copilotInitTasksState();
+              }
             });
           } else {
             setTimeout(poll, 3000);

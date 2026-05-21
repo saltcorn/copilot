@@ -36,9 +36,8 @@ const {
 const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
-const { requirementsList, req_routes } = require("./requirements");
-const { showSchema, schema_routes } = require("./schema");
-const { makeTaskList, task_routes } = require("./tasks");
+const { showSchema, schema_routes, schemaStaticScript } = require("./schema");
+const { makeTaskList, tasksStaticScript, task_routes } = require("./tasks");
 const {
   errorList,
   doCreateErrorFixTask,
@@ -46,6 +45,7 @@ const {
   error_routes,
   errTableStaticHtml,
 } = require("./errors");
+const { requirementsList, requirementsStaticScript, req_routes } = require("./requirements");
 const { feedbackList, feedback_routes } = require("./feedback");
 const { progressList, progress_routes } = require("./progress");
 const { runNextTask } = require("./run_task");
@@ -198,9 +198,9 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
         ),
       },
       { type: "blank", contents: research },
-      { type: "blank", contents: div({ id: "req-list-area" }, reqList) },
-      { type: "blank", contents: div({ id: "schema-list-area" }, schema) },
-      { type: "blank", contents: div({ id: "task-list-area" }, taskList) },
+      { type: "blank", contents: div(requirementsStaticScript, div({ id: "req-list-area" }, reqList)) },
+      { type: "blank", contents: div(schemaStaticScript, div({ id: "schema-list-area" }, schema)) },
+      { type: "blank", contents: div(tasksStaticScript, div({ id: "task-list-area" }, taskList)) },
       { type: "blank", contents: taskChart },
       { type: "blank", contents: progress },
       { type: "blank", contents: feedbacks },

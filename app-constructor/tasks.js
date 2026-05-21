@@ -54,6 +54,326 @@ const {
   research_answers_section,
 } = require("./prompts");
 
+const tasksStaticScript = `<script>
+const _tasksVn = ${JSON.stringify(viewname)};
+
+function copilotSetRunningStatus(name) {
+  const el = document.getElementById('copilot-status-text');
+  if (!el) return;
+  el.textContent = '';
+  el.appendChild(document.createTextNode('Running: '));
+  const strong = document.createElement('span');
+  strong.className = 'fw-bold';
+  strong.textContent = name || 'task';
+  el.appendChild(strong);
+}
+
+function copilotInitStopping() {
+  const startBtn = document.getElementById('copilot-start-btn');
+  const noticeEl = document.getElementById('copilot-stop-notice');
+  const runNextBtn = document.getElementById('copilot-run-next-btn');
+  for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = true;
+  const movedToDone = copilotDoneIds();
+  const poll = () => {
+    view_post(_tasksVn, 'tasks_poll', {}, (resp) => {
+      if (!resp || !resp.tasks) return;
+      let hasRunning = false;
+      for (const task of resp.tasks) {
+        if (task.status === 'Done' && !movedToDone.has(task.id)) {
+          movedToDone.add(task.id);
+          view_post(_tasksVn, 'task_row_done', {id: task.id}, (rowResp) => {
+            copilotAppendDoneRow(task.id, rowResp);
+          });
+        } else if (task.status === 'Running') {
+          hasRunning = true;
+          copilotShowSpinner(task.id);
+        }
+      }
+      if (hasRunning) {
+        setTimeout(poll, 3000);
+      } else {
+        if (noticeEl) noticeEl.remove();
+        const statusTextEl = document.getElementById('copilot-status-text');
+        if (statusTextEl) statusTextEl.textContent = 'Currently not running';
+        if (startBtn) {
+          startBtn.disabled = false;
+          startBtn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
+          startBtn.onclick = () => copilotStartRunning(startBtn);
+        }
+        if (runNextBtn) runNextBtn.style.display = '';
+        for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = false;
+      }
+    });
+  };
+  if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 1000);
+}
+
+function copilotUpdateDepColors() {
+  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
+    .find(h => h.textContent.trim() === 'Done');
+  const doneNames = new Set();
+  if (doneHeader) {
+    let sib = doneHeader.closest('tr').nextElementSibling;
+    while (sib) {
+      const firstTd = sib.querySelector('td');
+      if (firstTd) doneNames.add(firstTd.textContent.trim());
+      sib = sib.nextElementSibling;
+    }
+  }
+  for (const el of document.querySelectorAll('.dep-indicator')) {
+    const dep = el.getAttribute('title');
+    const done = doneNames.has(dep);
+    el.className = 'dep-indicator me-2 ' + (done ? 'text-success' : 'text-danger');
+    el.style.whiteSpace = 'nowrap';
+    const icon = el.querySelector('i');
+    if (icon) icon.className = (done ? 'fas fa-check-circle' : 'fas fa-circle') + ' me-1';
+  }
+}
+
+function copilotAppendDoneRow(taskId, rowResp) {
+  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+  if (row) row.remove();
+  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
+    .find(h => h.textContent.trim() === 'Done');
+  if (doneHeader && rowResp && rowResp.html) {
+    const tbody = doneHeader.closest('tr').parentNode;
+    const tmp = document.createElement('tbody');
+    tmp.innerHTML = rowResp.html;
+    tbody.appendChild(tmp.firstChild);
+  }
+  copilotUpdateDepColors();
+}
+
+function copilotRunTask(btn, taskId, force) {
+  view_post(_tasksVn, 'run_task', {id: taskId, force: !!force}, (resp) => {
+    if (resp && resp.unmet_deps && resp.unmet_deps.length > 0) {
+      const msg = 'These dependencies are not yet done:\\n\\n  ' + resp.unmet_deps.join('\\n  ') + '\\n\\nRun this task anyway?';
+      if (!confirm(msg)) return;
+      copilotRunTask(btn, taskId, true);
+      return;
+    }
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btn.disabled = true;
+    const runNextBtn = document.getElementById('copilot-run-next-btn');
+    const startBtn = document.getElementById('copilot-start-btn');
+    if (runNextBtn) runNextBtn.disabled = true;
+    if (startBtn) startBtn.disabled = true;
+    for (const b of document.querySelectorAll('[data-task-run]')) {
+      if (b !== btn) b.disabled = true;
+    }
+    const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+    const taskName = row ? (row.cells[0]?.textContent?.trim() || '') : '';
+    const statusTextEl = document.getElementById('copilot-status-text');
+    copilotSetRunningStatus(taskName);
+    const poll = () => {
+      view_post(_tasksVn, 'task_status', {ids: [String(taskId)]}, (statusResp) => {
+        if (statusResp && statusResp.any_done) {
+          if (statusTextEl) statusTextEl.textContent = 'Currently not running';
+          if (runNextBtn) runNextBtn.disabled = false;
+          if (startBtn) startBtn.disabled = false;
+          for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = false;
+          view_post(_tasksVn, 'task_row_done', {id: taskId}, (rowResp) => {
+            copilotAppendDoneRow(taskId, rowResp);
+          });
+        } else {
+          setTimeout(poll, 3000);
+        }
+      });
+    };
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
+  });
+}
+
+function copilotDoneIds() {
+  const ids = new Set();
+  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
+    .find(h => h.textContent.trim() === 'Done');
+  if (doneHeader) {
+    let sib = doneHeader.closest('tr').nextElementSibling;
+    while (sib) {
+      const id = sib.getAttribute('data-row-id');
+      if (id) ids.add(Number(id));
+      sib = sib.nextElementSibling;
+    }
+  }
+  return ids;
+}
+
+function copilotShowSpinner(taskId) {
+  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
+  if (row && !row.querySelector('.task-spinner')) {
+    const runBtn = row.querySelector('[data-task-run]');
+    if (runBtn) {
+      runBtn.outerHTML =
+        '<span class="task-spinner" data-task-id="' + taskId + '">' +
+        '<i class="fas fa-spinner fa-spin text-warning"></i></span>';
+    }
+  }
+}
+
+function copilotRunNext(btn) {
+  btn.disabled = true;
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
+  const firstRunBtn = document.querySelector('[data-task-run]');
+  const optimisticId = firstRunBtn ? Number(firstRunBtn.getAttribute('data-task-run')) : null;
+  if (optimisticId) copilotShowSpinner(optimisticId);
+  const movedToDone = copilotDoneIds();
+  view_post(_tasksVn, 'run_task', {}, () => {
+    const poll = () => {
+      view_post(_tasksVn, 'tasks_poll', {}, (resp) => {
+        if (!resp || !resp.tasks) return;
+        let hasRunning = false;
+        const runningIds = new Set(resp.tasks.filter(t => t.status === 'Running').map(t => t.id));
+        if (optimisticId && !runningIds.has(optimisticId) && !movedToDone.has(optimisticId)) {
+          const staleRow = document.querySelector('tr[data-row-id="' + optimisticId + '"]');
+          const staleSpinner = staleRow?.querySelector('.task-spinner');
+          if (staleSpinner) staleSpinner.outerHTML =
+            '<button class="btn btn-outline-success btn-sm" data-task-run="' + optimisticId + '" onclick="copilotRunTask(this,' + optimisticId + ')" title="Run task"><i class="fas fa-play"></i></button>';
+        }
+        for (const task of resp.tasks) {
+          if (task.status === 'Done' && !movedToDone.has(task.id)) {
+            movedToDone.add(task.id);
+            view_post(_tasksVn, 'task_row_done', {id: task.id}, (rowResp) => {
+              copilotAppendDoneRow(task.id, rowResp);
+            });
+          } else if (task.status === 'Running') {
+            hasRunning = true;
+            copilotShowSpinner(task.id);
+          }
+        }
+        if (hasRunning) setTimeout(poll, 3000);
+        else {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+        }
+      });
+    };
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 500);
+  });
+}
+
+function copilotStartRunning(btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
+  const runNextBtn = document.getElementById('copilot-run-next-btn');
+  const statusTextEl = document.getElementById('copilot-status-text');
+  if (runNextBtn) runNextBtn.style.display = 'none';
+  if (statusTextEl) statusTextEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running';
+  let stopped = false;
+  let stopNotice = null;
+  const stopBtn = document.createElement('button');
+  stopBtn.className = 'btn btn-danger ms-2';
+  stopBtn.innerHTML = '<i class="fas fa-stop me-1"></i>Stop';
+  stopBtn.onclick = () => {
+    stopped = true;
+    stopBtn.disabled = true;
+    view_post(_tasksVn, 'stop', {});
+    if (!stopNotice) {
+      stopNotice = document.createElement('span');
+      stopNotice.className = 'alert alert-warning alert-dismissible d-inline-block ms-2 py-1 px-2 mb-0';
+      stopNotice.style.fontSize = '0.875rem';
+      stopNotice.innerHTML =
+        '<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>' +
+        'The current task will complete, then the queue stops. No new tasks will be started.';
+      stopBtn.insertAdjacentElement('afterend', stopNotice);
+    }
+  };
+  btn.insertAdjacentElement('afterend', stopBtn);
+  view_post(_tasksVn, 'start', {}, () => {
+    const movedToDone = copilotDoneIds();
+    const poll = () => {
+      view_post(_tasksVn, 'tasks_poll', {}, (resp) => {
+        if (!resp || !resp.tasks) return;
+        let hasPending = false;
+        let hasRunning = false;
+        for (const task of resp.tasks) {
+          if (task.status === 'Done' && !movedToDone.has(task.id)) {
+            movedToDone.add(task.id);
+            view_post(_tasksVn, 'task_row_done', {id: task.id}, (rowResp) => {
+              copilotAppendDoneRow(task.id, rowResp);
+            });
+          } else if (task.status === 'Running') {
+            hasRunning = true;
+            copilotShowSpinner(task.id);
+            copilotSetRunningStatus(task.name);
+          } else if (task.status !== 'Done') {
+            hasPending = true;
+          }
+        }
+        if (hasRunning || (!stopped && hasPending)) {
+          setTimeout(poll, 3000);
+        } else {
+          stopBtn.remove();
+          if (stopNotice) { stopNotice.remove(); stopNotice = null; }
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
+          if (statusTextEl) statusTextEl.textContent = 'Currently not running';
+          if (runNextBtn) runNextBtn.style.display = '';
+        }
+      });
+    };
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 1000);
+  });
+}
+
+window.copilotGenTasks = function() {
+  const area = document.getElementById('task-gen-area');
+  if (area) area.innerHTML = '<p><i class="fas fa-spinner fa-spin me-2"></i>Planning tasks, please wait...</p>';
+  view_post(_tasksVn, 'gen_tasks', {}, () => {
+    const poll = () => {
+      view_post(_tasksVn, 'planning_status', {}, (resp) => {
+        if (resp && !resp.planning) {
+          if (typeof copilotRefreshTasks === 'function') copilotRefreshTasks();
+        } else setTimeout(poll, 3000);
+      });
+    };
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
+  });
+};
+
+function copilotInitTasksState() {
+  const hasSpinners = !!document.querySelector('#task-list-area .task-spinner');
+  const hasStopNotice = !!document.getElementById('copilot-stop-notice');
+  const isPlanningState = !!document.getElementById('tasks-planning-state');
+  if (hasSpinners && hasStopNotice) {
+    copilotInitStopping();
+  } else if (hasSpinners) {
+    const runNextBtn = document.getElementById('copilot-run-next-btn');
+    const startBtn = document.getElementById('copilot-start-btn');
+    if (runNextBtn) runNextBtn.disabled = true;
+    if (startBtn) startBtn.disabled = true;
+    for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = true;
+    const pollTasks = () => {
+      const spinners = document.querySelectorAll('.task-spinner[data-task-id]');
+      if (!spinners.length) return;
+      const ids = Array.from(spinners).map(el => el.getAttribute('data-task-id'));
+      view_post(_tasksVn, 'task_status', {ids}, (resp) => {
+        if (resp && resp.any_done) {
+          if (typeof copilotRefreshTasks === 'function') copilotRefreshTasks();
+        } else setTimeout(pollTasks, 3000);
+      });
+    };
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(pollTasks, 3000);
+  } else if (isPlanningState) {
+    const poll = () => {
+      view_post(_tasksVn, 'planning_status', {}, (resp) => {
+        if (resp && !resp.planning) {
+          if (typeof copilotRefreshTasks === 'function') copilotRefreshTasks();
+        } else setTimeout(poll, 3000);
+      });
+    };
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
+  }
+}
+window.copilotInitTasksState = copilotInitTasksState;
+
+(function () {
+  if (document.readyState !== 'loading') copilotInitTasksState();
+  else document.addEventListener('DOMContentLoaded', copilotInitTasksState);
+})();
+</script>`;
+
 const feedbackBadge = (body) =>
   body.source === "feedback"
     ? span(
@@ -174,8 +494,6 @@ const makeTaskList = async (req) => {
     )
   );
   if (rs.length) {
-    const runningOnLoad =
-      !stopping && rs.some((t) => t.body.status === "Running");
     const doneNames = new Set(
       rs.filter((t) => t.body.status === "Done").map((t) => t.body.name)
     );
@@ -297,302 +615,6 @@ const makeTaskList = async (req) => {
         },
         { grouped: true }
       ),
-      script(`
-function copilotSetRunningStatus(name) {
-  const el = document.getElementById('copilot-status-text');
-  if (!el) return;
-  el.textContent = '';
-  el.appendChild(document.createTextNode('Running: '));
-  const strong = document.createElement('span');
-  strong.className = 'fw-bold';
-  strong.textContent = name || 'task';
-  el.appendChild(strong);
-}
-
-function copilotInitStopping() {
-  const startBtn = document.getElementById('copilot-start-btn');
-  const noticeEl = document.getElementById('copilot-stop-notice');
-  const runNextBtn = document.getElementById('copilot-run-next-btn');
-  for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = true;
-  const movedToDone = copilotDoneIds();
-  const poll = () => {
-    view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
-      if (!resp || !resp.tasks) return;
-      let hasRunning = false;
-      for (const task of resp.tasks) {
-        if (task.status === 'Done' && !movedToDone.has(task.id)) {
-          movedToDone.add(task.id);
-          view_post(${JSON.stringify(
-            viewname
-          )}, 'task_row_done', {id: task.id}, (rowResp) => {
-            copilotAppendDoneRow(task.id, rowResp);
-          });
-        } else if (task.status === 'Running') {
-          hasRunning = true;
-          copilotShowSpinner(task.id);
-        }
-      }
-      if (hasRunning) {
-        setTimeout(poll, 3000);
-      } else {
-        if (noticeEl) noticeEl.remove();
-        const statusTextEl = document.getElementById('copilot-status-text');
-        if (statusTextEl) statusTextEl.textContent = 'Currently not running';
-        if (startBtn) {
-          startBtn.disabled = false;
-          startBtn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
-          startBtn.onclick = () => copilotStartRunning(startBtn);
-        }
-        if (runNextBtn) runNextBtn.style.display = '';
-        for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = false;
-      }
-    });
-  };
-  if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 1000);
-}
-
-function copilotUpdateDepColors() {
-  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
-    .find(h => h.textContent.trim() === 'Done');
-  const doneNames = new Set();
-  if (doneHeader) {
-    let sib = doneHeader.closest('tr').nextElementSibling;
-    while (sib) {
-      const firstTd = sib.querySelector('td');
-      if (firstTd) doneNames.add(firstTd.textContent.trim());
-      sib = sib.nextElementSibling;
-    }
-  }
-  for (const el of document.querySelectorAll('.dep-indicator')) {
-    const dep = el.getAttribute('title');
-    const done = doneNames.has(dep);
-    el.className = 'dep-indicator me-2 ' + (done ? 'text-success' : 'text-danger');
-    el.style.whiteSpace = 'nowrap';
-    const icon = el.querySelector('i');
-    if (icon) icon.className = (done ? 'fas fa-check-circle' : 'fas fa-circle') + ' me-1';
-  }
-}
-
-function copilotAppendDoneRow(taskId, rowResp) {
-  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
-  if (row) row.remove();
-  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
-    .find(h => h.textContent.trim() === 'Done');
-  if (doneHeader && rowResp && rowResp.html) {
-    const tbody = doneHeader.closest('tr').parentNode;
-    const tmp = document.createElement('tbody');
-    tmp.innerHTML = rowResp.html;
-    tbody.appendChild(tmp.firstChild);
-  }
-  copilotUpdateDepColors();
-}
-
-function copilotRunTask(btn, taskId, force) {
-  view_post(${JSON.stringify(
-    viewname
-  )}, 'run_task', {id: taskId, force: !!force}, (resp) => {
-    if (resp && resp.unmet_deps && resp.unmet_deps.length > 0) {
-      const msg = 'These dependencies are not yet done:\\n\\n  ' + resp.unmet_deps.join('\\n  ') + '\\n\\nRun this task anyway?';
-      if (!confirm(msg)) return;
-      copilotRunTask(btn, taskId, true);
-      return;
-    }
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-    btn.disabled = true;
-    const runNextBtn = document.getElementById('copilot-run-next-btn');
-    const startBtn = document.getElementById('copilot-start-btn');
-    if (runNextBtn) runNextBtn.disabled = true;
-    if (startBtn) startBtn.disabled = true;
-    for (const b of document.querySelectorAll('[data-task-run]')) {
-      if (b !== btn) b.disabled = true;
-    }
-    const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
-    const taskName = row ? (row.cells[0]?.textContent?.trim() || '') : '';
-    const statusTextEl = document.getElementById('copilot-status-text');
-    copilotSetRunningStatus(taskName);
-    const poll = () => {
-      view_post(${JSON.stringify(
-        viewname
-      )}, 'task_status', {ids: [String(taskId)]}, (statusResp) => {
-        if (statusResp && statusResp.any_done) {
-          if (statusTextEl) statusTextEl.textContent = 'Currently not running';
-          if (runNextBtn) runNextBtn.disabled = false;
-          if (startBtn) startBtn.disabled = false;
-          for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = false;
-          view_post(${JSON.stringify(
-            viewname
-          )}, 'task_row_done', {id: taskId}, (rowResp) => {
-            copilotAppendDoneRow(taskId, rowResp);
-          });
-        } else {
-          setTimeout(poll, 3000);
-        }
-      });
-    };
-    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
-  });
-}
-
-function copilotDoneIds() {
-  const ids = new Set();
-  const doneHeader = Array.from(document.querySelectorAll('h4.list-group-header'))
-    .find(h => h.textContent.trim() === 'Done');
-  if (doneHeader) {
-    let sib = doneHeader.closest('tr').nextElementSibling;
-    while (sib) {
-      const id = sib.getAttribute('data-row-id');
-      if (id) ids.add(Number(id));
-      sib = sib.nextElementSibling;
-    }
-  }
-  return ids;
-}
-
-function copilotShowSpinner(taskId) {
-  const row = document.querySelector('tr[data-row-id="' + taskId + '"]');
-  if (row && !row.querySelector('.task-spinner')) {
-    const runBtn = row.querySelector('[data-task-run]');
-    if (runBtn) {
-      runBtn.outerHTML =
-        '<span class="task-spinner" data-task-id="' + taskId + '">' +
-        '<i class="fas fa-spinner fa-spin text-warning"></i></span>';
-    }
-  }
-}
-
-function copilotRunNext(btn) {
-  btn.disabled = true;
-  const originalHtml = btn.innerHTML;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
-  const firstRunBtn = document.querySelector('[data-task-run]');
-  const optimisticId = firstRunBtn ? Number(firstRunBtn.getAttribute('data-task-run')) : null;
-  if (optimisticId) copilotShowSpinner(optimisticId);
-  const movedToDone = copilotDoneIds();
-  view_post(${JSON.stringify(viewname)}, 'run_task', {}, () => {
-    const poll = () => {
-      view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
-        if (!resp || !resp.tasks) return;
-        let hasRunning = false;
-        const runningIds = new Set(resp.tasks.filter(t => t.status === 'Running').map(t => t.id));
-        if (optimisticId && !runningIds.has(optimisticId) && !movedToDone.has(optimisticId)) {
-          const staleRow = document.querySelector('tr[data-row-id="' + optimisticId + '"]');
-          const staleSpinner = staleRow?.querySelector('.task-spinner');
-          if (staleSpinner) staleSpinner.outerHTML =
-            '<button class="btn btn-outline-success btn-sm" data-task-run="' + optimisticId + '" onclick="copilotRunTask(this,' + optimisticId + ')" title="Run task"><i class="fas fa-play"></i></button>';
-        }
-        for (const task of resp.tasks) {
-          if (task.status === 'Done' && !movedToDone.has(task.id)) {
-            movedToDone.add(task.id);
-            view_post(${JSON.stringify(
-              viewname
-            )}, 'task_row_done', {id: task.id}, (rowResp) => {
-              copilotAppendDoneRow(task.id, rowResp);
-            });
-          } else if (task.status === 'Running') {
-            hasRunning = true;
-            copilotShowSpinner(task.id);
-          }
-        }
-        if (hasRunning) setTimeout(poll, 3000);
-        else {
-          btn.disabled = false;
-          btn.innerHTML = originalHtml;
-        }
-      });
-    };
-    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 500);
-  });
-}
-
-function copilotStartRunning(btn) {
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
-  const runNextBtn = document.getElementById('copilot-run-next-btn');
-  const statusTextEl = document.getElementById('copilot-status-text');
-  if (runNextBtn) runNextBtn.style.display = 'none';
-  if (statusTextEl) statusTextEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running';
-  let stopped = false;
-  let stopNotice = null;
-  const stopBtn = document.createElement('button');
-  stopBtn.className = 'btn btn-danger ms-2';
-  stopBtn.innerHTML = '<i class="fas fa-stop me-1"></i>Stop';
-  stopBtn.onclick = () => {
-    stopped = true;
-    stopBtn.disabled = true;
-    view_post(${JSON.stringify(viewname)}, 'stop', {});
-    if (!stopNotice) {
-      stopNotice = document.createElement('span');
-      stopNotice.className = 'alert alert-warning alert-dismissible d-inline-block ms-2 py-1 px-2 mb-0';
-      stopNotice.style.fontSize = '0.875rem';
-      stopNotice.innerHTML =
-        '<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>' +
-        'The current task will complete, then the queue stops. No new tasks will be started.';
-      stopBtn.insertAdjacentElement('afterend', stopNotice);
-    }
-  };
-  btn.insertAdjacentElement('afterend', stopBtn);
-  view_post(${JSON.stringify(viewname)}, 'start', {}, () => {
-    const movedToDone = copilotDoneIds();
-    const poll = () => {
-      view_post(${JSON.stringify(viewname)}, 'tasks_poll', {}, (resp) => {
-        if (!resp || !resp.tasks) return;
-        let hasPending = false;
-        let hasRunning = false;
-        for (const task of resp.tasks) {
-          if (task.status === 'Done' && !movedToDone.has(task.id)) {
-            movedToDone.add(task.id);
-            view_post(${JSON.stringify(
-              viewname
-            )}, 'task_row_done', {id: task.id}, (rowResp) => {
-              copilotAppendDoneRow(task.id, rowResp);
-            });
-          } else if (task.status === 'Running') {
-            hasRunning = true;
-            copilotShowSpinner(task.id);
-            copilotSetRunningStatus(task.name);
-          } else if (task.status !== 'Done') {
-            hasPending = true;
-          }
-        }
-        if (hasRunning || (!stopped && hasPending)) {
-          setTimeout(poll, 3000);
-        } else {
-          stopBtn.remove();
-          if (stopNotice) { stopNotice.remove(); stopNotice = null; }
-          btn.disabled = false;
-          btn.innerHTML = '<i class="fas fa-play me-1"></i>Start running now';
-          if (statusTextEl) statusTextEl.textContent = 'Currently not running';
-          if (runNextBtn) runNextBtn.style.display = '';
-        }
-      });
-    };
-    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 1000);
-  });
-}
-`),
-      stopping
-        ? script(domReady(`copilotInitStopping();`))
-        : runningOnLoad
-        ? script(
-            domReady(`
-const runNextBtn = document.getElementById('copilot-run-next-btn');
-const startBtn = document.getElementById('copilot-start-btn');
-if (runNextBtn) runNextBtn.disabled = true;
-if (startBtn) startBtn.disabled = true;
-for (const b of document.querySelectorAll('[data-task-run]')) b.disabled = true;
-const pollTasks = () => {
-  const spinners = document.querySelectorAll('.task-spinner[data-task-id]');
-  if (!spinners.length) return;
-  const ids = Array.from(spinners).map(el => el.getAttribute('data-task-id'));
-  view_post(${JSON.stringify(viewname)}, 'task_status', {ids}, (resp) => {
-    if (resp && resp.any_done) location.reload();
-    else setTimeout(pollTasks, 3000);
-  });
-};
-if (!window.dynamic_updates_cfg?.enabled) setTimeout(pollTasks, 3000);
-`)
-          )
-        : "",
       button(
         {
           class: "btn btn-outline-danger mb-4",
@@ -610,19 +632,9 @@ if (!window.dynamic_updates_cfg?.enabled) setTimeout(pollTasks, 3000);
       return div(
         { class: "mt-2" },
         p(
+          { id: "tasks-planning-state" },
           i({ class: "fas fa-spinner fa-spin me-2" }),
           "Planning tasks, please wait..."
-        ),
-        script(
-          domReady(`
-const poll = () => {
-  view_post(${JSON.stringify(viewname)}, 'planning_status', {}, (resp) => {
-    if (resp && !resp.planning) location.reload();
-    else setTimeout(poll, 3000);
-  });
-};
-if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
-`)
         )
       );
     }
@@ -635,23 +647,6 @@ if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
           onclick: `copilotGenTasks()`,
         },
         "Plan tasks"
-      ),
-      script(
-        domReady(`
-window.copilotGenTasks = function() {
-  const area = document.getElementById('task-gen-area');
-  if (area) area.innerHTML = '<p><i class="fas fa-spinner fa-spin me-2"></i>Planning tasks, please wait...</p>';
-  view_post(${JSON.stringify(viewname)}, 'gen_tasks', {}, () => {
-    const poll = () => {
-      view_post(${JSON.stringify(viewname)}, 'planning_status', {}, (resp) => {
-        if (resp && !resp.planning) location.reload();
-        else setTimeout(poll, 3000);
-      });
-    };
-    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
-  });
-};
-`)
       )
     );
   }
@@ -870,7 +865,12 @@ const del_task = async (table_id, viewname, config, body, { req, res }) => {
 
   if (!r) throw new Error("Task not found");
   await r.delete();
-  return { json: { reload_page: true } };
+  return {
+    json: {
+      eval_js:
+        "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();",
+    },
+  };
 };
 const run_task = async (table_id, viewname, config, body, { req, res }) => {
   const reqUser = req?.user;
@@ -1016,9 +1016,13 @@ const edit_task_desc = async (table_id, vname, config, body, { req, res }) => {
         {
           type: "button",
           class: "btn btn-primary",
-          onclick: `view_post(${JSON.stringify(vname)}, 'save_task_desc', {id:${
-            r.id
-          }, description: document.getElementById('edit-task-desc-text').value}, () => { $('#scmodal').modal('hide'); location.reload(); })`,
+          onclick: `view_post(${JSON.stringify(vname)}, 'save_task_desc', {
+  id: ${r.id},
+  description: document.getElementById('edit-task-desc-text').value
+}, () => {
+  $('#scmodal').modal('hide');
+  if (typeof copilotRefreshTasks === 'function') copilotRefreshTasks();
+})`,
         },
         "Save"
       ),
@@ -1057,7 +1061,12 @@ const del_all_tasks = async (
     name: "task",
   });
   for (const r of rs) await r.delete();
-  return { json: { reload_page: true } };
+  return {
+    json: {
+      eval_js:
+        "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();",
+    },
+  };
 };
 
 /** Route: returns the rendered task list HTML for AJAX refresh. */
@@ -1088,4 +1097,4 @@ const task_routes = {
   tasks_list_html,
 };
 
-module.exports = { makeTaskList, task_routes };
+module.exports = { makeTaskList, tasksStaticScript, task_routes };
