@@ -157,6 +157,7 @@ Important trigger planning rules:
 * If multiple independent single-step actions are needed (e.g. "mark complete" and "mark incomplete"), describe them as separate triggers in the task description — do not describe them as one combined workflow.
 * Do NOT mention "navigate back" or "return to context" in trigger task descriptions. Navigation is configured at the view level (GoBack button), not inside a trigger.
 * If a trigger should be accessible as a button in a view, the task description must name the target view and say to add an action segment with action_name set to the trigger's name. If the view already exists, combine trigger creation and view update in the same task. If the view is created in a later task, that task's description must mention adding the trigger button, and it must depend on the trigger task.
+* Do NOT plan any task that uses run_bash_script or executes shell commands. If a requirement seems to need a shell command (e.g. file conversion, PDF generation, sending email), look for a Saltcorn plugin or built-in action that covers it instead.
 * Do NOT plan any task that writes to a virtual (read-only) calculated field. Virtual fields are computed automatically and cannot be stored — any trigger or workflow that tries to update them will be refused. If you find yourself planning a trigger to keep a calculated field "current", delete that task — the field already updates itself.
 
 Important existing-entity rules:
@@ -230,7 +231,9 @@ for a person who is competent in using saltcorn but has no other business knowle
 
 Do not include any steps that contain planning, design or review instructions. You are only writing a
 plan for the engineer building the application. Every step in the plan should have the construction or the modification
-of one or several application entity types.`;
+of one or several application entity types.
+
+Description length: keep descriptions concise. Simple tasks (a single view, trigger, or page) need only 1–3 sentences. Complex tasks (multi-step workflows, views with several embedded components) may use more, but stop once all actionable specifics are covered — do not re-explain steps already implied by the context, add parenthetical asides, or repeat the same point in different words. Never pad a short task description just to appear thorough.`;
 
 module.exports = {
   saltcorn_description,
