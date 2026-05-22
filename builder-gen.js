@@ -1309,9 +1309,16 @@ const buildContext = async (mode, tableName) => {
     if (!fieldviews.length && String(typeName).startsWith("Key")) {
       fieldviews = ["select", "show"];
     }
+    // File fields store their fieldviews in state.fileviews, not on the type object
+    let fileFvDefs = {};
+    if (String(typeName) === "File") {
+      fileFvDefs = getState().fileviews || {};
+      fieldviews = Object.keys(fileFvDefs);
+    }
     // editFieldviews: only fieldviews where isEdit is not explicitly false
+    const effectiveFvDefs = String(typeName) === "File" ? fileFvDefs : fvDefs;
     const editFieldviews = fieldviews.filter(
-      (fv) => fvDefs[fv]?.isEdit !== false
+      (fv) => effectiveFvDefs[fv]?.isEdit !== false
     );
 
     const isPkName =

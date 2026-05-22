@@ -302,6 +302,8 @@ function copilotStartRunning(btn) {
           }
         }
         if (hasRunning || (!stopped && hasPending)) {
+          if (!hasRunning && statusTextEl)
+            statusTextEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starting next task…';
           setTimeout(poll, 3000);
         } else {
           stopBtn.remove();
@@ -336,6 +338,7 @@ function copilotInitTasksState() {
   const hasSpinners = !!document.querySelector('#task-list-area .task-spinner');
   const hasStopNotice = !!document.getElementById('copilot-stop-notice');
   const isPlanningState = !!document.getElementById('tasks-planning-state');
+  const isRunningActive = !!document.getElementById('copilot-stop-btn');
   if (hasSpinners && hasStopNotice) {
     copilotInitStopping();
   } else if (hasSpinners) {
@@ -355,6 +358,39 @@ function copilotInitTasksState() {
       });
     };
     if (!window.dynamic_updates_cfg?.enabled) setTimeout(pollTasks, 3000);
+  } else if (isRunningActive) {
+    const statusEl = document.getElementById('copilot-status-text');
+    const movedToDone = copilotDoneIds();
+    const poll = () => {
+      view_post(_tasksVn, 'tasks_poll', {}, (resp) => {
+        if (!resp || !resp.tasks) return;
+        let hasRunning = false;
+        let hasPending = false;
+        for (const task of resp.tasks) {
+          if (task.status === 'Running') {
+            hasRunning = true;
+            copilotShowSpinner(task.id);
+            copilotSetRunningStatus(task.name);
+          } else if (task.status === 'Done' && !movedToDone.has(task.id)) {
+            movedToDone.add(task.id);
+            view_post(_tasksVn, 'task_row_done', {id: task.id}, (rowResp) => {
+              copilotAppendDoneRow(task.id, rowResp);
+            });
+          } else if (task.status !== 'Done') {
+            hasPending = true;
+          }
+        }
+        if (hasRunning || hasPending) {
+          if (!hasRunning && statusEl)
+            statusEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starting next task…';
+          setTimeout(poll, 2000);
+        } else {
+          if (typeof copilotRefreshTasks === 'function') copilotRefreshTasks();
+        }
+      });
+    };
+    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starting next task…';
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 1000);
   } else if (isPlanningState) {
     const poll = () => {
       view_post(_tasksVn, 'planning_status', {}, (resp) => {
@@ -448,6 +484,7 @@ const makeTaskList = async (req) => {
     running
       ? button(
           {
+            id: "copilot-stop-btn",
             class: "btn btn-danger ms-2",
             onclick: `view_post("${viewname}", "stop", {})`,
           },
