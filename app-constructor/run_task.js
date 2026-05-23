@@ -11,6 +11,7 @@ const WorkflowRun = require("@saltcorn/data/models/workflow_run");
 const User = require("@saltcorn/data/models/user");
 const { getState } = require("@saltcorn/data/db/state");
 const { viewname } = require("./common");
+const { implementation_rules } = require("./prompts");
 
 /**
  * @param {number} md_id - MetaData id of the task to run
@@ -54,11 +55,7 @@ ${spec.body.specification}
 
 Important: The database schema is already fully implemented. Do NOT use generate_tables or modify any tables or fields — all tables and fields already exist.
 
-Important: JsCode server-mode views run on the server and must return an HTML string. The following globals are available: Table, View, User, File, db, user, req, state, markupTags, Actions, emitEvent, moment. The state object contains URL query parameters — use state.start_date, state.end_date etc. to read user inputs submitted via a GET form. Never use process.env, window, document, or fetch in server mode. Never return a { code: "..." } object — always return an HTML string. require() is NOT available — do not import lodash or any other module. Use moment or plain JavaScript Date for all date formatting and arithmetic.
-
-Important: When querying a table with range conditions (e.g. date ranges) in JsCode views or triggers, use operator-suffixed key names in the where object — NOT nested objects. Correct: where["entry_date >="] = start_date; where["entry_date <="] = end_date;. Wrong: where.entry_date = { gte: start_date, lte: end_date }; — Saltcorn does not support nested comparison objects on date fields and will pass the object as a raw string to Postgres.
-
-Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn. Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls. Only fields that exist as actual database columns (regular fields and stored calculated fields) can be written. If a calculated field needs updating, it will refresh automatically when the fields it depends on change.
+${implementation_rules}
 
 Important: The "users" table is built-in. Passwords are platform-managed — never add a password field to a view. Signup uses the built-in page at /auth/signup, login at /auth/login. Do NOT create triggers for registration or email verification — the platform handles this natively.
 

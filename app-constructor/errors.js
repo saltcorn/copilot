@@ -24,6 +24,8 @@ const { task_tool } = require("./tools");
 const { getResearchAnswersText } = require("./research");
 const {
   saltcorn_description,
+  implementation_rules,
+  fieldview_selection_rules,
   existing_tables_list,
   existing_entities_list,
   installed_plugins_list,
@@ -127,6 +129,8 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
             "\n\n"
           : "\n") +
         `${saltcorn_description}\n\n` +
+        `${implementation_rules}\n\n` +
+        `${fieldview_selection_rules}\n\n` +
         "The database has the following tables:\n\n" +
         `${existing_tables_list(tables)}\n\n` +
         (entitiesSection ? entitiesSection + "\n\n" : "") +
@@ -143,14 +147,15 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
         "produce output — prefer cannot_fix over a vague or speculative task.\n\n" +
         "Rules for the plan_tasks description (only if you can diagnose the fix):\n" +
         "- Name the exact Saltcorn entity (view, trigger, page) to fix.\n" +
-        "- State each broken field, its current value, and the correct value.\n" +
+        "- Describe what is wrong and what kind of fix is needed. Where you can clearly identify " +
+        "them from the config shown above, state each broken field, its current value, and the correct value. " +
+        "If you are not certain of the exact values, describe the problem instead — do not guess specific values.\n" +
         "- Cover ALL fields of the same error class in one task.\n" +
-        "- Prefer replacing a broken reference with a correct value over removing the element " +
-        "that contains it. Only remove an element when there is genuinely no valid replacement. " +
-        "Use the existing entities list to identify the correct replacement. " +
+        "- Prefer fixing a broken reference over removing the element that contains it. " +
+        "Only remove an element when there is genuinely no valid replacement. " +
         "Example: a viewlink column referencing a missing view should have its view name " +
         "updated to an existing view — not have the column deleted.\n" +
-        "- End with: 'Use get_entity to load the current config, apply the changes above, and save with set_entity.'\n" +
+        "- End with: 'Use get_entity to load the current config, diagnose the exact values, apply the fix, and save with set_entity.'\n" +
         "- One or two sentences. No prose, no save/test instructions.",
       {
         tools: [task_tool, cannot_fix_tool],

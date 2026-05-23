@@ -16,13 +16,13 @@ calculated fields, which can be stored or non-stored. Both stored and non-stored
 defined by a JavaScript expression, but only stored fields can reference other tables with join 
 fields and aggregations.
 
-* Views: Views are elementary user interfaces into a database table. A view is defined by applying a 
+* Views: Views are elementary user interfaces into a database table. A view is defined by applying a
 view template (also sometime called a view pattern, the two are synonymous) to a table with a certain
 configuration. The view template defines the fundamental relationship between the UI and the table. For
-instance, the Show view template displays a single database row, the Edit view template is a form that 
-can create a new row or edit an existing row, the List view template displays multiple rows in a grid. 
-Views can embed views, for instance Show can embed another row through a Key field relationship, or 
-some views are defined by an underlying view. For instance, the Feed view repeats an underlying view 
+instance, the Show view template displays a single database row, the Edit view template is a form that
+can create a new row or edit an existing row, the List view template displays multiple rows in a grid.
+Views can embed views, for instance Show can embed another row through a Key field relationship, or
+some views are defined by an underlying view. For instance, the Feed view repeats an underlying view
 for multiple tables. New viewtemplates are provided by plugin modules.
 
 * Triggers: Triggers connect elementary actions (provided by plugin modules) to either a button in the
@@ -224,6 +224,23 @@ Important schema/table rules:
 * Do NOT plan tasks to add uniqueness constraints or validation to existing fields — those are already in the schema.
 * Do NOT plan a standalone task for "access control", "row-level security", "permissions", or "roles". These are schema-level concerns already handled during schema design, or view-level concerns handled when building each view. The ownership field and sharing logic are already in the schema — there is nothing extra to configure as a separate task.`;
 
+const implementation_rules = `Important: JsCode server-mode views run on the server and must return an HTML string. The following globals are available: Table, View, User, File, db, user, req, state, markupTags, Actions, emitEvent, moment. The state object contains URL query parameters — use state.start_date, state.end_date etc. to read user inputs submitted via a GET form. Never use process.env, window, document, or fetch in server mode. Never return a { code: "..." } object — always return an HTML string. require() is NOT available — do not import lodash or any other module. Use moment or plain JavaScript Date for all date formatting and arithmetic.
+
+Important: When querying a table with range conditions (e.g. date ranges) in JsCode views or triggers, use operator-suffixed key names in the where object — NOT nested objects. Correct: where["entry_date >="] = start_date; where["entry_date <="] = end_date;. Wrong: where.entry_date = { gte: start_date, lte: end_date }; — Saltcorn does not support nested comparison objects on date fields and will pass the object as a raw string to Postgres.
+
+Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn. Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls. Only fields that exist as actual database columns (regular fields and stored calculated fields) can be written. If a calculated field needs updating, it will refresh automatically when the fields it depends on change.`;
+
+const fieldview_selection_rules = `For date fields always prefer fieldview "flatpickr" when available — it provides the best user experience \
+and works for both regular dates and day-only dates. \
+Only use fieldview "edit_day" as a fallback when the field has day_only=true and flatpickr is not installed. \
+For String fields that have an options attribute (a comma-separated list of fixed choices), \
+use fieldview "select" — this renders a dropdown with those options. \
+Do not use "select_by_code" for fields with fixed options. \
+File-type fields use dedicated fieldviews — never the generic "edit" or "show" fieldview. \
+In edit/form views use "upload" (file input) or "select" (pick existing file). \
+In read-only views (Show, List) use "Download link", "Link", "Show Image", or "Thumbnail". \
+Using "edit" or "show" on a File field causes a runtime error.`;
+
 const task_planning_closing = `Your plan should not include any clarification or questions to the product owner. The
 information you have been given so far is all that is available. Every step in the plan
 should be immediately implementable in Saltcorn. You are writing the steps in the plan
@@ -237,6 +254,8 @@ Description length: keep descriptions concise. Simple tasks (a single view, trig
 
 module.exports = {
   saltcorn_description,
+  implementation_rules,
+  fieldview_selection_rules,
   existing_tables_list,
   existing_entities_list,
   installed_plugins_list,
