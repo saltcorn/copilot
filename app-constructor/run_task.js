@@ -4,6 +4,7 @@ const Form = require("@saltcorn/data/models/form");
 const MetaData = require("@saltcorn/data/models/metadata");
 const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
+const Plugin = require("@saltcorn/data/models/plugin");
 const { findType } = require("@saltcorn/data/models/discovery");
 const { save_menu_items } = require("@saltcorn/data/models/config");
 const db = require("@saltcorn/data/db");
@@ -28,36 +29,54 @@ const runTask = async (md_id, req) => {
     name: "spec",
   });
   if (!spec) return { error: "Specification not found" };
+
+  const taskType = md.body.task_type || "feature";
+  const isPlugin = taskType === "plugin";
+  const isDataModel = taskType === "data_model";
+
   const agent_action = new Trigger({
     action: "Agent",
     when_trigger: "Never",
     configuration: {
       viewname: viewname,
-      sys_prompt:
-        "Each task creates exactly one view or one page. " +
-        "Never create more than one view or page per task, even if the description mentions multiple. " +
-        "Call the view or page tool exactly once and then stop.",
+      sys_prompt: isPlugin
+        ? "Each task installs exactly one plugin from the Saltcorn plugin store. " +
+          "Use the Install Plugin skill to find and install it. Call the skill once and then stop."
+        : isDataModel
+        ? "Each task creates or modifies database tables/fields or configures platform-level settings (such as custom roles). " +
+          "Use the database design tool for schema changes. Use the Registry editor (set_entity) for platform configuration such as creating custom roles. " +
+          "Call only the tools needed for the task and then stop. Do not create any views, pages, or triggers."
+        : "Each task creates exactly one view or one page. " +
+          "Never create more than one view or page per task, even if the description mentions multiple. " +
+          "Call the view or page tool exactly once and then stop.",
       prompt: "{{prompt}}",
-      skills: [
-        { skill_type: "Generate Page", yoloMode: true },
-        { skill_type: "Database design", yoloMode: true },
-        { skill_type: "Generate Workflow", yoloMode: true },
-        { skill_type: "Generate trigger", yoloMode: true },
-        { skill_type: "Generate View", yoloMode: true },
-        { skill_type: "Install Plugin", yoloMode: true },
-        { skill_type: "Registry editor", yoloMode: true },
-      ],
+      skills: isPlugin
+        ? [{ skill_type: "Install Plugin", yoloMode: true }]
+        : isDataModel
+        ? [
+            { skill_type: "Database design", yoloMode: true },
+            { skill_type: "Registry editor", yoloMode: true },
+          ]
+        : [
+            { skill_type: "Generate Page", yoloMode: true },
+            { skill_type: "Generate Workflow", yoloMode: true },
+            { skill_type: "Generate trigger", yoloMode: true },
+            { skill_type: "Generate View", yoloMode: true },
+            { skill_type: "Install Plugin", yoloMode: true },
+            { skill_type: "Registry editor", yoloMode: true },
+          ],
     },
   });
-  const prompt = `You are engaged in building the following application:
 
-${spec.body.specification}
+  const schemaRule = isPlugin
+    ? "Important: This is a plugin installation task. Install the plugin described using the Install Plugin skill. Do not create tables, views, pages, or triggers."
+    : isDataModel
+    ? "Important: This is a data model task. Use the database design tool to create or modify tables and fields, or use the Registry editor (set_entity) for platform configuration such as creating custom roles. Do not create any views, pages, or triggers — only schema and platform configuration changes belong in this task."
+    : "Important: This is a feature task. Do NOT use generate_tables or modify any tables or fields — schema changes are handled by separate data model tasks that run before this one.";
 
-Important: The database schema is already fully implemented. Do NOT use generate_tables or modify any tables or fields — all tables and fields already exist.
+  const featureRules = `${implementation_rules}
 
-${implementation_rules}
-
-Important: The "users" table is built-in. Passwords are platform-managed — never add a password field to a view. Signup uses the built-in page at /auth/signup, login at /auth/login. Do NOT create triggers for registration or email verification — the platform handles this natively.
+Important: The "users" table is built-in. Passwords are platform-managed — never add a password field to a view. Signup uses the built-in page at /auth/signup, login at /auth/login. Do NOT create triggers for registration or email verification — the platform handles this natively. Do NOT create any Edit, Show, or List view whose underlying table is the built-in users table — user records are managed entirely by the platform.
 
 Important: On landing pages, place Log in / Create account buttons in no more than two locations (e.g. navbar and one hero call-to-action). Do not repeat them in a third "Get started" section or anywhere else. For links that take an already-authenticated user to their dashboard, use href="/" — not /auth/login.
 
@@ -79,7 +98,54 @@ Important: Before creating or updating any view or page that embeds, links to, o
 
 Important: A plain Edit view creates or edits a single record — it is NOT a bulk CSV import tool. Never use an Edit view as a solution for CSV import. List views have no built-in CSV export feature — do not add an export button or column to a List view. CSV import and export functionality must always be placed on a dedicated management or admin page as embedded views, using whatever import/export viewtemplate is available.
 
-Important: Every HTML page (page_type HTML) must include a toast notification area so that alerts and success messages are visible. Place this div just before the closing </body> tag: <div id="toasts-area" class="toast-container position-fixed top-0 start-50 p-0" style="z-index:999;" aria-live="polite" aria-atomic="true"></div>
+Important: Every HTML page (page_type HTML) must include a toast notification area so that alerts and success messages are visible. Place this div just before the closing </body> tag: <div id="toasts-area" class="toast-container position-fixed top-0 start-50 p-0" style="z-index:999;" aria-live="polite" aria-atomic="true"></div>`;
+
+  const dataModelRules = `Important: If this task requires creating custom platform roles (beyond the four built-in roles: 1=admin, 40=staff, 80=user, 100=public), use the Registry editor: call set_entity with entity_type "role" and the role definition. Do NOT create a user-defined database table for roles — platform roles are a system concern, not application data.
+
+Important: The "users" table is built-in and must never be modified — do not add, remove, or alter any fields on it.
+
+Important: Saltcorn has a built-in role system with fixed roles (1 = admin, 40 = staff, 80 = user, 100 = public). Do NOT create a Roles table, a permissions table, or any table describing what roles are allowed to do. Access control is a platform concern: every Saltcorn entity (views, pages, tables) already has a min_role property that controls which role can access it. There is nothing to store in the database — configure min_role on each entity instead.
+
+Important: Every Saltcorn table has a primary key field named "id" that is always unique and not-null by definition. Never set unique=true or not_null=true on the "id" field — it is redundant and incorrect. For every OTHER field that must be unique (e.g. unique email, unique slug), set unique=true on that field. For every other field that must not be empty, set not_null=true. Description, notes, and other free-text fields should NOT be not_null unless explicitly required. Do NOT leave uniqueness or required constraints for a later step — express them fully now.
+
+Important: Ownership configuration (automatically populating a FK-to-users field from the logged-in user) is a VIEW-level concern and cannot be expressed in the schema. Do not attempt to annotate fields as "ownership fields" — simply define the foreign key field normally. Ownership will be configured when the Edit views are generated.
+
+Important: Email and SMTP configuration (host, port, credentials, sender address) is managed by the Saltcorn platform administrator in system settings — it is NOT stored in the application database. Do NOT create any table for SMTP settings, email configuration, or mail server credentials. If the application needs to send emails, that is handled by a trigger action.
+
+Important: Every tool call must contain only the final, complete result — never intermediate reasoning, planning notes, or placeholder values. Compose the full schema in your reasoning first, then pass only the finished result to the tool.`;
+
+  let storePluginsSection = "";
+  if (isPlugin) {
+    try {
+      const available = await Plugin.store_plugins_available();
+      const installed = await Plugin.find({});
+      const installedNames = new Set(installed.map((p) => p.name));
+      if (available?.length) {
+        storePluginsSection =
+          "\nThe following plugins are available in the Saltcorn plugin store:\n" +
+          available
+            .map(
+              (p) => `- ${p.name}${p.description ? `: ${p.description}` : ""}`
+            )
+            .join("\n") +
+          "\n";
+      }
+      if (installedNames.size) {
+        storePluginsSection +=
+          "\nThe following plugins are already installed — do NOT install them again:\n" +
+          [...installedNames].map((n) => `- ${n}`).join("\n") +
+          "\n";
+      }
+    } catch (_) {}
+  }
+
+  const prompt = `You are engaged in building the following application:
+
+${spec.body.specification}
+
+${schemaRule}
+${storePluginsSection}
+${isPlugin ? "" : isDataModel ? dataModelRules : featureRules}
 
 Important: Every tool call must contain only the final, complete result — never intermediate reasoning, planning notes, markdown code fences, TODO comments, or placeholder text. Compose the full content in your reasoning first, then pass only the finished result to the tool. A page or view that contains any of these is broken and will be visible to end users exactly as written.
 
@@ -94,6 +160,10 @@ ${md.body.description}`;
           getLocale: req?.getLocale || (() => "en"),
           user: req?.user,
         };
+
+  const tableNamesBefore = isDataModel
+    ? new Set((await Table.find({})).map((t) => t.name))
+    : null;
 
   await md.update({ body: { ...md.body, status: "Running" } });
   try {
@@ -133,6 +203,24 @@ ${md.body.description}`;
       user_id: req?.user?.id,
     });
     await md.update({ body: { ...md.body, status: "Done", run_id } });
+    if (isDataModel && tableNamesBefore && md.body.phase_idx !== undefined) {
+      const tablesAfter = await Table.find({});
+      const newTables = tablesAfter.filter(
+        (t) => !t.name.startsWith("_sc_") && !tableNamesBefore.has(t.name)
+      );
+      for (const table of newTables) {
+        await MetaData.create({
+          type: "CopilotConstructMgr",
+          name: "table_phase",
+          body: {
+            table_name: table.name,
+            phase_idx: md.body.phase_idx,
+            phase_name: md.body.phase_name,
+          },
+          user_id: req?.user?.id,
+        });
+      }
+    }
     try {
       getState().emitDynamicUpdate(db.getTenantSchema(), {
         eval_js:

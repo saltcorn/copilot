@@ -37,7 +37,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
 const { showSchema, schema_routes, schemaStaticScript } = require("./schema");
-const { makeTaskList, tasksStaticScript, task_routes } = require("./tasks");
+const { task_routes } = require("./tasks");
 const {
   errorList,
   doCreateErrorFixTask,
@@ -45,12 +45,12 @@ const {
   error_routes,
   errTableStaticHtml,
 } = require("./errors");
-const { requirementsList, requirementsStaticScript, req_routes } = require("./requirements");
+const { req_routes } = require("./requirements");
 const { feedbackList, feedback_routes } = require("./feedback");
 const { progressList, progress_routes } = require("./progress");
 const { runNextTask } = require("./run_task");
-const { makeTaskChart } = require("./taskchart");
 const { researchPanel, research_routes } = require("./research");
+const { phasesPanel, phasesStaticScript, phase_routes } = require("./phases");
 
 const get_state_fields = () => [];
 
@@ -164,12 +164,10 @@ document.getElementById('specDepsKeepBtn').addEventListener('click', () => {
 const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const specForm = await makeSpecForm(req);
   const research = await researchPanel(req);
-  const reqList = await requirementsList(req);
-  const taskList = await makeTaskList(req);
+  const phases = await phasesPanel(req);
   const errList = await errorList(req);
   const feedbacks = await feedbackList(req);
   const progress = await progressList(req);
-  const taskChart = await makeTaskChart(req);
   const schema = await showSchema(req);
   const layout = {
     type: "tabs",
@@ -179,10 +177,8 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
     titles: [
       "Specification",
       "Research",
-      "Requirements",
+      "Phases",
       "Schema",
-      "Tasks",
-      "Task chart",
       "Progress",
       "Feedback",
       "Errors",
@@ -198,10 +194,14 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
         ),
       },
       { type: "blank", contents: research },
-      { type: "blank", contents: div(requirementsStaticScript, div({ id: "req-list-area" }, reqList)) },
-      { type: "blank", contents: div(schemaStaticScript, div({ id: "schema-list-area" }, schema)) },
-      { type: "blank", contents: div(tasksStaticScript, div({ id: "task-list-area" }, taskList)) },
-      { type: "blank", contents: taskChart },
+      { type: "blank", contents: div(phasesStaticScript, phases) },
+      {
+        type: "blank",
+        contents: div(
+          schemaStaticScript,
+          div({ id: "schema-list-area" }, schema)
+        ),
+      },
       { type: "blank", contents: progress },
       { type: "blank", contents: feedbacks },
       {
@@ -449,6 +449,7 @@ module.exports = {
     ...feedback_routes,
     ...progress_routes,
     ...schema_routes,
+    ...phase_routes,
   },
   virtual_triggers,
 };

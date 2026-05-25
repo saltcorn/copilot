@@ -5,12 +5,13 @@ environment.
 
 Saltcorn applications contain the following entity types:
 
-* Tables: These are relational database tables and consists of fields of specified types and rows 
-with a value for each field. Fields optionally can be required and/or unique. Every field has a name, 
-which is a an identifier that is balid in both JavaScript and SQL, and a label, which is any short 
+* Tables: These are relational database tables and consists of fields of specified types and rows
+with a value for each field. Fields optionally can be required and/or unique. Every field has a name,
+which is a an identifier that is balid in both JavaScript and SQL, and a label, which is any short
 user-friendly string. Every table has a primary key
-(composite primary keys are not supported) which by default is an auto-incrementing integer with 
-name \`id\` and label ID. Fields can also be of Key type (foreign key) referencing a primary key 
+(composite primary keys are not supported) which by default is an auto-incrementing integer with
+name \`id\` and label ID. The \`id\` primary key field is always unique and not-null by definition —
+never set unique=true or not_null=true on it. Fields can also be of Key type (foreign key) referencing a primary key 
 in another table, or its own table for a self-join. Tables can have 
 calculated fields, which can be stored or non-stored. Both stored and non-stored fields are 
 defined by a JavaScript expression, but only stored fields can reference other tables with join 
@@ -183,15 +184,17 @@ Important user account rules:
 * The platform (Saltcorn) provides a built-in user account system with login, registration, and session management. Do NOT plan any tasks for user registration, login pages, password management, authentication flows, or email verification — these are already handled by the platform. Users register at /auth/signup and log in at /auth/login.
 * User identity is always available as the logged-in user. Ownership fields (FK to users) are set automatically from the session; no custom logic is needed.
 * If a requirement mentions "user accounts", "secure login", "saving data per user", "user-specific data", or "sharing between users", treat it as already satisfied by the platform's built-in user system. Do not generate any task in response to such a requirement.
+* Do NOT create any Edit, Show, or List view whose underlying table is the built-in \`users\` table. The users table is managed entirely by the platform — records are created via /auth/signup and managed via the platform's built-in admin panel. Never plan a task that creates a view on the users table.
 
 Important role rules:
 * Every view and page task description MUST state the min_role explicitly, e.g. "Set min_role to admin (1)." or "Set min_role to user (80).". Never omit it.
-* Role values: admin=1, staff=40, user=80, public=100. Use the value that matches who will use the view or page — admin for management, staff for staff-only, user for logged-in users (clients, members, etc.), public only when the view or page must be accessible without login.
+* Role values: admin=1, staff=40, user=80, public=100. Use the value that matches who will use the view or page — admin (1) only for views that admins exclusively need (system config, user management); staff (40) for views used by internal employees who are not admins (e.g. lawyers, agents, staff members); user (80) for views used by logged-in non-staff users (e.g. clients, customers, members); public (100) only when the page must be accessible without login. Do not default everything to admin — setting min_role too restrictively locks out the intended users.
 
 Important dashboard rules:
 * A dashboard page that shows aggregate statistics (totals, counts, revenue, etc.) must NEVER use client-side JavaScript fetch stubs or placeholder values. Every stat card must be backed by a real Saltcorn Statistic view embedded with an embed-view tag.
 * For each statistic shown on a dashboard, plan a separate Statistic view task (e.g. "total_billable_hours_stat", "revenue_by_client_stat"). The dashboard page task must list all these Statistic view tasks in its depends_on.
 * Statistic view tasks must be planned before the dashboard page task and have descriptive names that make their metric clear.
+* No list view may be left orphaned. Every list view planned in the phase must be reachable from at least one dashboard or page — embedded directly or linked via a navigation section. Check each list view and confirm it appears in at least one page or dashboard task's description.
 
 Important home page rules:
 * Every role should land on the right page after visiting /. Plan a single task "Set home pages by role" that depends on all relevant page tasks and configures home_page_by_role for every role in one step.
@@ -228,9 +231,15 @@ const implementation_rules = `Important: JsCode server-mode views run on the ser
 
 Important: When querying a table with range conditions (e.g. date ranges) in JsCode views or triggers, use operator-suffixed key names in the where object — NOT nested objects. Correct: where["entry_date >="] = start_date; where["entry_date <="] = end_date;. Wrong: where.entry_date = { gte: start_date, lte: end_date }; — Saltcorn does not support nested comparison objects on date fields and will pass the object as a raw string to Postgres.
 
-Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn. Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls. Only fields that exist as actual database columns (regular fields and stored calculated fields) can be written. If a calculated field needs updating, it will refresh automatically when the fields it depends on change.`;
+Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn. Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls. Only fields that exist as actual database columns (regular fields and stored calculated fields) can be written. If a calculated field needs updating, it will refresh automatically when the fields it depends on change.
 
-const fieldview_selection_rules = `For date fields always prefer fieldview "flatpickr" when available — it provides the best user experience \
+Important: Do NOT use the GoBack action for cancel buttons in Edit views. The GoBack action always calls history.back(), which breaks when the view is opened inside a popup modal. Instead, add a link segment with url set to the following JavaScript — it closes the Saltcorn modal (#scmodal) if one is open, and falls back to history.back() for standalone use: javascript:var m=document.getElementById('scmodal');var mi=m&&bootstrap.Modal.getInstance(m);if(mi)mi.hide();else history.back() — style it as btn btn-outline-secondary to match the standard cancel appearance.`;
+
+const fieldview_selection_rules = `For numeric fields (Integer, Float, Money, Decimal) the default fieldview is "edit" — a plain text input. \
+Only use a specialised numeric fieldview (e.g. "number_slider", "range", "spin") when it is clearly appropriate for the data: \
+a slider makes sense for a bounded rating or percentage, not for an open-ended value like a price, rate, or quantity. \
+The existence of an alternative fieldview in the platform is not a reason to use it — "edit" is the right default and should be the first choice unless there is a specific UX reason to do otherwise. \
+For date fields always prefer fieldview "flatpickr" when available — it provides the best user experience \
 and works for both regular dates and day-only dates. \
 Only use fieldview "edit_day" as a fallback when the field has day_only=true and flatpickr is not installed. \
 For String fields that have an options attribute (a comma-separated list of fixed choices), \
