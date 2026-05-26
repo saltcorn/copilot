@@ -224,7 +224,10 @@ ${md.body.description}`;
     try {
       getState().emitDynamicUpdate(db.getTenantSchema(), {
         eval_js:
-          "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();",
+          "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();" +
+          (isDataModel
+            ? "if(typeof copilotRefreshSchema==='function')copilotRefreshSchema();"
+            : ""),
       });
     } catch (_) {}
   } catch (e) {

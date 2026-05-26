@@ -110,9 +110,11 @@ window.openPhaseDetail = function(idx) {
         view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: tt }, (resp) => {
           if (resp && resp.generating) phaseTasksPoll(idx, tt);
         });
-        view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
-          if (resp && (resp.isRunning || resp.anyRunning)) phasePollRunning(idx, tt);
-        });
+        if (!window.dynamic_updates_cfg?.enabled) {
+          view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
+            if (resp && (resp.isRunning || resp.anyRunning)) phasePollRunning(idx, tt);
+          });
+        }
       }
     }
   });
@@ -122,18 +124,15 @@ window.startPhaseTasks = function(btn, idx, taskType) {
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…';
   view_post(_phasesVn, 'run_phase_tasks', { idx, task_type: taskType }, () => {});
-  // Always poll — dynamic updates only fire on task completion, not on task start,
-  // so the poll is the only way to show intermediate running state and the Stop button.
-  phasePollRunning(idx, taskType);
+  if (!window.dynamic_updates_cfg?.enabled) phasePollRunning(idx, taskType);
 };
 
 window.stopPhaseTasks = function(idx, taskType) {
   view_post(_phasesVn, 'stop_phase_tasks', { idx, task_type: taskType }, (resp) => {
     if (resp && resp.taskStillRunning) {
-      // Give immediate feedback before the poll re-renders the area
       const statusEl = document.getElementById('phase-run-status-' + idx + '-' + taskType);
       if (statusEl) statusEl.textContent = 'Stopping after current task…';
-      phasePollRunning(idx, taskType);
+      if (!window.dynamic_updates_cfg?.enabled) phasePollRunning(idx, taskType);
     } else {
       _refreshPhaseArea(idx, taskType);
     }
@@ -141,15 +140,19 @@ window.stopPhaseTasks = function(idx, taskType) {
 };
 
 function phasePollRunning(idx, taskType) {
+  let lastTaskName;
   const poll = () => {
     view_post(_phasesVn, 'phase_run_status', { idx, task_type: taskType }, (resp) => {
       if (!resp) return;
       if (resp.isRunning || resp.anyRunning) {
-        _refreshPhaseArea(idx, taskType);
+        if (resp.runningTaskName !== lastTaskName) {
+          lastTaskName = resp.runningTaskName;
+          _refreshPhaseArea(idx, taskType);
+        }
         setTimeout(poll, 3000);
       } else {
         _refreshPhaseArea(idx, taskType);
-        if (typeof copilotRefreshSchema === 'function') copilotRefreshSchema();
+        if (!window.dynamic_updates_cfg?.enabled && typeof copilotRefreshSchema === 'function') copilotRefreshSchema();
       }
     });
   };
@@ -208,6 +211,8 @@ window.generatePhaseTasks = function(idx, taskType) {
                : taskType === 'data_model' ? 'phase-data-model-area'
                : 'phase-features-area';
   const el = document.getElementById(areaId);
+  const hasTasks = el && el.querySelector('[data-task-id]');
+  if (hasTasks && !confirm('Regenerate tasks? This will delete all existing tasks in this tab.')) return;
   if (el) el.innerHTML = '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating tasks, please wait...</p>';
   view_post(_phasesVn, 'generate_phase_tasks', { idx, task_type: taskType }, () => {});
   phaseTasksPoll(idx, taskType);
