@@ -35,11 +35,14 @@ const {
   research_answers_section,
 } = require("./prompts");
 
-const fixingErrorIds = new Set();
-
 const doCreateErrorFixTask = async (errorMd, userId) => {
-  if (fixingErrorIds.has(errorMd.id)) return;
-  fixingErrorIds.add(errorMd.id);
+  const currentMd = await MetaData.findOne({
+    id: errorMd.id,
+    type: "CopilotConstructMgr",
+    name: "error",
+  });
+  if (!currentMd || currentMd.body.fixing) return;
+  await currentMd.update({ body: { ...currentMd.body, fixing: true } });
   try {
     const spec = await MetaData.findOne({
       type: "CopilotConstructMgr",
@@ -167,13 +170,13 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
 
     const tc =
       typeof answer.getToolCalls === "function"
-        ? answer.getToolCalls()[0]
+        ? answer.getToolCalls()?.[0]
         : undefined;
     if (!tc) return;
 
     if (tc.tool_name === "cannot_fix") {
-      await errorMd.update({
-        body: { ...errorMd.body, cannot_fix_reason: tc.input.reason },
+      await currentMd.update({
+        body: { ...currentMd.body, cannot_fix_reason: tc.input.reason },
       });
       return;
     }
@@ -184,12 +187,25 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
       await MetaData.create({
         type: "CopilotConstructMgr",
         name: "task",
-        body: { ...task, source: "error_fix", error_id: errorMd.id },
+        body: { ...task, source: "error_fix", error_id: currentMd.id },
         user_id: userId,
       });
 
-    await errorMd.update({ body: { ...errorMd.body, fix_task_created: true } });
+    await currentMd.update({
+      body: { ...currentMd.body, fix_task_created: true },
+    });
   } finally {
+    try {
+      const current = await MetaData.findOne({
+        id: currentMd.id,
+        type: "CopilotConstructMgr",
+        name: "error",
+      });
+      if (current) {
+        const { fixing, ...rest } = current.body;
+        await current.update({ body: rest });
+      }
+    } catch (_) {}
     try {
       getState().emitDynamicUpdate(db.getTenantSchema(), {
         eval_js: [
@@ -198,7 +214,6 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
         ],
       });
     } catch (_) {}
-    fixingErrorIds.delete(errorMd.id);
   }
 };
 
@@ -206,8 +221,6 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
  * Renders the self-healing toggle section and error table.
  */
 const errorList = async (req) => {
-  const safeViewNameJson = JSON.stringify(viewname);
-
   const settings = await MetaData.findOne({
     type: "CopilotConstructMgr",
     name: "settings",
@@ -258,8 +271,6 @@ const errorList = async (req) => {
     type: "CopilotConstructMgr",
     name: "error",
   });
-
-  const fixingIds = fixingErrorIds;
 
   // Build error_id → most recent fix task map for run links
   const allTasks = await MetaData.find({
@@ -331,7 +342,7 @@ const errorList = async (req) => {
               label: "Status",
               key: (r) => {
                 if (r.body.source === "constructor") return "";
-                if (fixingIds.has(r.id))
+                if (r.body.fixing)
                   return span(
                     {
                       class: "badge bg-info text-dark",
@@ -405,7 +416,7 @@ const errorList = async (req) => {
                 const fixRow =
                   r.body.source === "constructor"
                     ? ""
-                    : fixingIds.has(r.id) ||
+                    : r.body.fixing ||
                       r.body.fix_task_created ||
                       r.body.cannot_fix_reason
                     ? ""
@@ -503,7 +514,12 @@ const fix_error_task = async (table_id, vn, config, body, { req, res }) => {
 /** Route: returns whether a fix task is still being generated for the given error id. */
 const fix_error_status = async (table_id, vn, config, body, { req, res }) => {
   const id = parseInt(body.id);
-  return { json: { fixing: fixingErrorIds.has(id) } };
+  const errorMd = await MetaData.findOne({
+    id,
+    type: "CopilotConstructMgr",
+    name: "error",
+  });
+  return { json: { fixing: !!errorMd?.body?.fixing } };
 };
 
 /** Route: returns the rendered error list HTML for AJAX refresh. */
@@ -563,13 +579,6 @@ const errTableStaticHtml = `
         view_post(_vn, 'fix_error_status', { id }, (resp) => {
           if (resp && !resp.fixing) {
             refreshErrArea();
-            view_post(_vn, 'tasks_list_html', {}, (r) => {
-              const area = document.getElementById('task-list-area');
-              if (r && r.html && area) {
-                area.innerHTML = r.html;
-                if (typeof copilotInitTasksState === 'function') copilotInitTasksState();
-              }
-            });
           } else {
             setTimeout(poll, 3000);
           }
@@ -579,15 +588,6 @@ const errTableStaticHtml = `
     });
   }
   window.copilotRefreshErrs = refreshErrArea;
-  window.copilotRefreshTasks = () => {
-    view_post(_vn, 'tasks_list_html', {}, (r) => {
-      const a = document.getElementById('task-list-area');
-      if (r && r.html && a) {
-        a.innerHTML = r.html;
-        if (typeof copilotInitTasksState === 'function') copilotInitTasksState();
-      }
-    });
-  };
   window.copilotRefreshReqs = () => {
     view_post(_vn, 'req_list_html', {}, (r) => {
       const a = document.getElementById('req-list-area');
@@ -624,13 +624,6 @@ const errTableStaticHtml = `
         view_post(_vn, 'fix_error_status', { id }, (resp) => {
           if (resp && !resp.fixing) {
             refreshErrArea();
-            view_post(_vn, 'tasks_list_html', {}, (r) => {
-              const area = document.getElementById('task-list-area');
-              if (r && r.html && area) {
-                area.innerHTML = r.html;
-                if (typeof copilotInitTasksState === 'function') copilotInitTasksState();
-              }
-            });
           } else {
             setTimeout(poll, 3000);
           }
@@ -659,7 +652,6 @@ const errTableStaticHtml = `
 module.exports = {
   errorList,
   doCreateErrorFixTask,
-  fixingErrorIds,
   error_routes,
   errTableStaticHtml,
 };

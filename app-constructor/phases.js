@@ -217,9 +217,7 @@ window.copilotPhaseTasksDone = function(idx) {
   _refreshAllAreas(idx);
 };
 
-const _phasesOrigRefreshTasks = window.copilotRefreshTasks;
 window.copilotRefreshTasks = function() {
-  if (typeof _phasesOrigRefreshTasks === 'function') _phasesOrigRefreshTasks();
   const panel = document.getElementById('phases-panel');
   if (!panel || panel.dataset.phaseIdx === undefined) return;
   const idx = parseInt(panel.dataset.phaseIdx);

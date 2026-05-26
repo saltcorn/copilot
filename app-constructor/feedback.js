@@ -472,10 +472,6 @@ function refreshReqTaskAreas() {
     const el = document.getElementById('req-list-area');
     if (r && r.html && el) el.innerHTML = r.html;
   });
-  view_post(safeViewName, 'tasks_list_html', {}, (r) => {
-    const el = document.getElementById('task-list-area');
-    if (r && r.html && el) el.innerHTML = r.html;
-  });
 }
 window.refreshFeedbackViews = () => {
   view_post(safeViewName, 'feedback_views_html', {}, (r) => {

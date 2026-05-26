@@ -41,7 +41,6 @@ const { task_routes } = require("./tasks");
 const {
   errorList,
   doCreateErrorFixTask,
-  fixingErrorIds,
   error_routes,
   errTableStaticHtml,
 } = require("./errors");
@@ -367,10 +366,9 @@ const healPendingErrors = async () => {
       err.body.cannot_fix_reason
     )
       continue;
-    if (!fixingErrorIds.has(err.id))
-      doCreateErrorFixTask(err, null).catch((e) =>
-        console.error("healPendingErrors failed", e)
-      );
+    doCreateErrorFixTask(err, null).catch((e) =>
+      console.error("healPendingErrors failed", e)
+    );
   }
 };
 
