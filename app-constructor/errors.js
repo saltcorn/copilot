@@ -413,24 +413,54 @@ const errorList = async (req) => {
                     i({ class: "fas fa-trash-alt" })
                   )
                 );
-                const fixRow =
-                  r.body.source === "constructor"
-                    ? ""
-                    : r.body.fixing ||
-                      r.body.fix_task_created ||
-                      r.body.cannot_fix_reason
-                    ? ""
-                    : div(
-                        { class: "mt-1" },
-                        button(
-                          {
-                            id: `fix-err-btn-${r.id}`,
-                            class: "btn btn-sm btn-outline-primary",
-                            onclick: `copilotFixError(${r.id})`,
-                          },
-                          "Create fix task"
-                        )
-                      );
+                let fixRow = "";
+                if (r.body.source !== "constructor" && !r.body.fixing) {
+                  const fixTask = fixTaskByErrorId[r.id];
+                  if (r.body.fix_task_created && fixTask) {
+                    const taskStatus = fixTask.body.status || null;
+                    const canRun =
+                      taskStatus !== "Done" && taskStatus !== "Running";
+                    fixRow = div(
+                      { class: "d-flex flex-column gap-1 mt-1" },
+                      button(
+                        {
+                          class: "btn btn-sm btn-outline-secondary",
+                          onclick: `copilotViewFixTask(${r.id})`,
+                          title: "View fix task",
+                        },
+                        i({ class: "fas fa-search me-1" }),
+                        "View task"
+                      ),
+                      canRun
+                        ? button(
+                            {
+                              id: `run-fix-btn-${fixTask.id}`,
+                              class: "btn btn-sm btn-success",
+                              onclick: `copilotRunFixTask(${fixTask.id}, ${r.id})`,
+                              title: "Run fix task",
+                            },
+                            i({ class: "fas fa-play me-1" }),
+                            "Run"
+                          )
+                        : ""
+                    );
+                  } else if (
+                    !r.body.fix_task_created &&
+                    !r.body.cannot_fix_reason
+                  ) {
+                    fixRow = div(
+                      { class: "mt-1" },
+                      button(
+                        {
+                          id: `fix-err-btn-${r.id}`,
+                          class: "btn btn-sm btn-outline-primary",
+                          onclick: `copilotFixError(${r.id})`,
+                        },
+                        "Create fix task"
+                      )
+                    );
+                  }
+                }
                 return div({ style: "white-space:nowrap;" }, iconRow, fixRow);
               },
             },
@@ -522,6 +552,32 @@ const fix_error_status = async (table_id, vn, config, body, { req, res }) => {
   return { json: { fixing: !!errorMd?.body?.fixing } };
 };
 
+/** Route: returns task details for a fix task linked to an error. */
+const get_fix_task = async (table_id, vn, config, body, { req, res }) => {
+  const errorId = parseInt(body.error_id);
+  const allTasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  const fixTask = allTasks
+    .filter(
+      (t) =>
+        t.body.source === "error_fix" && parseInt(t.body.error_id) === errorId
+    )
+    .sort((a, b) => b.id - a.id)[0];
+  if (!fixTask) return { json: { error: "Fix task not found" } };
+  return {
+    json: {
+      task: {
+        id: fixTask.id,
+        name: fixTask.body.name,
+        description: fixTask.body.description,
+        status: fixTask.body.status || null,
+      },
+    },
+  };
+};
+
 /** Route: returns the rendered error list HTML for AJAX refresh. */
 const err_list_html = async (table_id, vn, config, body, { req, res }) => {
   const html = await errorList(req);
@@ -534,6 +590,7 @@ const error_routes = {
   toggle_error_healing,
   fix_error_task,
   fix_error_status,
+  get_fix_task,
   err_list_html,
 };
 
@@ -558,6 +615,26 @@ const errTableStaticHtml = `
       </div>
       <div class="modal-body">
         <pre id="err-detail-body" style="white-space:pre-wrap;overflow-wrap:break-word;font-size:0.8rem;"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="fix-task-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Fix task: <span id="fix-task-name" class="text-monospace fw-normal"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2" id="fix-task-status-row"></div>
+        <p id="fix-task-desc" style="white-space:pre-wrap;font-size:0.9rem;"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="fix-task-run-btn" class="btn btn-success" style="display:none">
+          <i class="fas fa-play me-1"></i>Run fix task
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
       </div>
     </div>
   </div>
@@ -643,6 +720,55 @@ const errTableStaticHtml = `
     try { err = JSON.parse(btn.dataset.err || '{}'); } catch (e) {}
     document.getElementById('err-detail-body').textContent = JSON.stringify(err, null, 2);
     new bootstrap.Modal(document.getElementById('err-detail-modal')).show();
+  };
+  window.copilotViewFixTask = (errorId) => {
+    view_post(_vn, 'get_fix_task', { error_id: errorId }, (r) => {
+      if (!r || !r.task) return;
+      const t = r.task;
+      document.getElementById('fix-task-name').textContent = t.name || '';
+      document.getElementById('fix-task-desc').textContent = t.description || '';
+      const statusBadge =
+        t.status === 'Done' ? '<span class="badge bg-success">Done</span>' :
+        t.status === 'Running' ? '<span class="badge bg-info text-dark"><i class="fas fa-spinner fa-spin me-1"></i>Running</span>' :
+        t.status === 'Error' ? '<span class="badge bg-danger">Error</span>' :
+        '<span class="badge bg-secondary">Pending</span>';
+      document.getElementById('fix-task-status-row').innerHTML = statusBadge;
+      const runBtn = document.getElementById('fix-task-run-btn');
+      if (t.status === 'Done' || t.status === 'Running') {
+        runBtn.style.display = 'none';
+      } else {
+        runBtn.style.display = '';
+        runBtn.disabled = false;
+        runBtn.innerHTML = '<i class="fas fa-play me-1"></i>Run fix task';
+        runBtn.onclick = () => copilotRunFixTask(t.id, errorId);
+      }
+      new bootstrap.Modal(document.getElementById('fix-task-modal')).show();
+    });
+  };
+  window.copilotRunFixTask = (taskId, errorId) => {
+    const modalRunBtn = document.getElementById('fix-task-run-btn');
+    const rowRunBtn = document.getElementById('run-fix-btn-' + taskId);
+    [modalRunBtn, rowRunBtn].forEach((btn) => {
+      if (!btn) return;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
+    });
+    const modal = bootstrap.Modal.getInstance(document.getElementById('fix-task-modal'));
+    if (modal) modal.hide();
+    view_post(_vn, 'run_task', { id: taskId }, () => {
+      const poll = () => {
+        view_post(_vn, 'get_fix_task', { error_id: errorId }, (r) => {
+          const status = r && r.task && r.task.status;
+          if (status === 'Done' || status === 'Error') {
+            refreshErrArea();
+            if (typeof copilotRefreshTasks === 'function') copilotRefreshTasks();
+          } else {
+            setTimeout(poll, 3000);
+          }
+        });
+      };
+      setTimeout(poll, 3000);
+    });
   };
   if (document.readyState !== 'loading') startFixPolling();
   else document.addEventListener('DOMContentLoaded', () => startFixPolling());

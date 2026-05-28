@@ -156,11 +156,22 @@ const schemaStaticScript = `<script>
     }
   }
 
+  let _schemaPending = null;
+  function _cancelSchemaPending() {
+    if (!_schemaPending) return;
+    const { link, handler, observer } = _schemaPending;
+    if (link) link.removeEventListener('shown.bs.tab', handler);
+    if (observer) observer.disconnect();
+    _schemaPending = null;
+  }
+
   window.copilotRenderSchemaMermaid = () => {
+    _cancelSchemaPending();
     const pre = document.querySelector('#schema-list-area .schema-mermaid');
     if (!pre) return;
     const colorMap = pre.dataset.colorMap ? JSON.parse(pre.dataset.colorMap) : {};
     const doRender = () => {
+      _schemaPending = null;
       const result = mermaid.run({
         nodes: [pre],
         suppressErrors: true,
@@ -173,12 +184,19 @@ const schemaStaticScript = `<script>
     };
     const pane = pre.closest('.tab-pane');
     if (pane && !pane.classList.contains('active')) {
-      const link = document.querySelector('[data-bs-target="#' + pane.id + '"]');
-      if (link) link.addEventListener('shown.bs.tab', doRender, { once: true });
-      else {
+      // Saltcorn tabs use href="#TabName", not data-bs-target
+      const link = document.querySelector(
+        '[data-bs-target="#' + pane.id + '"], a[href="#' + pane.id + '"]'
+      );
+      if (link) {
+        const handler = () => { _schemaPending = null; doRender(); };
+        _schemaPending = { link, handler, observer: null };
+        link.addEventListener('shown.bs.tab', handler, { once: true });
+      } else {
         const o = new MutationObserver(() => {
-          if (pane.classList.contains('active')) { o.disconnect(); doRender(); }
+          if (pane.classList.contains('active')) { o.disconnect(); _schemaPending = null; doRender(); }
         });
+        _schemaPending = { link: null, handler: null, observer: o };
         o.observe(pane, { attributes: true, attributeFilter: ['class'] });
       }
     } else doRender();

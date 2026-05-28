@@ -315,7 +315,7 @@ const tasksSpinner =
 
 // ── Phase list view ───────────────────────────────────────────────────────────
 
-const phaseCard = (phase, idx, req) => {
+const phaseCard = (phase, idx, req, allDone, hasFeedback) => {
   const starFieldview = getState().types.Integer.fieldviews.show_star_rating;
   const reqs = phase.requirements || [];
   const reqList = reqs.length
@@ -334,33 +334,61 @@ const phaseCard = (phase, idx, req) => {
       )
     : "";
 
+  const numberBadge = allDone
+    ? span(
+        {
+          class:
+            "badge bg-success rounded-circle d-flex align-items-center justify-content-center fs-6 flex-shrink-0",
+          style: "min-width:2rem;height:2rem;",
+          title: "All tasks done",
+        },
+        i({ class: "fas fa-check" })
+      )
+    : span(
+        {
+          class:
+            "badge bg-primary rounded-circle d-flex align-items-center justify-content-center fs-6 flex-shrink-0",
+          style: "min-width:2rem;height:2rem;",
+        },
+        String(idx + 1)
+      );
+
   return div(
-    { class: "card mb-3 shadow-sm border-start border-4 border-primary" },
+    {
+      class: `card mb-3 shadow-sm border-start border-4 ${
+        allDone ? "border-success" : "border-primary"
+      }`,
+    },
     div(
       { class: "card-body" },
       div(
         { class: "d-flex align-items-start gap-3 mb-2" },
-        span(
-          {
-            class:
-              "badge bg-primary rounded-circle d-flex align-items-center justify-content-center fs-6 flex-shrink-0",
-            style: "min-width:2rem;height:2rem;",
-          },
-          String(idx + 1)
-        ),
+        numberBadge,
         div(
           { class: "flex-grow-1" },
           h6({ class: "card-title fw-semibold mb-1" }, phase.name),
           p({ class: "card-text text-muted mb-0 small" }, phase.description)
         ),
-        button(
+        div(
           {
             class:
-              "btn btn-outline-primary btn-sm flex-shrink-0 align-self-start",
-            onclick: `openPhaseDetail(${idx})`,
-            title: "Open phase",
+              "d-flex align-items-center gap-2 flex-shrink-0 align-self-start",
           },
-          i({ class: "fas fa-arrow-right" })
+          hasFeedback
+            ? i({
+                class: "fas fa-comment-alt text-warning",
+                title: "This phase has feedback",
+                style: "font-size:0.95rem;",
+              })
+            : "",
+          button(
+            {
+              class: "btn btn-outline-primary btn-sm",
+              onclick: `openPhaseDetail(${idx})`,
+              title: "Open phase",
+            },
+            i({ class: "fas fa-arrow-right" })
+          )
         )
       ),
       reqs.length
@@ -413,6 +441,41 @@ const phasesHtml = async (req) => {
     (s, ph) => s + (ph.requirements?.length || 0),
     0
   );
+
+  const allTasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  const pluginMarkers = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "phase_plugin_generated",
+  });
+  const pluginMarkerIdxs = new Set(pluginMarkers.map((m) => m.body?.phase_idx));
+
+  const phaseAllDone = phases.map((_, idx) => {
+    const phaseTasks = allTasks.filter((t) => t.body?.phase_idx === idx);
+    const byType = (type) =>
+      phaseTasks.filter((t) => (t.body.task_type || "feature") === type);
+    const dmTasks = byType("data_model");
+    const ftTasks = byType("feature");
+    const plTasks = byType("plugin");
+    const allDone = (tasks) =>
+      tasks.length > 0 && tasks.every((t) => t.body?.status === "Done");
+    // plugin: ok if marker says 0 were needed, or if tasks exist and all done
+    const pluginOk = pluginMarkerIdxs.has(idx) || allDone(plTasks);
+    return allDone(dmTasks) && allDone(ftTasks) && pluginOk;
+  });
+
+  const phasesWithFeedback = new Set();
+  try {
+    const fbMds = await MetaData.find({
+      type: "CopilotConstructMgr",
+      name: "feedback_pending",
+    });
+    for (const r of fbMds)
+      if (r.body?.phase_idx != null) phasesWithFeedback.add(r.body.phase_idx);
+  } catch (_) {}
+
   return (
     div(
       { class: "d-flex justify-content-between align-items-center mb-3" },
@@ -424,7 +487,11 @@ const phasesHtml = async (req) => {
       ),
       generateBtn("Regenerate")
     ) +
-    phases.map((ph, idx) => phaseCard(ph, idx, req)).join("") +
+    phases
+      .map((ph, idx) =>
+        phaseCard(ph, idx, req, phaseAllDone[idx], phasesWithFeedback.has(idx))
+      )
+      .join("") +
     div(
       { class: "mt-3" },
       button(
@@ -573,6 +640,124 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
     genBtn
   );
 
+  const renderTask = (t) => {
+    const status = t.body.status || "To do";
+    const isRunning = status === "Running";
+    const isDone = status === "Done";
+    const isTodo = !isDone && !isRunning;
+
+    const deps = t.body.depends_on || [];
+    const depsHtml = deps.length
+      ? div(
+          { class: "d-flex flex-wrap gap-1 mt-2" },
+          ...deps.map((dep) =>
+            span(
+              {
+                class: "d-inline-flex align-items-center gap-1 text-muted",
+                style: `font-size:0.7rem;background:${
+                  doneNames.has(dep)
+                    ? "rgba(25,135,84,.18)"
+                    : "rgba(220,53,69,.18)"
+                };border-radius:4px;padding:1px 5px;`,
+              },
+              i({
+                class: `fas ${
+                  doneNames.has(dep)
+                    ? "fa-check-circle text-success"
+                    : "fa-circle text-danger"
+                } `,
+                style: "font-size:0.6rem;opacity:0.9",
+              }),
+              dep
+            )
+          )
+        )
+      : "";
+
+    const taskRunBtn = isRunning
+      ? span(
+          { class: "task-spinner", "data-task-id": t.id },
+          i({ class: "fas fa-spinner fa-spin text-warning" })
+        )
+      : isDone
+      ? t.body.run_id
+        ? a(
+            {
+              target: "_blank",
+              href: `/view/Saltcorn%20Agent%20copilot?run_id=${t.body.run_id}`,
+              class: "btn btn-outline-secondary btn-sm",
+              title: "View run",
+            },
+            i({ class: "fas fa-external-link-alt" })
+          )
+        : ""
+      : button(
+          {
+            class: "btn btn-outline-success btn-sm",
+            "data-task-run": t.id,
+            onclick: `runPhaseTask(this,${t.id},${phaseIdx},'${taskType}')`,
+            title: "Run task",
+          },
+          i({ class: "fas fa-play" })
+        );
+
+    const editBtn =
+      isTodo && features.view_route_modal
+        ? button(
+            {
+              class: "btn btn-outline-primary btn-sm",
+              title: "Edit description",
+              onclick: `ajax_modal('/view/${encodeURIComponent(
+                viewname
+              )}/edit_task_desc?id=${t.id}', {method:'POST'})`,
+            },
+            i({ class: "fas fa-edit" })
+          )
+        : "";
+
+    const deleteBtn = button(
+      {
+        class: "btn btn-outline-danger btn-sm",
+        onclick: `delPhaseTask(${t.id},${phaseIdx},'${taskType}')`,
+        title: "Delete",
+      },
+      i({ class: "fas fa-trash-alt" })
+    );
+
+    return div(
+      { class: "card mb-2 shadow-sm" },
+      div(
+        { class: "card-body py-2" },
+        div(
+          { class: "d-flex align-items-start gap-2" },
+          div(
+            { class: "flex-grow-1" },
+            div(
+              { class: "d-flex align-items-center flex-wrap gap-1 mb-1" },
+              span({ class: "fw-semibold small me-1" }, t.body.name),
+              taskStatusBadge(status),
+              span(
+                { class: "badge bg-secondary", title: "Priority" },
+                String(t.body.priority ?? "?")
+              )
+            ),
+            p({ class: "text-muted small mb-0" }, t.body.description),
+            depsHtml
+          ),
+          div(
+            { class: "d-flex gap-1 flex-shrink-0 ms-2" },
+            taskRunBtn,
+            editBtn,
+            deleteBtn
+          )
+        )
+      )
+    );
+  };
+
+  const plannedTasks = tasks.filter((t) => t.body.source !== "feedback");
+  const feedbackTasks = tasks.filter((t) => t.body.source === "feedback");
+
   if (!tasks.length) {
     let emptyMsg = "No tasks yet.";
     if (taskType === "plugin") {
@@ -586,124 +771,29 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
     return statusBar + p({ class: "text-muted small mt-2" }, emptyMsg);
   }
 
+  const feedbackSection = feedbackTasks.length
+    ? div(
+        { class: "mt-4" },
+        div(
+          { class: "d-flex align-items-center gap-2 mb-2" },
+          small(
+            {
+              class: "text-uppercase fw-semibold text-muted",
+              style: "font-size:0.7rem;letter-spacing:.05em;",
+            },
+            i({ class: "fas fa-comment-alt me-1" }),
+            "From feedback"
+          ),
+          div({ class: "flex-grow-1 border-top" })
+        ),
+        feedbackTasks.map(renderTask).join("")
+      )
+    : "";
+
   return (
     statusBar +
-    tasks
-      .map((t) => {
-        const status = t.body.status || "To do";
-        const isRunning = status === "Running";
-        const isDone = status === "Done";
-        const isTodo = !isDone && !isRunning;
-
-        const deps = t.body.depends_on || [];
-        const depsHtml = deps.length
-          ? div(
-              { class: "d-flex flex-wrap gap-1 mt-2" },
-              ...deps.map((dep) =>
-                span(
-                  {
-                    class: "d-inline-flex align-items-center gap-1 text-muted",
-                    style: `font-size:0.7rem;background:${
-                      doneNames.has(dep)
-                        ? "rgba(25,135,84,.18)"
-                        : "rgba(220,53,69,.18)"
-                    };border-radius:4px;padding:1px 5px;`,
-                  },
-                  i({
-                    class: `fas ${
-                      doneNames.has(dep)
-                        ? "fa-check-circle text-success"
-                        : "fa-circle text-danger"
-                    } `,
-                    style: "font-size:0.6rem;opacity:0.9",
-                  }),
-                  dep
-                )
-              )
-            )
-          : "";
-
-        const runBtn = isRunning
-          ? span(
-              { class: "task-spinner", "data-task-id": t.id },
-              i({ class: "fas fa-spinner fa-spin text-warning" })
-            )
-          : isDone
-          ? t.body.run_id
-            ? a(
-                {
-                  target: "_blank",
-                  href: `/view/Saltcorn%20Agent%20copilot?run_id=${t.body.run_id}`,
-                  class: "btn btn-outline-secondary btn-sm",
-                  title: "View run",
-                },
-                i({ class: "fas fa-external-link-alt" })
-              )
-            : ""
-          : button(
-              {
-                class: "btn btn-outline-success btn-sm",
-                "data-task-run": t.id,
-                onclick: `runPhaseTask(this,${t.id},${phaseIdx},'${taskType}')`,
-                title: "Run task",
-              },
-              i({ class: "fas fa-play" })
-            );
-
-        const editBtn =
-          isTodo && features.view_route_modal
-            ? button(
-                {
-                  class: "btn btn-outline-primary btn-sm",
-                  title: "Edit description",
-                  onclick: `ajax_modal('/view/${encodeURIComponent(
-                    viewname
-                  )}/edit_task_desc?id=${t.id}', {method:'POST'})`,
-                },
-                i({ class: "fas fa-edit" })
-              )
-            : "";
-
-        const deleteBtn = button(
-          {
-            class: "btn btn-outline-danger btn-sm",
-            onclick: `delPhaseTask(${t.id},${phaseIdx},'${taskType}')`,
-            title: "Delete",
-          },
-          i({ class: "fas fa-trash-alt" })
-        );
-
-        return div(
-          { class: "card mb-2 shadow-sm" },
-          div(
-            { class: "card-body py-2" },
-            div(
-              { class: "d-flex align-items-start gap-2" },
-              div(
-                { class: "flex-grow-1" },
-                div(
-                  { class: "d-flex align-items-center flex-wrap gap-1 mb-1" },
-                  span({ class: "fw-semibold small me-1" }, t.body.name),
-                  taskStatusBadge(status),
-                  span(
-                    { class: "badge bg-secondary", title: "Priority" },
-                    String(t.body.priority ?? "?")
-                  )
-                ),
-                p({ class: "text-muted small mb-0" }, t.body.description),
-                depsHtml
-              ),
-              div(
-                { class: "d-flex gap-1 flex-shrink-0 ms-2" },
-                runBtn,
-                editBtn,
-                deleteBtn
-              )
-            )
-          )
-        );
-      })
-      .join("") +
+    plannedTasks.map(renderTask).join("") +
+    feedbackSection +
     div({ class: "mt-3" }, delAllBtn)
   );
 };
@@ -727,6 +817,20 @@ const phaseDetailHtml = async (phase, idx) => {
     "Back to phases"
   );
 
+  const feedbackBtn = features.view_route_modal
+    ? button(
+        {
+          class: "btn btn-outline-secondary btn-sm flex-shrink-0 ms-4",
+          onclick: `ajax_modal('/view/${encodeURIComponent(
+            viewname
+          )}/get_feedback_form?scope=phase_${idx}', {method:'POST'})`,
+          title: "Add feedback for this phase",
+        },
+        i({ class: "fas fa-comment-alt me-1" }),
+        "Feedback"
+      )
+    : "";
+
   const header = div(
     { class: "d-flex align-items-start gap-3 mb-2" },
     span(
@@ -738,15 +842,11 @@ const phaseDetailHtml = async (phase, idx) => {
       String(idx + 1)
     ),
     div(
+      { class: "flex-grow-1" },
       h6({ class: "fw-semibold mb-1" }, phase.name),
       p({ class: "text-muted small mb-0" }, phase.description)
-    )
-  );
-
-  const feedbackEmpty = div(
-    { class: "text-muted mt-3" },
-    i({ class: "fas fa-clock me-2" }),
-    "Feedback — coming soon"
+    ),
+    feedbackBtn
   );
 
   const tabs = `
@@ -760,9 +860,6 @@ const phaseDetailHtml = async (phase, idx) => {
   <li class="nav-item" role="presentation">
     <button class="nav-link" data-bs-toggle="tab" data-bs-target="#${tabId}-ft" type="button">Features</button>
   </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#${tabId}-fb" type="button">Feedback</button>
-  </li>
 </ul>
 <div class="tab-content pt-3">
   <div class="tab-pane fade show active" id="${tabId}-pl">
@@ -774,7 +871,6 @@ const phaseDetailHtml = async (phase, idx) => {
   <div class="tab-pane fade" id="${tabId}-ft">
     <div id="phase-features-area">${ftContent}</div>
   </div>
-  <div class="tab-pane fade" id="${tabId}-fb">${feedbackEmpty}</div>
 </div>`;
 
   return backBtn + header + tabs;
@@ -1346,6 +1442,12 @@ const del_phase_type_tasks = async (
     });
     for (const m of markers.filter((m) => m.body?.phase_idx === idx))
       await m.delete();
+    const pluginPhase = await MetaData.find({
+      type: "CopilotConstructMgr",
+      name: "plugin_phase",
+    });
+    for (const m of pluginPhase.filter((m) => m.body?.phase_idx === idx))
+      await m.delete();
   }
   if (taskType === "data_model") {
     const tablePhase = await MetaData.find({
@@ -1353,6 +1455,14 @@ const del_phase_type_tasks = async (
       name: "table_phase",
     });
     for (const m of tablePhase.filter((m) => m.body?.phase_idx === idx))
+      await m.delete();
+  }
+  if (taskType === "feature") {
+    const viewPhase = await MetaData.find({
+      type: "CopilotConstructMgr",
+      name: "view_phase",
+    });
+    for (const m of viewPhase.filter((m) => m.body?.phase_idx === idx))
       await m.delete();
   }
   return { json: { success: true } };
@@ -1403,6 +1513,16 @@ const del_all_phases = async (table_id, vn, config, body, { req, res }) => {
     name: "table_phase",
   });
   for (const m of tablePhase) await m.delete();
+  const viewPhase = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "view_phase",
+  });
+  for (const m of viewPhase) await m.delete();
+  const pluginPhaseAll = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "plugin_phase",
+  });
+  for (const m of pluginPhaseAll) await m.delete();
   const phasesMd = await MetaData.findOne({
     type: "CopilotConstructMgr",
     name: "phases",

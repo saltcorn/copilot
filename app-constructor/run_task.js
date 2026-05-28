@@ -3,6 +3,7 @@ const Table = require("@saltcorn/data/models/table");
 const Form = require("@saltcorn/data/models/form");
 const MetaData = require("@saltcorn/data/models/metadata");
 const View = require("@saltcorn/data/models/view");
+const Page = require("@saltcorn/data/models/page");
 const Trigger = require("@saltcorn/data/models/trigger");
 const Plugin = require("@saltcorn/data/models/plugin");
 const { findType } = require("@saltcorn/data/models/discovery");
@@ -164,8 +165,27 @@ ${md.body.description}`;
   const tableNamesBefore = isDataModel
     ? new Set((await Table.find({})).map((t) => t.name))
     : null;
+  const isFeature = taskType === "feature";
+  const viewNamesBefore =
+    isFeature && md.body.phase_idx !== undefined
+      ? new Set((await View.find({})).map((v) => v.name))
+      : null;
+  const pageNamesBefore =
+    isFeature && md.body.phase_idx !== undefined
+      ? new Set((await Page.find({})).map((p) => p.name))
+      : null;
+  const pluginNamesBefore =
+    isPlugin && md.body.phase_idx !== undefined
+      ? new Set((await Plugin.find({})).map((p) => p.name))
+      : null;
 
   await md.update({ body: { ...md.body, status: "Running" } });
+  try {
+    getState().emitDynamicUpdate(db.getTenantSchema(), {
+      eval_js:
+        "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();",
+    });
+  } catch (_) {}
   try {
     const actionres = await agent_action.runWithoutRow({
       row: { prompt },
@@ -214,6 +234,53 @@ ${md.body.description}`;
           name: "table_phase",
           body: {
             table_name: table.name,
+            phase_idx: md.body.phase_idx,
+            phase_name: md.body.phase_name,
+          },
+          user_id: req?.user?.id,
+        });
+      }
+    }
+    if (isPlugin && pluginNamesBefore && md.body.phase_idx !== undefined) {
+      const pluginsAfter = await Plugin.find({});
+      for (const p of pluginsAfter.filter(
+        (p) => !pluginNamesBefore.has(p.name)
+      )) {
+        await MetaData.create({
+          type: "CopilotConstructMgr",
+          name: "plugin_phase",
+          body: {
+            plugin_name: p.name,
+            phase_idx: md.body.phase_idx,
+            phase_name: md.body.phase_name,
+          },
+          user_id: req?.user?.id,
+        });
+      }
+    }
+    if (isFeature && viewNamesBefore && md.body.phase_idx !== undefined) {
+      const viewsAfter = await View.find({});
+      for (const v of viewsAfter.filter((v) => !viewNamesBefore.has(v.name))) {
+        await MetaData.create({
+          type: "CopilotConstructMgr",
+          name: "view_phase",
+          body: {
+            view_name: v.name,
+            viewtemplate: v.viewtemplate,
+            phase_idx: md.body.phase_idx,
+            phase_name: md.body.phase_name,
+          },
+          user_id: req?.user?.id,
+        });
+      }
+      const pagesAfter = await Page.find({});
+      for (const p of pagesAfter.filter((p) => !pageNamesBefore.has(p.name))) {
+        await MetaData.create({
+          type: "CopilotConstructMgr",
+          name: "view_phase",
+          body: {
+            view_name: p.name,
+            viewtemplate: "page",
             phase_idx: md.body.phase_idx,
             phase_name: md.body.phase_name,
           },

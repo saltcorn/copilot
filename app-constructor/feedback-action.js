@@ -120,8 +120,7 @@ module.exports = {
         urlSection =
           `\nThe feedback was submitted from the Saltcorn page named "${mPage[1]}"` +
           ` (URL: ${use_url}).\n`;
-      else
-        urlSection = `\nThe feedback was submitted from: ${use_url}\n`;
+      else urlSection = `\nThe feedback was submitted from: ${use_url}\n`;
     }
 
     const reqAnswer = await getState().functions.llm_generate.run(
@@ -143,7 +142,7 @@ Now use the make_requirements tool to create a single or several (a single is pr
         ...tool_choice("make_requirements"),
         systemPrompt:
           "You are a project manager. The user wants to build an application, and you must analyse their application description and any feedback available",
-      },
+      }
     );
     const tc = reqAnswer.getToolCalls()[0];
     console.log("got new requiremenrts", tc.input.requirements);
@@ -209,9 +208,17 @@ The plan should outline continued development of the application on top of this 
 Your plan can add additional tables if needed or adjust the table fields, but normally the tables
 should be designed optimally for this application.
 
-${entitiesSection ? entitiesSection + "\n\n" : ""}${installedPluginsSection ? installedPluginsSection + "\n\n" : ""}${pluginsSection ? pluginsSection + "\n\n" : ""}${task_planning_rules}
+${entitiesSection ? entitiesSection + "\n\n" : ""}${
+        installedPluginsSection ? installedPluginsSection + "\n\n" : ""
+      }${pluginsSection ? pluginsSection + "\n\n" : ""}${task_planning_rules}
 
 ${task_planning_closing}
+
+Important overrides for feedback tasks:
+* Generate ONLY the minimal tasks that directly implement what the feedback requests. Do not add defensive "verify", "ensure accessible", or "check still reachable" tasks — those are not changes and do not belong in a task plan.
+* Do NOT generate tasks for writing, updating, or running automated tests. There are no automated tests in this application.
+* When a task modifies an existing view or page, do NOT set or change its min_role unless the feedback explicitly requests an access control change. The existing min_role is already correct — leave it as-is.
+* If the feedback can be implemented in a single task, use a single task. Do not split it into more tasks than strictly necessary.
 
 Now use the plan_tasks tool to create the tasks to implement this new feedback.
 `,
@@ -220,7 +227,7 @@ Now use the plan_tasks tool to create the tasks to implement this new feedback.
         ...tool_choice("plan_tasks"),
         systemPrompt:
           "You are a project manager. The user wants to build an application, and you must analyse their application description and any feedback available",
-      },
+      }
     );
     const tcTasks = taskAnswer.getToolCalls()[0];
     console.log("got new tasks", tcTasks.input.tasks);
@@ -236,7 +243,14 @@ Now use the plan_tasks tool to create the tasks to implement this new feedback.
     await MetaData.create({
       type: "CopilotConstructMgr",
       name: "feedback",
-      body: { title: use_title, description: use_description, url: use_url, research_context },
+      body: {
+        title: use_title,
+        description: use_description,
+        url: use_url,
+        research_context,
+        scope: row.scope || "overall",
+        phase_idx: row.phase_idx ?? null,
+      },
       user_id: user?.id,
     });
   },
