@@ -60,21 +60,51 @@ class GeneratePageSkill {
         html,
         min_role = 100,
       }) {
-        const file = await File.from_contents(
-          `${name}.html`,
-          "text/html",
-          html,
-          user?.id,
-          min_role
-        );
-
-        await Page.create({
-          name,
-          title,
-          description,
-          min_role,
-          layout: { html_file: file.path_to_serve },
-        });
+        const existingPage = Page.findOne({ name });
+        if (existingPage) {
+          // Overwrite existing file if the page already has one, otherwise create new
+          let filePath;
+          if (existingPage.layout?.html_file) {
+            const existingFile = await File.findOne(
+              existingPage.layout.html_file
+            );
+            if (existingFile) {
+              await existingFile.overwrite_contents(html);
+              filePath = existingFile.path_to_serve;
+            }
+          }
+          if (!filePath) {
+            const file = await File.from_contents(
+              `${name}.html`,
+              "text/html",
+              html,
+              user?.id,
+              min_role
+            );
+            filePath = file.path_to_serve;
+          }
+          await Page.update(existingPage.id, {
+            title,
+            description,
+            min_role,
+            layout: { html_file: filePath },
+          });
+        } else {
+          const file = await File.from_contents(
+            `${name}.html`,
+            "text/html",
+            html,
+            user?.id,
+            min_role
+          );
+          await Page.create({
+            name,
+            title,
+            description,
+            min_role,
+            layout: { html_file: file.path_to_serve },
+          });
+        }
         setTimeout(() => getState().refresh_pages(), 200);
         return {
           notify: `Page saved: <a target="_blank" href="/page/${name}">${name}</a>`,

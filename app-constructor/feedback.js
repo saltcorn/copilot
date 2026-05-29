@@ -383,7 +383,7 @@ window.refreshFeedbackViews = () => {
 };
 window.copilotAddFeedbackToMenu = () => {
   view_post(safeViewName, 'add_feedback_to_menu', {}, (resp) => {
-    if (resp && !resp.error) notify_success('Feedback button added to navbar');
+    if (resp && !resp.error) location.reload();
   });
 };
 window.copilotApprove = (id) => {
@@ -529,8 +529,22 @@ startApprovalPolling();
     )
   );
 
-  const navbarBtn = features.view_route_modal
+  const menuItems = getState().getConfig("menu_items", []);
+  const feedbackInMenu = menuItems.some(
+    (mi) => mi.type === "Link" && mi.url?.includes("get_feedback_form")
+  );
+  const navbarBtn = !features.view_route_modal
     ? div(
+        { class: "mt-3" },
+        small(
+          { class: "text-muted" },
+          i({ class: "fas fa-info-circle me-1" }),
+          "Adding a feedback button to the navbar requires a newer version of Saltcorn."
+        )
+      )
+    : feedbackInMenu
+    ? ""
+    : div(
         { class: "mt-3" },
         button(
           {
@@ -540,14 +554,6 @@ startApprovalPolling();
           },
           i({ class: "fas fa-bars me-1" }),
           "Add feedback button to navbar"
-        )
-      )
-    : div(
-        { class: "mt-3" },
-        small(
-          { class: "text-muted" },
-          i({ class: "fas fa-info-circle me-1" }),
-          "Adding a feedback button to the navbar requires a newer version of Saltcorn."
         )
       );
 
