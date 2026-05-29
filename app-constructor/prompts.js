@@ -187,6 +187,9 @@ Important user account rules:
 * If a requirement mentions "user accounts", "secure login", "saving data per user", "user-specific data", or "sharing between users", treat it as already satisfied by the platform's built-in user system. Do not generate any task in response to such a requirement.
 * Do NOT create any Edit, Show, or List view whose underlying table is the built-in \`users\` table. The users table is managed entirely by the platform — records are created via /auth/signup and managed via the platform's built-in admin panel. Never plan a task that creates a view on the users table.
 
+Important date field rules:
+* When a view task includes a date field that should pre-fill to today, the task description must say to use "default_now": true in the flatpickr configuration — never "default": "today".
+
 Important role rules:
 * Every view and page task description MUST state the min_role explicitly, e.g. "Set min_role to admin (1)." or "Set min_role to user (80).". Never omit it.
 * Role values: admin=1, staff=40, user=80, public=100. Use the value that matches who will use the view or page — admin (1) only for views that admins exclusively need (system config, user management); staff (40) for views used by internal employees who are not admins (e.g. lawyers, agents, staff members); user (80) for views used by logged-in non-staff users (e.g. clients, customers, members); public (100) only when the page must be accessible without login. Do not default everything to admin — setting min_role too restrictively locks out the intended users.
@@ -245,6 +248,9 @@ The existence of an alternative fieldview in the platform is not a reason to use
 For date fields always prefer fieldview "flatpickr" when available — it provides the best user experience \
 and works for both regular dates and day-only dates. \
 Only use fieldview "edit_day" as a fallback when the field has day_only=true and flatpickr is not installed. \
+Never set a flatpickr configuration key "default" to a string like "today" — it is not a valid date value and will throw at runtime. \
+To pre-fill the picker with the current date/time, set "default_now": true in the flatpickr field configuration instead. \
+When the underlying Date field has day_only=true, also set "day_only": true in the flatpickr fieldview configuration — this disables the time picker and formats the value correctly. \
 For String fields that have an options attribute (a comma-separated list of fixed choices), \
 use fieldview "select" — this renders a dropdown with those options. \
 Do not use "select_by_code" for fields with fixed options. \
