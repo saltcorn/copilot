@@ -417,6 +417,8 @@ class GenerateTables {
       f.type_and_configuration || { data_type: "String" };
     let type = data_type;
     const scattributes = { ...attributes, importance: f.importance };
+    if (!scattributes.min_length) delete scattributes.min_length;
+    if (!scattributes.max_length) delete scattributes.max_length;
     if (data_type === "ForeignKey") {
       type = `Key to ${reference_table}`;
       const refTableHere = allTablesList.find(

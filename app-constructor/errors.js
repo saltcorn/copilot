@@ -1,6 +1,7 @@
 const Table = require("@saltcorn/data/models/table");
 const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
+const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Page = require("@saltcorn/data/models/page");
 const Plugin = require("@saltcorn/data/models/plugin");
 const MetaData = require("@saltcorn/data/models/metadata");
@@ -97,6 +98,58 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
           `\nThe error occurred while rendering page "${pageName}". ` +
           `Current configuration:\n\`\`\`json\n` +
           `${JSON.stringify(page.layout, null, 2)}\n\`\`\`\n`;
+    }
+
+    // Workflow step errors: inject the trigger config and all its steps
+    const stack = errorMd.body.error?.stack || "";
+    if (!entityConfigSection && stack.includes("workflow_step")) {
+      // Try to identify the trigger from a WorkflowRun referenced in the error context
+      const runIdMatch =
+        stack.match(/workflow_run[^0-9]*(\d+)/i) ||
+        JSON.stringify(errorMd.body.error).match(/"run_id"\s*:\s*(\d+)/);
+      let matchedTrigger = null;
+      if (runIdMatch) {
+        const WorkflowRun = require("@saltcorn/data/models/workflow_run");
+        const run = await WorkflowRun.findOne({
+          id: parseInt(runIdMatch[1]),
+        }).catch(() => null);
+        if (run?.trigger_id) {
+          matchedTrigger = triggers.find((t) => t.id === run.trigger_id);
+        }
+      }
+      // Fall back: include all workflow triggers with steps
+      const workflowTriggers = matchedTrigger
+        ? [matchedTrigger]
+        : triggers.filter(
+            (t) => t.action === "Workflow" || t.action === "workflow"
+          );
+      if (workflowTriggers.length) {
+        const sections = await Promise.all(
+          workflowTriggers.map(async (t) => {
+            const steps = await WorkflowStep.find({ trigger_id: t.id });
+            return (
+              `Trigger "${t.name}" (table: ${t.table_id}, action: ${t.action}):\n` +
+              `Configuration: ${JSON.stringify(t.configuration, null, 2)}\n` +
+              `Steps (${steps.length}):\n` +
+              steps
+                .map(
+                  (s) =>
+                    `  - name: ${s.name}, action: ${s.action_name}, initial: ${s.initial_step}\n` +
+                    `    configuration: ${JSON.stringify(
+                      s.configuration,
+                      null,
+                      2
+                    )}`
+                )
+                .join("\n")
+            );
+          })
+        );
+        entityConfigSection =
+          `\nThe error occurred in a workflow step. Relevant trigger(s) and steps:\n\n` +
+          sections.join("\n\n") +
+          "\n";
+      }
     }
 
     const cannot_fix_tool = {

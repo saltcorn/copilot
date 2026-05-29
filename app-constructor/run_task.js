@@ -47,9 +47,10 @@ const runTask = async (md_id, req) => {
         ? "Each task creates or modifies database tables/fields or configures platform-level settings (such as custom roles). " +
           "Use the database design tool for schema changes. Use the Registry editor (set_entity) for platform configuration such as creating custom roles. " +
           "Call only the tools needed for the task and then stop. Do not create any views, pages, or triggers."
-        : "Each task creates exactly one view or one page. " +
+        : "Each task creates exactly one primary artifact: one view, one page, or one workflow trigger. " +
           "Never create more than one view or page per task, even if the description mentions multiple. " +
-          "Call the view or page tool exactly once and then stop.",
+          "Exception: if the task description explicitly says to both create a workflow trigger AND update an existing view to add an action button for it, do both — create the workflow first, then update the specified view. " +
+          "After completing the primary artifact (and the explicitly described action button update, if any), stop.",
       prompt: "{{prompt}}",
       skills: isPlugin
         ? [{ skill_type: "Install Plugin", yoloMode: true }]
@@ -207,7 +208,11 @@ ${md.body.description}`;
     const extractText = (content) => {
       if (!content) return "";
       if (typeof content === "string") return content;
-      if (typeof content === "object" && !Array.isArray(content) && content.text)
+      if (
+        typeof content === "object" &&
+        !Array.isArray(content) &&
+        content.text
+      )
         return content.text;
       if (Array.isArray(content)) {
         const tb = content.find((b) => b?.type === "text" && b?.text);
@@ -219,7 +224,10 @@ ${md.body.description}`;
     let lastText = "";
     for (let i = interactions.length - 1; i >= 0; i--) {
       const t = extractText(interactions[i]?.content);
-      if (t) { lastText = t; break; }
+      if (t) {
+        lastText = t;
+        break;
+      }
     }
     if (!lastText) lastText = md.body.description || md.body.name || "";
     await MetaData.create({
