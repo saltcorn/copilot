@@ -46,7 +46,7 @@ const {
 } = require("./errors");
 const { req_routes } = require("./requirements");
 const { feedbackList, feedback_routes } = require("./feedback");
-const { progressList, progress_routes } = require("./progress");
+const { progress_routes } = require("./progress");
 const { runNextTask } = require("./run_task");
 const { researchPanel, research_routes } = require("./research");
 const { phasesPanel, phasesStaticScript, phase_routes } = require("./phases");
@@ -166,7 +166,6 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const phases = await phasesPanel(req);
   const errList = await errorList(req);
   const feedbacks = await feedbackList(req);
-  const progress = await progressList(req);
   const schema = await showSchema(req);
   const layout = {
     type: "tabs",
@@ -178,7 +177,6 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
       "Research",
       "Phases",
       "Schema",
-      "Progress",
       "Feedback",
       "Errors",
     ],
@@ -201,7 +199,6 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
           div({ id: "schema-list-area" }, schema)
         ),
       },
-      { type: "blank", contents: progress },
       { type: "blank", contents: feedbacks },
       {
         type: "blank",

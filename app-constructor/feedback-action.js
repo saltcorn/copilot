@@ -219,6 +219,7 @@ Important overrides for feedback tasks:
 * Do NOT generate tasks for writing, updating, or running automated tests. There are no automated tests in this application.
 * When a task modifies an existing view or page, do NOT set or change its min_role unless the feedback explicitly requests an access control change. The existing min_role is already correct — leave it as-is.
 * If the feedback can be implemented in a single task, use a single task. Do not split it into more tasks than strictly necessary.
+* Do NOT create new views, pages, or routes as a side effect of modifying an existing one. If the feedback asks to change or remove something from an existing view, only modify that view. Do not create a compensating "admin" or "alternative" view unless the feedback explicitly asks for one.
 
 Now use the plan_tasks tool to create the tasks to implement this new feedback.
 `,

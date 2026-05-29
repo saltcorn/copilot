@@ -15,7 +15,9 @@ const {
   ul,
   li,
   a,
+  pre,
 } = require("@saltcorn/markup/tags");
+const { mkTable } = require("@saltcorn/markup");
 const { getState, features } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
 const { viewname, tool_choice } = require("./common");
@@ -97,6 +99,14 @@ function _refreshAllAreas(idx) {
   _refreshPhaseArea(idx, 'data_model');
   _refreshPhaseArea(idx, 'feature');
 }
+
+window.copilotRefreshPhaseProgress = function(idx) {
+  const el = document.getElementById('phase-progress-area-' + idx);
+  if (!el) return;
+  view_post(_phasesVn, 'phase_progress_html', { idx }, (r) => {
+    if (r && r.html) el.innerHTML = r.html;
+  });
+};
 
 window.openPhaseDetail = function(idx) {
   _setPhaseParam(idx);
@@ -800,12 +810,79 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
 
 // ── Phase detail view ─────────────────────────────────────────────────────────
 
+const phaseProgressHtml = async (idx) => {
+  const allTasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  const taskNameById = Object.fromEntries(
+    allTasks.map((t) => [t.id, t.body.name])
+  );
+
+  const allProgress = await MetaData.find(
+    { type: "CopilotConstructMgr", name: "progress" },
+    { orderBy: "written_at", orderDesc: true }
+  );
+  const entries = allProgress.filter((p) => p.body?.phase_idx === idx);
+
+  if (!entries.length)
+    return p({ class: "text-muted mt-2" }, "No completed tasks yet.");
+
+  return (
+    mkTable(
+      [
+        {
+          label: "When",
+          key: (m) => {
+            const d = m.written_at ? new Date(m.written_at) : null;
+            if (!d) return "";
+            return small(
+              { class: "text-muted", style: "white-space:nowrap" },
+              d.toLocaleDateString([], { month: "short", day: "numeric" }),
+              " ",
+              d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            );
+          },
+        },
+        {
+          label: "Task",
+          key: (m) =>
+            small(
+              { class: "text-muted", style: "white-space:nowrap" },
+              taskNameById[m.body?.task_id] || ""
+            ),
+        },
+        {
+          label: "Summary",
+          key: (m) =>
+            div(
+              {
+                style:
+                  "white-space:pre-wrap;font-size:0.82rem;max-width:520px;",
+              },
+              m.body.text || ""
+            ),
+        },
+      ],
+      entries
+    ) +
+    button(
+      {
+        class: "btn btn-outline-danger btn-sm mt-2",
+        onclick: `view_post(${JSON.stringify(viewname)}, 'del_phase_progress', {idx:${idx}}, () => copilotRefreshPhaseProgress(${idx}))`,
+      },
+      "Delete all"
+    )
+  );
+};
+
 const phaseDetailHtml = async (phase, idx) => {
   const tabId = `phase-detail-tabs-${idx}`;
-  const [plContent, dmContent, ftContent] = await Promise.all([
+  const [plContent, dmContent, ftContent, pgContent] = await Promise.all([
     phaseTasksHtml(idx, "plugin"),
     phaseTasksHtml(idx, "data_model"),
     phaseTasksHtml(idx, "feature"),
+    phaseProgressHtml(idx),
   ]);
 
   const backBtn = button(
@@ -860,6 +937,9 @@ const phaseDetailHtml = async (phase, idx) => {
   <li class="nav-item" role="presentation">
     <button class="nav-link" data-bs-toggle="tab" data-bs-target="#${tabId}-ft" type="button">Features</button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#${tabId}-pg" type="button">Progress</button>
+  </li>
 </ul>
 <div class="tab-content pt-3">
   <div class="tab-pane fade show active" id="${tabId}-pl">
@@ -870,6 +950,9 @@ const phaseDetailHtml = async (phase, idx) => {
   </div>
   <div class="tab-pane fade" id="${tabId}-ft">
     <div id="phase-features-area">${ftContent}</div>
+  </div>
+  <div class="tab-pane fade" id="${tabId}-pg">
+    <div id="phase-progress-area-${idx}">${pgContent}</div>
   </div>
 </div>`;
 
@@ -1531,6 +1614,35 @@ const del_all_phases = async (table_id, vn, config, body, { req, res }) => {
   return { json: { success: true } };
 };
 
+const phase_progress_html = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const idx = parseInt(body.idx);
+  const html = await phaseProgressHtml(idx);
+  return { json: { html } };
+};
+
+const del_phase_progress = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const idx = parseInt(body.idx);
+  const all = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "progress",
+  });
+  for (const r of all.filter((p) => p.body?.phase_idx === idx))
+    await r.delete();
+  return { json: { success: true } };
+};
+
 const phase_routes = {
   gen_phases,
   phases_status,
@@ -1544,6 +1656,8 @@ const phase_routes = {
   phase_run_status,
   del_phase_type_tasks,
   del_all_phases,
+  phase_progress_html,
+  del_phase_progress,
 };
 
 module.exports = { phasesPanel, phasesStaticScript, phase_routes };

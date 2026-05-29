@@ -267,10 +267,12 @@ const errorList = async (req) => {
         )
       );
 
-  const errs = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "error",
-  });
+  const errs = (
+    await MetaData.find({
+      type: "CopilotConstructMgr",
+      name: "error",
+    })
+  ).sort((a, b) => new Date(b.written_at) - new Date(a.written_at));
 
   // Build error_id → most recent fix task map for run links
   const allTasks = await MetaData.find({
@@ -308,6 +310,22 @@ const errorList = async (req) => {
                       },
                       "application"
                     ),
+            },
+            {
+              label: "When",
+              key: (m) => {
+                const d = m.written_at ? new Date(m.written_at) : null;
+                if (!d) return "";
+                return small(
+                  { class: "text-muted", style: "white-space:nowrap" },
+                  d.toLocaleDateString([], { month: "short", day: "numeric" }),
+                  " ",
+                  d.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                );
+              },
             },
             {
               label: "Error",
@@ -599,12 +617,14 @@ const errTableStaticHtml = `
 #err-list-area table { table-layout: auto; width: 100%; }
 #err-list-area table th:nth-child(1),
 #err-list-area table td:nth-child(1),
-#err-list-area table th:nth-child(4),
-#err-list-area table td:nth-child(4) { width: 1px; white-space: nowrap; }
 #err-list-area table th:nth-child(2),
-#err-list-area table td:nth-child(2) { width: 100%; }
+#err-list-area table td:nth-child(2),
+#err-list-area table th:nth-child(5),
+#err-list-area table td:nth-child(5) { width: 1px; white-space: nowrap; }
 #err-list-area table th:nth-child(3),
-#err-list-area table td:nth-child(3) { padding-right: 2rem; }
+#err-list-area table td:nth-child(3) { width: 100%; }
+#err-list-area table th:nth-child(4),
+#err-list-area table td:nth-child(4) { padding-right: 2rem; }
 </style>
 <div class="modal fade" id="err-detail-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">

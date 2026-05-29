@@ -16,6 +16,7 @@ const {
   label,
   textarea,
   small,
+  span,
 } = require("@saltcorn/markup/tags");
 const { getState, features } = require("@saltcorn/data/db/state");
 const { viewname } = require("./common");
@@ -158,6 +159,50 @@ const feedbackViewsContent = async () => {
     { type: "CopilotConstructMgr", name: "feedback" },
     { orderBy: "written_at" }
   );
+
+  const allTasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  const feedbackTasks = allTasks.filter((t) => t.body?.source === "feedback");
+  const tasksByTitle = {};
+  for (const t of feedbackTasks) {
+    const key = t.body.feedback_title || "";
+    if (!tasksByTitle[key]) tasksByTitle[key] = [];
+    tasksByTitle[key].push(t);
+  }
+
+  const taskBadge = (t) => {
+    const status = t.body.status;
+    if (!status || status === "Pending")
+      return button(
+        {
+          class: "btn btn-outline-primary btn-sm",
+          id: `fb-task-run-btn-${t.id}`,
+          onclick: `copilotRunFeedbackTask(${t.id})`,
+          title: t.body.name,
+        },
+        i({ class: "fas fa-play me-1" }),
+        span({ class: "text-truncate d-inline-block", style: "max-width:120px;vertical-align:middle" }, t.body.name)
+      );
+    if (status === "Running")
+      return span(
+        { class: "badge bg-warning text-dark", title: t.body.name },
+        i({ class: "fas fa-spinner fa-spin me-1" }),
+        "Running"
+      );
+    if (status === "Done")
+      return span(
+        { class: "badge bg-success", title: t.body.name },
+        i({ class: "fas fa-check me-1" }),
+        "Done"
+      );
+    return span(
+      { class: "badge bg-danger", title: t.body.name },
+      status
+    );
+  };
+
   const processedSection = div(
     { class: "mt-4" },
     h5("Approved feedback"),
@@ -168,6 +213,17 @@ const feedbackViewsContent = async () => {
               { label: "Scope", key: (m) => scopeLabel(m.body.scope, phases) },
               { label: "Title", key: (m) => m.body.title },
               { label: "Description", key: (m) => m.body.description },
+              {
+                label: "Tasks",
+                key: (m) => {
+                  const tasks = tasksByTitle[m.body.title] || [];
+                  if (!tasks.length) return span({ class: "text-muted small" }, "—");
+                  return div(
+                    { class: "d-flex flex-column gap-1" },
+                    ...tasks.map(taskBadge)
+                  );
+                },
+              },
               {
                 label: "",
                 key: (r) =>
@@ -433,6 +489,19 @@ window.copilotSaveFeedbackEdit = () => {
       bootstrap.Modal.getInstance(document.getElementById('fb-edit-modal')).hide();
       refreshFeedbackViews();
     }
+  });
+};
+window.copilotRunFeedbackTask = (taskId) => {
+  const btn = document.getElementById('fb-task-run-btn-' + taskId);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+  view_post(safeViewName, 'run_task', { id: taskId }, () => {
+    const poll = () => {
+      view_post(safeViewName, 'task_status', { ids: [String(taskId)] }, (resp) => {
+        if (resp && resp.any_done) refreshFeedbackViews();
+        else setTimeout(poll, 3000);
+      });
+    };
+    setTimeout(poll, 3000);
   });
 };
 window.copilotShowProcessedFeedback = (id) => {

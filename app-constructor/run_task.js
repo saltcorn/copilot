@@ -204,22 +204,33 @@ ${md.body.description}`;
       user: safeReq.user,
     });
     const updatedRun = await WorkflowRun.findOne({ id: run_id });
-    const lastInteraction =
-      updatedRun.context.interactions[
-        updatedRun.context.interactions.length - 1
-      ];
-    const lastText =
-      typeof lastInteraction.content === "string"
-        ? lastInteraction.content
-        : lastInteraction.content.text
-        ? lastInteraction.content.text
-        : Array.isArray(lastInteraction.content)
-        ? lastInteraction.content[0].text
-        : lastInteraction.content;
+    const extractText = (content) => {
+      if (!content) return "";
+      if (typeof content === "string") return content;
+      if (typeof content === "object" && !Array.isArray(content) && content.text)
+        return content.text;
+      if (Array.isArray(content)) {
+        const tb = content.find((b) => b?.type === "text" && b?.text);
+        return tb?.text || "";
+      }
+      return "";
+    };
+    const interactions = updatedRun.context.interactions || [];
+    let lastText = "";
+    for (let i = interactions.length - 1; i >= 0; i--) {
+      const t = extractText(interactions[i]?.content);
+      if (t) { lastText = t; break; }
+    }
+    if (!lastText) lastText = md.body.description || md.body.name || "";
     await MetaData.create({
       type: "CopilotConstructMgr",
       name: "progress",
-      body: { text: lastText, run_id, task_id: md.id },
+      body: {
+        text: lastText,
+        run_id,
+        task_id: md.id,
+        phase_idx: md.body.phase_idx ?? null,
+      },
       user_id: req?.user?.id,
     });
     await md.update({ body: { ...md.body, status: "Done", run_id } });
@@ -289,11 +300,15 @@ ${md.body.description}`;
       }
     }
     try {
+      const phaseIdx = md.body.phase_idx;
       getState().emitDynamicUpdate(db.getTenantSchema(), {
         eval_js:
           "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();" +
           (isDataModel
             ? "if(typeof copilotRefreshSchema==='function')copilotRefreshSchema();"
+            : "") +
+          (phaseIdx != null
+            ? `if(typeof copilotRefreshPhaseProgress==='function')copilotRefreshPhaseProgress(${phaseIdx});`
             : ""),
       });
     } catch (_) {}
