@@ -152,6 +152,35 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
       }
     }
 
+    // SQL column-not-found: likely a modify_row trigger with a table-qualified key
+    if (!entityConfigSection) {
+      const colErr = (errorMd.body.error?.message || "").match(
+        /column "([^"]+)" of relation "([^"]+)" does not exist/
+      );
+      if (colErr) {
+        const tableName = colErr[2];
+        const matchedTable = tables.find((t) => t.name === tableName);
+        const modifyTriggers = triggers.filter(
+          (t) => t.table_id === matchedTable?.id && t.action === "modify_row"
+        );
+        if (modifyTriggers.length) {
+          entityConfigSection =
+            `\nThe error is a SQL column-not-found on table "${tableName}". ` +
+            `This is typically caused by a modify_row trigger whose row_expr returns a table-qualified key ` +
+            `(e.g. {"${tableName}.some_field": value}) — the dot is stripped by SQL sanitization, ` +
+            `producing an invalid column name. Relevant modify_row triggers:\n\n` +
+            modifyTriggers
+              .map(
+                (t) =>
+                  `Trigger "${t.name}" (when: ${t.when_trigger}):\n` +
+                  `Configuration: ${JSON.stringify(t.configuration, null, 2)}`
+              )
+              .join("\n\n") +
+            "\n";
+        }
+      }
+    }
+
     const cannot_fix_tool = {
       type: "function",
       function: {
