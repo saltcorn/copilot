@@ -42,20 +42,29 @@ for that plugin. Layout themes is Saltcorn are plugin modules.
 
 const existing_tables_list = (tables) => {
   const tableLines = [];
-  tables.forEach((table) => {
-    const fieldLines = table.fields.map(
-      (f) =>
-        `  * ${f.name} with type: ${f.pretty_type}.${
+  for (const table of tables) {
+    const fieldLines = [];
+    for (const f of table.fields) {
+      const attrs = [];
+      if (f.required) attrs.push("NOT NULL");
+      if (f.is_unique) attrs.push("unique");
+      const def = f.attributes?.default;
+      if (f.required && def !== undefined && def !== null && def !== "")
+        attrs.push(`default: ${JSON.stringify(def)}`);
+      const attrStr = attrs.length ? ` (${attrs.join(", ")})` : "";
+      fieldLines.push(
+        `  * ${f.name} with type: ${f.pretty_type}${attrStr}.${
           f.description ? ` ${f.description}` : ""
         }`
-    );
+      );
+    }
     tableLines.push(
       `${table.name}${
         table.description ? `: ${table.description}.` : "."
       } Contains the following fields:\n${fieldLines.join("\n")}`
     );
-  });
-  return `The database already contains the following tables: 
+  }
+  return `The database already contains the following tables:
 
 ${tableLines.join("\n\n")}`;
 };
@@ -232,19 +241,95 @@ Important schema/table rules:
 * Do NOT plan tasks to add uniqueness constraints or validation to existing fields — those are already in the schema.
 * Do NOT plan a standalone task for "access control", "row-level security", "permissions", or "roles". These are schema-level concerns already handled during schema design, or view-level concerns handled when building each view. The ownership field and sharing logic are already in the schema — there is nothing extra to configure as a separate task.`;
 
-const implementation_rules = `Important: JsCode server-mode views run on the server and must return an HTML string. The following globals are available: Table, View, User, File, db, user, req, state, markupTags, Actions, emitEvent, moment. The state object contains URL query parameters — use state.start_date, state.end_date etc. to read user inputs submitted via a GET form. Never use process.env, window, document, or fetch in server mode. Never return a { code: "..." } object — always return an HTML string. require() is NOT available — do not import lodash or any other module. Use moment or plain JavaScript Date for all date formatting and arithmetic.
+const implementation_rules = `Important: JsCode server-mode views run on the server and must return an HTML string.
+The following globals are available: Table, View, User, File, db, user, req, state, markupTags, Actions, emitEvent, moment.
+The state object contains URL query parameters — use state.start_date, state.end_date etc. to read user inputs submitted via a GET form.
+Never use process.env, window, document, or fetch in server mode. Never return a { code: "..." } object — always return an HTML string.
+require() is NOT available — do not import lodash or any other module. Use moment or plain JavaScript Date for all date formatting and arithmetic.
 
-Important: Saltcorn where-clause objects use nested operator objects — NEVER use space-separated key suffixes. Space-separated keys like \`"entry_date >="\` or \`"project_id in"\` are stripped by sqlSanitize (spaces are removed), producing invalid column names like \`entry_date>=\` or \`project_idin\` that crash Postgres. The correct operators are: \`{field: {gt: value}}\` for >, \`{field: {gt: value, equal: true}}\` for >=, \`{field: {lt: value}}\` for <, \`{field: {lt: value, equal: true}}\` for <=, \`{field: {in: [...array...]}}\` for IN (generates \`field = ANY($1)\`), \`{field: null}\` for IS NULL. This applies in both JsCode and workflow TableQuery steps.
+Important: Workflow TableQuery steps can only query user-created application tables.
+Internal Saltcorn system tables whose names start with _sc_ (such as _sc_files, _sc_triggers, _sc_views, _sc_pages, etc.)
+are NOT registered as application tables and will throw "Table X not found" at runtime if used in a TableQuery step.
 
-Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn. Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls. Only fields that exist as actual database columns (regular fields and stored calculated fields) can be written. If a calculated field needs updating, it will refresh automatically when the fields it depends on change.
+Important: After a page_to_pdf workflow step with to_file=true, the workflow context automatically contains
+pdf_file_id (the database id of the saved file) and pdf_path_to_serve.
+No extra run_js_code or TableQuery step is needed to look up the file — just use pdf_file_id directly in the following modify_row step.
 
-Important: Do NOT use the GoBack action for cancel buttons in Edit views. The GoBack action always calls history.back(), which breaks when the view is opened inside a popup modal. Instead, add a link segment with url set to the following JavaScript — it closes the Saltcorn modal (#scmodal) if one is open, and falls back to history.back() for standalone use: javascript:var m=document.getElementById('scmodal');var mi=m&&bootstrap.Modal.getInstance(m);if(mi)mi.hide();else history.back() — style it as btn btn-outline-secondary to match the standard cancel appearance.
+Important: Any export or output step (PDF generation, CSV export, email with attached data, etc.) reads the database at the moment it runs.
+It will only reflect rows that already exist at that point. Always place every export/output step AFTER all insert, update, and aggregate
+steps that produce the data it needs to include. The correct order is: (1) insert/update all rows, (2) compute and store aggregates,
+(3) export/output, (4) send notifications (if needed). Moving an export step earlier — for example right after inserting a parent row
+but before its child rows are inserted — will produce empty or incomplete output even though the data looks correct when viewed in the browser later.
 
-Important: In List view create_view_showif expressions (and any other showif / formula fields evaluated against the URL state), the variable \`state\` does NOT exist. The state object is passed as \`row\`, and each key of the state is also available as a bare variable. Use \`row.project_id\` or just \`project_id\` — never \`state.project_id\`.
+Important: The workflow step_type for running custom JavaScript is \`run_js_code\` (snake_case).
+Do NOT use \`RunJsCode\` or any PascalCase variant — those will throw "Action or trigger not found" at runtime.
+Built-in step types (TableQuery, ForLoop, SetContext, etc.) are PascalCase, but run_js_code is the exception and must always be written in snake_case.
 
-Important: A Saltcorn modify_row trigger has exactly these configuration fields: \`name\` (string), \`action\` = "modify_row", \`when_trigger\` ("Insert" or "Update" — NEVER "Validate"), optionally \`table_name\`, and \`configuration.row_expr\` — a single-line JS expression returning an object of field\u2192value pairs. Example: \`{hours: Math.round(parseFloat(hours) * 100) / 100}\`. Do NOT invent other formats (no \`match\`, \`actions\`, \`set\`, \`columns\` keys — those belong to other platforms). NEVER use \`when_trigger: "Validate"\` with modify_row — Validate fires before the row exists in the database so there is no id to update, causing a crash on insert. Use \`when_trigger: "Insert"\` to normalise on new rows, and a separate \`when_trigger: "Update"\` trigger if normalisation is also needed on edits. Keys in the row_expr object MUST be bare field names — NEVER table-qualified names like \`{"table_name.field_name": value}\`. Table-qualified names are silently mangled by SQL sanitization (the dot is stripped), producing a non-existent column name and a runtime error. Use only \`{field_name: value}\`.
+Important: Saltcorn where-clause objects use nested operator objects — NEVER use space-separated key suffixes.
+Space-separated keys like \`"entry_date >="\` or \`"project_id in"\` are stripped by sqlSanitize (spaces are removed),
+producing invalid column names like \`entry_date>=\` or \`project_idin\` that crash Postgres.
+The correct operators are: \`{field: {gt: value}}\` for >, \`{field: {gt: value, equal: true}}\` for >=,
+\`{field: {lt: value}}\` for <, \`{field: {lt: value, equal: true}}\` for <=,
+\`{field: {in: [...array...]}}\` for IN (generates \`field = ANY($1)\`), \`{field: null}\` for IS NULL.
+This applies in both JsCode and workflow TableQuery steps.
 
-Important: modify_row \`row_expr\` values and all other formula/expression fields are parsed as a single JavaScript expression by acorn. They MUST be written on one line — no literal newlines anywhere in the expression, including inside string literals. A literal newline inside a quoted string causes "Unterminated string constant" and crashes the trigger. Write the entire expression on a single line: \`{field1: expr1, field2: expr2}\`.`;
+Important: To add an action button to a Show view, add a segment directly into the \`layout.above\` array — do NOT add to the top-level \`actions\` array alone.
+The \`actions\` array is metadata only; it does NOT render any button.
+The layout segment that renders the button looks like: \`{"type": "action", "action_name": "trigger_name", "action_label": "Label", "action_style": "btn-primary", "confirm": true, "minRole": 40}\`.
+The \`action_name\` must exactly match the trigger's name. The \`actions\` array entry is optional and can be omitted entirely.
+
+Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn.
+Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls.
+Only fields that exist as actual database columns (regular fields and stored calculated fields) can be written.
+If a calculated field needs updating, it will refresh automatically when the fields it depends on change.
+
+Important: When a Show view needs to display related rows (e.g. an invoice showing its line items), embed a List view for those related rows — NOT an Edit view.
+Embedding an Edit view inside a Show view is almost never correct: it renders a form with inputs, save buttons, and date pickers inline in a read display.
+The only rare exception is an intentional inline-edit pattern where the user explicitly needs to edit related rows directly inside the parent Show view.
+For all other cases — displaying related data, print pages, dashboards — use a List view.
+If no suitable List view exists yet, plan a separate List view task for the related table and list it in depends_on before the Show view task.
+
+Important: Do NOT use the GoBack action for cancel buttons in Edit views. The GoBack action always calls history.back(),
+which breaks when the view is opened inside a popup modal. Instead, add a link segment with url set to the following JavaScript —
+it closes the Saltcorn modal (#scmodal) if one is open, and falls back to history.back() for standalone use:
+javascript:var m=document.getElementById('scmodal');var mi=m&&bootstrap.Modal.getInstance(m);if(mi)mi.hide();else history.back()
+— style it as btn btn-outline-secondary to match the standard cancel appearance.
+
+Important: In List view create_view_showif expressions (and any other showif / formula fields evaluated against the URL state),
+the variable \`state\` does NOT exist. The state object is passed as \`row\`, and each key of the state is also available as a bare variable.
+Use \`row.project_id\` or just \`project_id\` — never \`state.project_id\`.
+
+Important: A Saltcorn modify_row trigger has exactly these configuration fields:
+\`name\` (string), \`action\` = "modify_row", \`when_trigger\` ("Insert" or "Update" — NEVER "Validate"), optionally \`table_name\`,
+and \`configuration.row_expr\` — a single-line JS expression returning an object of field\u2192value pairs.
+Example: \`{hours: Math.round(parseFloat(hours) * 100) / 100}\`.
+Do NOT invent other formats (no \`match\`, \`actions\`, \`set\`, \`columns\` keys — those belong to other platforms).
+NEVER use \`when_trigger: "Validate"\` with modify_row — Validate fires before the row exists in the database so there is no id to update,
+causing a crash on insert. Use \`when_trigger: "Insert"\` to normalise on new rows, and a separate \`when_trigger: "Update"\` trigger
+if normalisation is also needed on edits.
+Keys in the row_expr object MUST be bare field names — NEVER table-qualified names like \`{"table_name.field_name": value}\`.
+Table-qualified names are silently mangled by SQL sanitization (the dot is stripped), producing a non-existent column name and a runtime error.
+Use only \`{field_name: value}\`.
+
+Important: modify_row \`row_expr\` values and all other formula/expression fields are parsed as a single JavaScript expression by acorn.
+They MUST be written on one line — no literal newlines anywhere in the expression, including inside string literals.
+A literal newline inside a quoted string causes "Unterminated string constant" and crashes the trigger.
+Write the entire expression on a single line: \`{field1: expr1, field2: expr2}\`.
+This single-line rule applies ONLY to \`row_expr\` and similar single-expression fields — NOT to \`run_js_code\` steps in workflows.
+Workflow \`run_js_code\` code is a full JavaScript function body and must use real newlines (encoded as \`\\n\` in JSON).
+Never write literal backslash-n (\`\\\\n\`) inside \`run_js_code\` code to simulate newlines — vm2 will reject it with "Expecting Unicode escape sequence".
+
+Important: In workflow TerminateWorkflow steps, the "return value" / error message field is evaluated as a JavaScript expression — it is NOT plain text.
+Always wrap the message in quotes: \`"No billable hours found."\`. A bare unquoted sentence causes a SyntaxError at runtime.
+
+Important: When a workflow step inserts a row (e.g. \`insert_any_row\`, \`upsert_one\`), the row expression MUST include a value for every NOT NULL field
+(marked as NOT NULL in the table listing above) that has no database default.
+A NOT NULL field that has a default value (shown as "default: X" in the table listing) can be safely omitted — the database will fill it in automatically.
+Omitting a NOT NULL field causes a "null value in column X violates not-null constraint" error at runtime.
+If the real value is computed in a later step (e.g. a total calculated after inserting line items), supply a safe placeholder —
+\`0\` for numeric fields, \`''\` for text — so the initial insert succeeds, then update the row in the subsequent step.
+Exception: File-type fields hold a file ID and cannot be given a placeholder value — always declare File fields as \`required: false\` (nullable)
+unless the file is guaranteed to exist at the moment the row is first inserted.`;
 
 const fieldview_selection_rules = `For numeric fields (Integer, Float, Money, Decimal) the default fieldview is "edit" — a plain text input. \
 Only use a specialised numeric fieldview (e.g. "number_slider", "range", "spin") when it is clearly appropriate for the data: \

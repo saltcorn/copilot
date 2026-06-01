@@ -20,7 +20,7 @@ const {
 const { mkTable } = require("@saltcorn/markup");
 const { getState, features } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
-const { viewname, tool_choice } = require("./common");
+const { viewname, tool_choice, get_installed_plugins_section } = require("./common");
 const { getResearchAnswersText } = require("./research");
 const {
   research_answers_section,
@@ -566,10 +566,13 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
   const allDone = tasks.length > 0 && !hasTodo && !isRunning && !runningTask;
 
   const genLabel = tasks.length ? "Regenerate" : "Generate tasks";
+  const genOnclick = tasks.length
+    ? `if(confirm('Regenerate tasks? This will replace the existing tasks.')) generatePhaseTasks(${phaseIdx},'${taskType}')`
+    : `generatePhaseTasks(${phaseIdx},'${taskType}')`;
   const genBtn = button(
     {
       class: `btn btn-primary btn-sm${tasks.length ? " ms-auto" : ""}`,
-      onclick: `generatePhaseTasks(${phaseIdx},'${taskType}')`,
+      onclick: genOnclick,
     },
     i({ class: "fas fa-magic me-1" }),
     genLabel
@@ -869,7 +872,9 @@ const phaseProgressHtml = async (idx) => {
     button(
       {
         class: "btn btn-outline-danger btn-sm mt-2",
-        onclick: `view_post(${JSON.stringify(viewname)}, 'del_phase_progress', {idx:${idx}}, () => copilotRefreshPhaseProgress(${idx}))`,
+        onclick: `view_post(${JSON.stringify(
+          viewname
+        )}, 'del_phase_progress', {idx:${idx}}, () => copilotRefreshPhaseProgress(${idx}))`,
       },
       "Delete all"
     )
@@ -1206,12 +1211,13 @@ const doGenPhaseTasks = async (
         "\nCritical: for data_model tasks, only create tables and fields directly required by the requirements of THIS phase. Do not anticipate future phases or add tables speculatively.";
     }
 
+    const installedPluginsSection = await get_installed_plugins_section();
     let storePluginsSection = "";
     if (isPlugin) {
       try {
+        const allInstalled = await Plugin.find({});
+        const installedNames = new Set(allInstalled.map((p) => p.name));
         const available = await Plugin.store_plugins_available();
-        const installed = await Plugin.find({});
-        const installedNames = new Set(installed.map((p) => p.name));
         if (available?.length) {
           storePluginsSection =
             "\nThe following plugins are available in the Saltcorn plugin store:\n" +
@@ -1222,12 +1228,10 @@ const doGenPhaseTasks = async (
               .join("\n") +
             "\n";
         }
-        if (installedNames.size) {
-          storePluginsSection +=
-            "\nThe following plugins are already installed — do NOT plan tasks to install them again:\n" +
-            [...installedNames].map((n) => `- ${n}`).join("\n") +
-            "\n";
-        }
+        storePluginsSection +=
+          "\nThe following plugins are already installed — do NOT plan tasks to install them again:\n" +
+          [...installedNames].map((n) => `- ${n}`).join("\n") +
+          "\n";
       } catch (_) {}
     }
 
@@ -1248,8 +1252,10 @@ Plan only the tasks needed to implement the requirements listed above. Do not pl
 Important: Do NOT plan any task that creates a Roles table, a permissions table, or any table describing what roles are allowed to do. Saltcorn has a built-in role system (1=admin, 40=staff, 80=user, 100=public) and every entity (view, page, table) already has a min_role property for access control. There is nothing to store in the database — access control is configured on each entity directly.
 ${typeInstruction}
 ${storePluginsSection}${
-        existingTablesSection ? "\n" + existingTablesSection + "\n" : ""
-      }${entitiesSection ? "\n" + entitiesSection + "\n" : ""}
+        installedPluginsSection ? "\n" + installedPluginsSection + "\n" : ""
+      }${existingTablesSection ? "\n" + existingTablesSection + "\n" : ""}${
+        entitiesSection ? "\n" + entitiesSection + "\n" : ""
+      }
 ${isFeature ? task_planning_rules : ""}
 
 ${task_planning_closing}
@@ -1626,13 +1632,7 @@ const phase_progress_html = async (
   return { json: { html } };
 };
 
-const del_phase_progress = async (
-  table_id,
-  vn,
-  config,
-  body,
-  { req, res }
-) => {
+const del_phase_progress = async (table_id, vn, config, body, { req, res }) => {
   const idx = parseInt(body.idx);
   const all = await MetaData.find({
     type: "CopilotConstructMgr",

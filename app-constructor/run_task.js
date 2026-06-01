@@ -12,8 +12,8 @@ const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
 const User = require("@saltcorn/data/models/user");
 const { getState } = require("@saltcorn/data/db/state");
-const { viewname } = require("./common");
-const { implementation_rules } = require("./prompts");
+const { viewname, get_installed_plugins_section } = require("./common");
+const { implementation_rules, existing_tables_list } = require("./prompts");
 
 /**
  * @param {number} md_id - MetaData id of the task to run
@@ -100,7 +100,9 @@ Important: Before creating or updating any view or page that embeds, links to, o
 
 Important: A plain Edit view creates or edits a single record — it is NOT a bulk CSV import tool. Never use an Edit view as a solution for CSV import. List views have no built-in CSV export feature — do not add an export button or column to a List view. CSV import and export functionality must always be placed on a dedicated management or admin page as embedded views, using whatever import/export viewtemplate is available.
 
-Important: Every HTML page (page_type HTML) must include a toast notification area so that alerts and success messages are visible. Place this div just before the closing </body> tag: <div id="toasts-area" class="toast-container position-fixed top-0 start-50 p-0" style="z-index:999;" aria-live="polite" aria-atomic="true"></div>`;
+Important: Every HTML page (page_type HTML) must include a toast notification area so that alerts and success messages are visible. Place this div just before the closing </body> tag: <div id="toasts-area" class="toast-container position-fixed top-0 start-50 p-0" style="z-index:999;" aria-live="polite" aria-atomic="true"></div>
+
+CRITICAL: When creating a page, default to page_type "Layout page". This creates a proper Saltcorn layout built from segments (view embeds, containers, columns, etc.) and is the correct choice for dashboards, print pages, and any page that embeds views. Use page_type "Marketing page" only for public-facing promotional pages (landing pages, brochures). Use page_type "Application page" only for standalone HTML pages that do not embed Saltcorn views. In particular, NEVER use "Marketing page" or "Application page" for any page used with page_to_pdf — page_to_pdf cannot render HTML-backed pages. If you find yourself about to write raw HTML (<!doctype>, <html>, <head>, <body>), stop and ask yourself: does this task explicitly require a standalone HTML page — like a public landing page, a marketing page, or a dashboard? If not, use page_type "Layout page". Do not output HTML to the conversation.`;
 
   const dataModelRules = `Important: If this task requires creating custom platform roles (beyond the four built-in roles: 1=admin, 40=staff, 80=user, 100=public), use the Registry editor: call set_entity with entity_type "role" and the role definition. Do NOT create a user-defined database table for roles — platform roles are a system concern, not application data.
 
@@ -116,12 +118,13 @@ Important: Email and SMTP configuration (host, port, credentials, sender address
 
 Important: Every tool call must contain only the final, complete result — never intermediate reasoning, planning notes, or placeholder values. Compose the full schema in your reasoning first, then pass only the finished result to the tool.`;
 
+  const installedPluginsSection = await get_installed_plugins_section();
   let storePluginsSection = "";
   if (isPlugin) {
     try {
+      const allInstalled = await Plugin.find({});
+      const installedNames = new Set(allInstalled.map((p) => p.name));
       const available = await Plugin.store_plugins_available();
-      const installed = await Plugin.find({});
-      const installedNames = new Set(installed.map((p) => p.name));
       if (available?.length) {
         storePluginsSection =
           "\nThe following plugins are available in the Saltcorn plugin store:\n" +
@@ -132,27 +135,13 @@ Important: Every tool call must contain only the final, complete result — neve
             .join("\n") +
           "\n";
       }
-      if (installedNames.size) {
-        storePluginsSection +=
-          "\nThe following plugins are already installed — do NOT install them again:\n" +
-          [...installedNames].map((n) => `- ${n}`).join("\n") +
-          "\n";
-      }
+      storePluginsSection +=
+        "\nThe following plugins are already installed — do NOT install them again:\n" +
+        [...installedNames].map((n) => `- ${n}`).join("\n") +
+        "\n";
     } catch (_) {}
   }
 
-  const prompt = `You are engaged in building the following application:
-
-${spec.body.specification}
-
-${schemaRule}
-${storePluginsSection}
-${isPlugin ? "" : isDataModel ? dataModelRules : featureRules}
-
-Important: Every tool call must contain only the final, complete result — never intermediate reasoning, planning notes, markdown code fences, TODO comments, or placeholder text. Compose the full content in your reasoning first, then pass only the finished result to the tool. A page or view that contains any of these is broken and will be visible to end users exactly as written.
-
-Your task now is:
-${md.body.description}`;
   const safeReq =
     req?.__ && req?.getLocale
       ? req
@@ -163,10 +152,29 @@ ${md.body.description}`;
           user: req?.user,
         };
 
-  const tableNamesBefore = isDataModel
-    ? new Set((await Table.find({})).map((t) => t.name))
-    : null;
   const isFeature = taskType === "feature";
+  const tables = await Table.find({});
+  const tablesSection = isFeature ? existing_tables_list(tables) : "";
+  const tableNamesBefore = isDataModel
+    ? new Set(tables.map((t) => t.name))
+    : null;
+
+  const prompt = `You are engaged in building the following application:
+
+${spec.body.specification}
+
+${schemaRule}
+${storePluginsSection}${
+    installedPluginsSection ? installedPluginsSection + "\n" : ""
+  }
+${tablesSection ? tablesSection + "\n\n" : ""}${
+    isPlugin ? "" : isDataModel ? dataModelRules : featureRules
+  }
+
+Important: Every tool call must contain only the final, complete result — never intermediate reasoning, planning notes, markdown code fences, TODO comments, or placeholder text. Compose the full content in your reasoning first, then pass only the finished result to the tool. A page or view that contains any of these is broken and will be visible to end users exactly as written.
+
+Your task now is:
+${md.body.description}`;
   const viewNamesBefore =
     isFeature && md.body.phase_idx !== undefined
       ? new Set((await View.find({})).map((v) => v.name))

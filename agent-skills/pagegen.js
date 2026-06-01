@@ -136,10 +136,72 @@ class GeneratePageSkill {
       postProcess: async ({ tool_call, generate, req }) => {
         const version_tag = db.connectObj.version_tag;
         const asset = (name) => `/static_assets/${version_tag}/${name}`;
-        const str = await generate(
-          `Generate the complete HTML for the ${
-            tool_call.input.name
-          } page. Your response must be the raw HTML document only — no explanatory text before or after, no markdown code fences, no reasoning, no placeholder comments. The output is saved and rendered directly to users without any review step, so anything you write outside valid HTML will be visible on the page.
+        const { name, title, description, min_role, page_type } =
+          tool_call.input;
+
+        if (page_type === "Layout page") {
+          const str = await generate(
+            `Generate the Saltcorn layout JSON for the ${name} page. ` +
+              `Your response must be a single valid JSON object — no explanatory text, no markdown fences, no reasoning. ` +
+              `\n\nThe layout is a tree of segments. The top-level object is:\n` +
+              `  {"above": [...segments...]}  — stack items vertically\n` +
+              `or:\n` +
+              `  {"besides": [...segments...], "widths": [6,6]}  — place side by side (widths must sum to 12)\n` +
+              `\nAvailable segment types:\n` +
+              `- Embed a view (receives page URL state, e.g. id):  {"type":"view","view":"viewname","state":"shared"}\n` +
+              `  Use state "shared" whenever the embedded view needs variables from the page URL (such as id for a Show view).\n` +
+              `  To pass only specific variables, add extra_state_fml: {"type":"view","view":"viewname","state":"shared","extra_state_fml":"{id: id}"}\n` +
+              `- HTML block:         {"type":"blank","isHTML":true,"contents":"<p>html</p>"}\n` +
+              `- Text block:         {"type":"blank","contents":"plain text"}\n` +
+              `- Container/wrapper:  {"type":"container","customClass":"p-3","htmlElement":"div","contents":{segment}}\n` +
+              `- Vertical stack:     {"above":[{segment},{segment}]}\n` +
+              `- Horizontal split:   {"besides":[{segment},{segment}],"widths":[8,4]}\n`
+          );
+          const jsonStr = str.includes("```json")
+            ? str.split("```json")[1].split("```")[0]
+            : str.includes("```")
+            ? str.split("```")[1].split("```")[0]
+            : str;
+          let layout;
+          try {
+            layout = JSON.parse(jsonStr.trim());
+          } catch (e) {
+            return {
+              stop: true,
+              add_response: `Error parsing layout JSON for ${name}: ${e.message}`,
+            };
+          }
+          if (this.yoloMode) {
+            const existingPage = await Page.findOne({ name });
+            if (existingPage) {
+              await Page.update(existingPage.id, {
+                title,
+                description,
+                min_role: min_role ?? 100,
+                layout,
+              });
+            } else {
+              await Page.create({
+                name,
+                title,
+                description,
+                min_role: min_role ?? 100,
+                layout,
+              });
+            }
+            setTimeout(() => getState().refresh_pages(), 200);
+            return {
+              stop: true,
+              add_response: `Page ${name} created.`,
+            };
+          }
+          return {
+            stop: true,
+            add_response: `Page ${name} layout generated (preview not available for layout pages).`,
+          };
+        } else {
+          const str = await generate(
+            `Generate the complete HTML for the ${name} page. Your response must be the raw HTML document only — no explanatory text before or after, no markdown code fences, no reasoning, no placeholder comments. The output is saved and rendered directly to users without any review step, so anything you write outside valid HTML will be visible on the page.
 
  If I asked you to embed a view, use the <embed-view> self-closing tag to do so, setting the view name in the viewname attribute. For example,
  to embed the view LeadForm inside a div, write: <div><embed-view viewname="LeadForm"></div>
@@ -157,44 +219,45 @@ class GeneratePageSkill {
  <script src="${asset("saltcorn-common.js")}"></script>
  <script src="${asset("saltcorn.js")}"></script>
 `
-        );
-        const html = str.includes("```html")
-          ? str.split("```html")[1].split("```")[0]
-          : str;
+          );
+          const html = str.includes("```html")
+            ? str.split("```html")[1].split("```")[0]
+            : str;
 
-        if (this.yoloMode) {
-          await this.userActions.build_copilot_page_gen({
-            user: req?.user,
-            name: tool_call.input.name,
-            title: tool_call.input.title,
-            description: tool_call.input.description,
-            min_role: tool_call.input.min_role ?? 100,
-            html,
-          });
+          if (this.yoloMode) {
+            await this.userActions.build_copilot_page_gen({
+              user: req?.user,
+              name,
+              title,
+              description,
+              min_role: min_role ?? 100,
+              html,
+            });
+            return {
+              stop: true,
+              add_response: `Page ${name} created.`,
+            };
+          }
           return {
             stop: true,
-            add_response: `Page ${tool_call.input.name} created.`,
-          };
-        }
-        return {
-          stop: true,
-          add_response: iframe({
-            srcdoc: text_attr(html),
-            width: 500,
-            height: 800,
-          }),
-          add_system_prompt: `If the user asks you to regenerate the page,
+            add_response: iframe({
+              srcdoc: text_attr(html),
+              width: 500,
+              height: 800,
+            }),
+            add_system_prompt: `If the user asks you to regenerate the page,
           you must run the generate_page tool again. After running this tool
           you will be prompted to generate the html again. You should repeat
           the html from the previous answer except for the changes the user
           is requesting.`,
-          add_user_action: {
-            name: "build_copilot_page_gen",
-            type: "button",
-            label: "Save page " + tool_call.input.name,
-            input: { html },
-          },
-        };
+            add_user_action: {
+              name: "build_copilot_page_gen",
+              type: "button",
+              label: "Save page " + name,
+              input: { html },
+            },
+          };
+        }
       },
 
       /*renderToolCall({ phrase }, { req }) {
@@ -245,9 +308,9 @@ class GeneratePageSkill {
             },
             page_type: {
               description:
-                "The type of page to generate: a Marketing page if for promotional purposes, such as a landing page or a brouchure, with an appealing design. An Application page is simpler and an integrated part of the application",
+                "The type of page to generate. Use 'Layout page' for any page that is part of the application (dashboards, print pages, data pages, pages that embed views) — this creates a proper Saltcorn layout page. Use 'Marketing page' for public-facing promotional pages such as landing pages or brochures. Use 'Application page' only for standalone HTML pages that are part of the app but do not embed Saltcorn views.",
               type: "string",
-              enum: ["Marketing page", "Application page"],
+              enum: ["Layout page", "Marketing page", "Application page"],
             },
           },
         },

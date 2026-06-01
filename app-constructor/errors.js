@@ -17,6 +17,7 @@ const {
   a,
   span,
   small,
+  text,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
@@ -417,7 +418,7 @@ const errorList = async (req) => {
                 const urlLine = err.url
                   ? div(
                       { class: "text-muted", style: "font-size:0.75rem" },
-                      err.url
+                      text(String(err.url))
                     )
                   : "";
                 const stackLines = (err.stack || "").split("\n").slice(0, 5);
@@ -427,12 +428,12 @@ const errorList = async (req) => {
                         style:
                           "font-size:0.72rem;white-space:pre-wrap;overflow-wrap:break-word;margin:4px 0 0;",
                       },
-                      stackLines.join("\n")
+                      text(stackLines.join("\n"))
                     )
                   : "";
                 return div(
                   { style: "word-break:break-word;min-width:0;" },
-                  div({ class: "fw-semibold small" }, msg),
+                  div({ class: "fw-semibold small" }, text(msg)),
                   urlLine,
                   stackPreview
                 );
