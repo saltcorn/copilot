@@ -12,8 +12,12 @@ const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
 const User = require("@saltcorn/data/models/user");
 const { getState } = require("@saltcorn/data/db/state");
-const { viewname, get_installed_plugins_section } = require("./common");
-const { implementation_rules, existing_tables_list } = require("./prompts");
+const { viewname } = require("./common");
+const {
+  implementation_rules,
+  existing_tables_list,
+  installed_plugins_list,
+} = require("./prompts");
 
 /**
  * @param {number} md_id - MetaData id of the task to run
@@ -118,7 +122,10 @@ Important: Email and SMTP configuration (host, port, credentials, sender address
 
 Important: Every tool call must contain only the final, complete result — never intermediate reasoning, planning notes, or placeholder values. Compose the full schema in your reasoning first, then pass only the finished result to the tool.`;
 
-  const installedPluginsSection = await get_installed_plugins_section();
+  const allInstalled = await Plugin.find({});
+  const installedPluginsSection = installed_plugins_list(
+    new Set(allInstalled.map((p) => p.name))
+  );
   let storePluginsSection = "";
   if (isPlugin) {
     try {

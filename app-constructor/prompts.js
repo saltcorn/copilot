@@ -40,33 +40,29 @@ they need to be installed before they can be used. A plugin may also have a conf
 for that plugin. Layout themes is Saltcorn are plugin modules.
 `;
 
-const existing_tables_list = (tables) => {
-  const tableLines = [];
-  for (const table of tables) {
-    const fieldLines = [];
-    for (const f of table.fields) {
-      const attrs = [];
-      if (f.required) attrs.push("NOT NULL");
-      if (f.is_unique) attrs.push("unique");
-      const def = f.attributes?.default;
-      if (f.required && def !== undefined && def !== null && def !== "")
-        attrs.push(`default: ${JSON.stringify(def)}`);
-      const attrStr = attrs.length ? ` (${attrs.join(", ")})` : "";
-      fieldLines.push(
-        `  * ${f.name} with type: ${f.pretty_type}${attrStr}.${
-          f.description ? ` ${f.description}` : ""
-        }`
-      );
-    }
-    tableLines.push(
-      `${table.name}${
-        table.description ? `: ${table.description}.` : "."
-      } Contains the following fields:\n${fieldLines.join("\n")}`
-    );
-  }
-  return `The database already contains the following tables:
+const format_table_entry = (table) => {
+  const fieldLines = (table.fields || []).map((f) => {
+    const attrs = [];
+    if (f.required) attrs.push("NOT NULL");
+    if (f.is_unique) attrs.push("unique");
+    const def = f.attributes?.default;
+    if (f.required && def !== undefined && def !== null && def !== "")
+      attrs.push(`default: ${JSON.stringify(def)}`);
+    const attrStr = attrs.length ? ` (${attrs.join(", ")})` : "";
+    return `  * ${f.name} with type: ${f.pretty_type}${attrStr}.${
+      f.description ? ` ${f.description}` : ""
+    }`;
+  });
+  return `${table.name}${
+    table.description ? `: ${table.description}.` : "."
+  } Contains the following fields:\n${fieldLines.join("\n")}`;
+};
 
-${tableLines.join("\n\n")}`;
+const existing_tables_list = (tables) => {
+  if (!tables.length) return "";
+  return `The database already contains the following tables:\n\n${tables
+    .map(format_table_entry)
+    .join("\n\n")}`;
 };
 
 const existing_entities_list = ({ views, triggers, pages, tableById = {} }) => {
@@ -115,28 +111,6 @@ const existing_entities_list = ({ views, triggers, pages, tableById = {} }) => {
   return sections.join("\n\n");
 };
 
-const installed_plugins_list = (installedNames) => {
-  const state = getState();
-  const lines = [];
-  for (const name of installedNames) {
-    const resolvedName = state.plugin_module_names[name] || name;
-    const mod = state.plugins[resolvedName];
-    if (!mod) continue;
-    const contents = mod.contents;
-    const description = mod.description;
-    if (!contents && !description) continue;
-    let line = `### ${name}`;
-    if (description) line += `\n${description}`;
-    if (contents) line += `\n${contents}`;
-    lines.push(line);
-  }
-  if (!lines.length) return "";
-  return (
-    `The following plugins are already installed and their viewtemplates, field types, and actions are available for use:\n\n` +
-    lines.join("\n\n")
-  );
-};
-
 const available_plugins_list = (storePlugins, installedNames) => {
   const uninstalled = storePlugins.filter((p) => !installedNames.has(p.name));
   if (!uninstalled.length) return "";
@@ -155,6 +129,31 @@ const available_plugins_list = (storePlugins, installedNames) => {
   );
 };
 
+const installed_plugins_list = (installedNames, storePlugins = []) => {
+  const state = getState();
+  const storeByName = Object.fromEntries(storePlugins.map((p) => [p.name, p]));
+  const lines = [];
+  for (const name of installedNames) {
+    const resolvedName = state.plugin_module_names[name] || name;
+    const mod = state.plugins[resolvedName];
+    const storePlugin = storeByName[name];
+    const app_constructor_rules = mod?.app_constructor_rules;
+    const description = mod?.description || storePlugin?.description;
+    const contents = storePlugin?.contents;
+    if (!description && !contents && !app_constructor_rules) continue;
+    let line = `### ${name}`;
+    if (description) line += `\n${description}`;
+    if (contents) line += `\n${contents}`;
+    if (app_constructor_rules) line += `\n${app_constructor_rules}`;
+    lines.push(line);
+  }
+  if (!lines.length) return "";
+  return (
+    `The following plugins are already installed and their viewtemplates, field types, and actions are available for use:\n\n` +
+    lines.join("\n\n")
+  );
+};
+
 const research_answers_section = (text) =>
   text
     ? `\nThe user was asked clarifying questions about the application. Here are the questions and their answers:\n\n${text}\n`
@@ -168,6 +167,7 @@ Important trigger planning rules:
 * Do NOT mention "navigate back" or "return to context" in trigger task descriptions. Navigation is configured at the view level (GoBack button), not inside a trigger.
 * If a trigger should be accessible as a button in a view, prefer two separate tasks: (1) a task that creates the trigger, (2) a task that updates the existing view to add an action segment with action_name set to the trigger's name — this second task must depend on the first. Only combine them into one task when the view is being created for the first time in the same plan (i.e. the view does not yet exist), in which case the single view-creation task must also add the action button and depend on the trigger task.
 * Do NOT plan any task that uses run_bash_script or executes shell commands. If a requirement seems to need a shell command (e.g. file conversion, PDF generation, sending email), look for a Saltcorn plugin or built-in action that covers it instead.
+* Only reference a plugin when no built-in action, field type, or view template covers the requirement. Inserting rows, updating fields, looping, computing aggregates, and running conditional logic are all covered by built-in workflow steps — only reach for a plugin when there is no built-in equivalent. For example, do NOT use the 'sql' plugin to insert rows or compute totals — use built-in workflow steps instead.
 * Do NOT plan any task that writes to a virtual (read-only) calculated field. Virtual fields are computed automatically and cannot be stored — any trigger or workflow that tries to update them will be refused. If you find yourself planning a trigger to keep a calculated field "current", delete that task — the field already updates itself.
 
 Important existing-entity rules:
@@ -364,6 +364,7 @@ module.exports = {
   saltcorn_description,
   implementation_rules,
   fieldview_selection_rules,
+  format_table_entry,
   existing_tables_list,
   existing_entities_list,
   installed_plugins_list,

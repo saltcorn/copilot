@@ -20,12 +20,15 @@ const {
 const { mkTable } = require("@saltcorn/markup");
 const { getState, features } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
-const { viewname, tool_choice, get_installed_plugins_section } = require("./common");
+const { viewname, tool_choice } = require("./common");
 const { getResearchAnswersText } = require("./research");
 const {
   research_answers_section,
+  format_table_entry,
   existing_tables_list,
   existing_entities_list,
+  installed_plugins_list,
+  available_plugins_list,
   task_planning_rules,
   task_planning_closing,
 } = require("./prompts");
@@ -118,7 +121,7 @@ window.openPhaseDetail = function(idx) {
 
       for (const tt of ['plugin', 'data_model', 'feature']) {
         view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: tt }, (resp) => {
-          if (resp && resp.generating) phaseTasksPoll(idx, tt);
+          if (resp && resp.generating && !window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, tt);
         });
         if (!window.dynamic_updates_cfg?.enabled) {
           view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
@@ -213,7 +216,7 @@ function phaseTasksPoll(idx, taskType) {
       } else setTimeout(poll, 3000);
     });
   };
-  if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
+  setTimeout(poll, 3000);
 }
 
 window.generatePhaseTasks = function(idx, taskType) {
@@ -225,7 +228,7 @@ window.generatePhaseTasks = function(idx, taskType) {
   if (hasTasks && !confirm('Regenerate tasks? This will delete all existing tasks in this tab.')) return;
   if (el) el.innerHTML = '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating tasks, please wait...</p>';
   view_post(_phasesVn, 'generate_phase_tasks', { idx, task_type: taskType }, () => {});
-  phaseTasksPoll(idx, taskType);
+  if (!window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, taskType);
 };
 
 window.copilotPhaseTasksDone = function(idx) {
@@ -780,6 +783,13 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
       });
       if (markers.some((m) => m.body?.phase_idx === phaseIdx))
         emptyMsg = "No plugin installations needed for this phase.";
+    } else if (taskType === "data_model") {
+      const markers = await MetaData.find({
+        type: "CopilotConstructMgr",
+        name: "phase_data_model_generated",
+      });
+      if (markers.some((m) => m.body?.phase_idx === phaseIdx))
+        emptyMsg = "No schema changes needed for this phase.";
     }
     return statusBar + p({ class: "text-muted small mt-2" }, emptyMsg);
   }
@@ -997,17 +1007,7 @@ const buildGroupedTablesSection = async (userTables, currentPhaseIdx) => {
     }
   }
 
-  const formatTables = (tables) =>
-    tables
-      .map((t) => {
-        const fields = (t.fields || [])
-          .map((f) => `  * ${f.name} with type: ${f.pretty_type}.`)
-          .join("\n");
-        return `${t.name}${
-          t.description ? `: ${t.description}.` : "."
-        }\n${fields}`;
-      })
-      .join("\n\n");
+  const formatTables = (tables) => tables.map(format_table_entry).join("\n\n");
 
   const sections = [];
   const sortedIdxs = Object.keys(phaseGroups)
@@ -1111,13 +1111,7 @@ Now call the set_phases tool with your phases and their grouped requirements.`,
 // ── Task generation for a phase ───────────────────────────────────────────────
 
 // taskType: "data_model" | "feature" | null (null = generate both)
-const doGenPhaseTasks = async (
-  phaseIdx,
-  phase,
-  spec,
-  userId,
-  taskType = null
-) => {
+const doGenPhaseTasks = async (phaseIdx, phase, spec, userId, taskType) => {
   const generatingMd = await MetaData.create({
     type: "CopilotConstructMgr",
     name: "generating_phase_tasks",
@@ -1137,19 +1131,17 @@ const doGenPhaseTasks = async (
 
     // For feature-only regen, pass existing data_model task names for depends_on context
     const existingDmNames = phaseTasks
-      .filter((t) => (t.body.task_type || "feature") === "data_model")
+      .filter((t) => t.body.task_type === "data_model")
       .map((t) => t.body.name)
       .filter(Boolean);
 
-    const isPlugin = taskType === "plugin" || taskType === null;
-    const isFeature = taskType === "feature" || taskType === null;
-    const isDataModel = taskType === "data_model" || taskType === null;
+    const isPlugin = taskType === "plugin";
+    const isFeature = taskType === "feature";
 
     // Always load existing tables so data_model tasks don't recreate them
     const allTables = await Table.find({});
-    const userTables = allTables.filter((t) => !t.name.startsWith("_sc_"));
     const existingTablesSection = await buildGroupedTablesSection(
-      userTables,
+      allTables,
       phaseIdx
     );
 
@@ -1183,6 +1175,7 @@ const doGenPhaseTasks = async (
         "\n- Will the application deal with physical locations, addresses, or maps? → a map plugin will be needed" +
         "\n- Will users upload or attach files or images? → a file upload plugin will be needed" +
         "\nFor each need you identify, check the available plugin list above for a matching plugin that is not already installed, and plan a task for it." +
+        "\nCritical: only plan a plugin installation task when the built-in actions, field types, and view templates genuinely cannot cover the requirement. Inserting rows, updating fields, running workflow steps, and computing aggregates are all covered by built-in workflow actions — only install a plugin when no built-in equivalent exists. For example, do NOT install the 'sql' plugin to insert rows or compute totals — use built-in workflow steps instead." +
         "\nEach task installs exactly one plugin. If no plugins are needed, call plan_tasks with an empty tasks array.";
     } else if (taskType === "data_model") {
       typeInstruction =
@@ -1201,39 +1194,32 @@ const doGenPhaseTasks = async (
               ", "
             )}`
           : "");
-    } else {
-      typeInstruction =
-        "\n\nSet task_type on every task:\n" +
-        '- "plugin" for tasks that install a plugin from the Saltcorn plugin store. Only include plugin tasks if the requirements genuinely need functionality not built into Saltcorn.\n' +
-        '- "data_model" for tasks that create or modify database tables or fields.\n' +
-        '- "feature" for tasks that create views, pages, triggers, or workflows.\n' +
-        "Order tasks: plugin tasks first, then data_model, then feature.\n" +
-        "\nCritical: for data_model tasks, only create tables and fields directly required by the requirements of THIS phase. Do not anticipate future phases or add tables speculatively.";
     }
 
-    const installedPluginsSection = await get_installed_plugins_section();
     let storePluginsSection = "";
-    if (isPlugin) {
-      try {
-        const allInstalled = await Plugin.find({});
-        const installedNames = new Set(allInstalled.map((p) => p.name));
-        const available = await Plugin.store_plugins_available();
-        if (available?.length) {
-          storePluginsSection =
-            "\nThe following plugins are available in the Saltcorn plugin store:\n" +
-            available
-              .map(
-                (p) => `- ${p.name}${p.description ? `: ${p.description}` : ""}`
-              )
-              .join("\n") +
-            "\n";
-        }
+    let installedPluginsSection = "";
+    try {
+      const allInstalled = await Plugin.find({});
+      const installedNames = new Set(allInstalled.map((p) => p.name));
+      const storePlugins = await Plugin.store_plugins_available();
+      if (isPlugin) {
+        const availableSection = available_plugins_list(
+          storePlugins || [],
+          installedNames
+        );
+        if (availableSection)
+          storePluginsSection = "\n" + availableSection + "\n";
         storePluginsSection +=
           "\nThe following plugins are already installed — do NOT plan tasks to install them again:\n" +
           [...installedNames].map((n) => `- ${n}`).join("\n") +
           "\n";
-      } catch (_) {}
-    }
+      } else {
+        installedPluginsSection = installed_plugins_list(
+          installedNames,
+          storePlugins || []
+        );
+      }
+    } catch (_) {}
 
     const answer = await getState().functions.llm_generate.run(
       `You are planning the implementation tasks for a single phase of a Saltcorn application.
@@ -1275,14 +1261,21 @@ Now call the plan_tasks tool with your tasks for this phase.`,
     // Remove existing tasks of the relevant type(s) before storing new ones
     for (const t of phaseTasks) {
       const tType = t.body.task_type || "feature";
-      if (!taskType || tType === taskType) await t.delete();
+      if (tType === taskType) await t.delete();
     }
 
-    // Clear any existing "no plugins needed" markers for this phase
-    if (!taskType || taskType === "plugin") {
+    // Clear any existing "no tasks needed" markers for this phase
+    if (taskType === "plugin") {
       const oldMarkers = await MetaData.find({
         type: "CopilotConstructMgr",
         name: "phase_plugin_generated",
+      });
+      for (const m of oldMarkers.filter((m) => m.body?.phase_idx === phaseIdx))
+        await m.delete();
+    } else if (taskType === "data_model") {
+      const oldMarkers = await MetaData.find({
+        type: "CopilotConstructMgr",
+        name: "phase_data_model_generated",
       });
       for (const m of oldMarkers.filter((m) => m.body?.phase_idx === phaseIdx))
         await m.delete();
@@ -1296,14 +1289,25 @@ Now call the plan_tasks tool with your tasks for this phase.`,
         user_id: userId,
       });
 
-    // If plugin generation produced 0 tasks, record that it was considered
+    // If generation produced 0 tasks, record that it was considered
     if (
-      (taskType === "plugin" || taskType === null) &&
+      taskType === "plugin" &&
       tc.input.tasks.filter((t) => t.task_type === "plugin").length === 0
     ) {
       await MetaData.create({
         type: "CopilotConstructMgr",
         name: "phase_plugin_generated",
+        body: { phase_idx: phaseIdx },
+        user_id: userId,
+      });
+    }
+    if (
+      taskType === "data_model" &&
+      tc.input.tasks.filter((t) => t.task_type === "data_model").length === 0
+    ) {
+      await MetaData.create({
+        type: "CopilotConstructMgr",
+        name: "phase_data_model_generated",
         body: { phase_idx: phaseIdx },
         user_id: userId,
       });
@@ -1544,6 +1548,12 @@ const del_phase_type_tasks = async (
       name: "table_phase",
     });
     for (const m of tablePhase.filter((m) => m.body?.phase_idx === idx))
+      await m.delete();
+    const dmMarkers = await MetaData.find({
+      type: "CopilotConstructMgr",
+      name: "phase_data_model_generated",
+    });
+    for (const m of dmMarkers.filter((m) => m.body?.phase_idx === idx))
       await m.delete();
   }
   if (taskType === "feature") {
