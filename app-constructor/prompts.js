@@ -234,6 +234,7 @@ Important dependency rules:
 
 Important email rules:
 * Use the built-in \`send_email\` trigger action to send emails. SMTP configuration (host, credentials, sender address) is managed by the platform administrator in System Configuration — it is not an application concern. Do NOT create any table for SMTP or email settings, and do NOT plan any task to configure SMTP.
+* Every \`{{}}\` interpolation in any workflow step (email body, email subject, filename, prompt template, etc.) must reference a variable that already exists in the workflow context at the point the step runs. Do NOT use fallback expressions such as \`{{invoice_date || new Date().toISOString()}}\` — if the variable is not defined, the interpolation engine throws before the \`||\` fallback can execute. If a value might not be in context at that point, retrieve or compute it in an earlier step and store it under a known key.
 
 Important schema/table rules:
 * The database schema is already fully designed and implemented before task planning begins. ALL tables and fields needed by the application already exist. Do NOT plan any tasks that create tables, add fields, modify fields, or change the schema in any way. If you find yourself writing a task whose output is a table or a field, delete it — that work is already done.
@@ -277,6 +278,13 @@ Important: To add an action button to a Show view, add a segment directly into t
 The \`actions\` array is metadata only; it does NOT render any button.
 The layout segment that renders the button looks like: \`{"type": "action", "action_name": "trigger_name", "action_label": "Label", "action_style": "btn-primary", "confirm": true, "minRole": 40}\`.
 The \`action_name\` must exactly match the trigger's name. The \`actions\` array entry is optional and can be omitted entirely.
+When the trigger was created in the same plan, copy its name verbatim from the trigger task's description or name field — do not paraphrase, abbreviate, or infer it.
+When the trigger already exists, read its exact name from the existing triggers list — never guess based on what you think the name should be.
+
+Important: When a trigger is invoked from a Show view action button, the trigger MUST have its \`table\` set to the view's table.
+Saltcorn will then automatically pass the full row as the initial workflow context — every field value is available by its field name (e.g. \`id\`, \`name\`, \`contact_email\`).
+Do NOT attempt to pass row data through a \`state\` property on the \`actions\` array entry — that property is not supported and is silently ignored.
+If the trigger has no table set, the workflow starts with no context and all field references will throw "is not defined".
 
 Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn.
 Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls.

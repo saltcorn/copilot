@@ -292,6 +292,20 @@ class GenerateWorkflow {
   steps can read values from and write values to. This context is a state that is persisted on disk for each workflow
   run.
 
+  Important: every {{}} interpolation in any workflow step (email body, email subject, filename, prompt template,
+  etc.) must reference a variable that already exists in the workflow context at the point the step runs.
+  Do NOT use fallback expressions such as {{invoice_date || new Date().toISOString()}} — if the variable is not
+  defined, the interpolation engine throws before the || fallback can execute. For example, a send_email step
+  using {{invoice_date}} will fail with "invoice_date is not defined" if no prior step put invoice_date in context.
+  If a value might not be in context at that point, retrieve or compute it in an earlier step and store it under
+  a known key.
+
+  Important: when a workflow is triggered from a Show view action button, the trigger must have its table set to
+  the view's table. Saltcorn then automatically passes the full row as the initial workflow context — all field
+  values are available by their field names (e.g. id, name, contact_email). Do NOT attempt to pass row data
+  through a state property on the actions array — it is silently ignored. If the trigger has no table set, the
+  workflow starts with an empty context and all field references will throw "is not defined".
+
   Each step can have a next_step key which is the name of the next step, or a JavaScript expression which evaluates
   to the name of the next step based on the context. In the evaluation of the next step, each value in the context is
   in scope and can be addressed directly. Identifiers for the step names are also in scope, the name of the next step
@@ -322,6 +336,13 @@ class GenerateWorkflow {
   Every subsequent step that reads those results — whether a run_js_code step or another TableQuery's query_object
   expression — must use this exact variable name. Mismatched names cause "X is not defined" errors at runtime.
 
+  Important: an insert step writes ONLY the new row's id into the context (e.g. new_invoice_id). It does NOT
+  write any other field values from the inserted row. If a later step needs fields from that row (e.g. invoice_date,
+  total_amount, contact_email), add a TableQuery step immediately after the insert to fetch the row by id and make
+  its fields available in context. For example, query {id: new_invoice_id} on the invoices table with
+  query_variable "invoice_row", then reference invoice_row.invoice_date, invoice_row.total_amount etc. in
+  subsequent steps. Never assume that insert fields are in context — only the id is guaranteed.
+
   run_js_code: if the step_type is "run_js_code" then the step object should include the JavaScript code to be executed in the "code"
   key. You can use await in the code if you need to run asynchronous code. The values in the context are directly in scope and can be accessed using their name. In addition, the variable
   "context" is also in scope and can be used to address the context as a whole. To write values to the context, return an
@@ -333,6 +354,13 @@ class GenerateWorkflow {
   the value "sum" which is the sum of x and y, then use this as the code: return {sum: x+y}. You cannot set the next step in the
   return object or by returning a string from a run_js_code step, this will not work. To set the next step from a code action, always use the next_step property of the step object.
   This expression for the next step can depend on value pushed to the context (by the return object in the code) as these values are in scope.
+
+  SetContext: sets one or more variables in the workflow context. The configuration must include a ctx_values key
+  whose value is a JavaScript object expression — it MUST be wrapped in curly braces.
+  Example: {running_total: 0} initialises a counter, {invoice_date: new Date().toISOString().slice(0,10)} sets a date.
+  Do NOT write bare key-value pairs such as running_total: 0 — without the braces the expression is invalid and
+  throws "running_total is not defined" when a later step tries to read it.
+  The object expression can reference existing context variables: {total: subtotal + tax}.
 
   Early termination pattern: to stop a workflow when a condition is not met (e.g. no rows found),
   use a run_js_code step that writes a boolean flag to the context (e.g. return {has_rows: billable_hours.length > 0}),
