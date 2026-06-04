@@ -15,6 +15,7 @@ const {
 const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
 const { viewname, tool_choice } = require("./common");
+const { PromptGenerator } = require("./prompt-generator");
 
 const questions_tool = {
   type: "function",
@@ -170,13 +171,17 @@ window.copilotSubmitResearch = () => {
   for (const el of f.querySelectorAll('textarea')) data[el.name] = el.value;
   view_post(_vn, 'submit_research', data);
 };
-${generating ? "if (!window.dynamic_updates_cfg?.enabled) researchStartPoll();" : ""}
+${
+  generating
+    ? "if (!window.dynamic_updates_cfg?.enabled) researchStartPoll();"
+    : ""
+}
 `)
     )
   );
 };
 
-const doGenResearch = async (spec, userId) => {
+const doGenResearch = async (userId) => {
   const generatingMd = await MetaData.create({
     type: "CopilotConstructMgr",
     name: "generating_research",
@@ -184,25 +189,17 @@ const doGenResearch = async (spec, userId) => {
     user_id: userId,
   });
   try {
+    const generator = await PromptGenerator.createInstance();
+    if (!generator.spec) throw new Error("Specification not found");
     const answer = await getState().functions.llm_generate.run(
-      `Based on the following application specification, generate clarifying questions
-that would help better understand what the user wants to build.
-Ask only about genuinely ambiguous or underspecified aspects.
-Do not ask about things that are already clear from the specification.
-Only ask questions that are truly necessary — if 2 or 3 questions cover everything unclear, stop there.
-Do not pad the list. 10 is a hard maximum, not a target.
-
-Specification:
-${spec.body.specification}
-
-Now call the ask_questions tool with your questions.`,
+      generator.researchQuestionsPrompt(),
       {
         tools: [questions_tool],
         ...tool_choice("ask_questions"),
         systemPrompt:
-          "You are a requirements analyst. Ask only the clarifying questions that are " +
-          "genuinely needed — fewer is better. 10 is a hard maximum, not a target. " +
-          "Each question must be short, clear, and easy to understand — " +
+          "You are a requirements analyst. Ask only the clarifying questions that are\n" +
+          "genuinely needed — fewer is better. 10 is a hard maximum, not a target.\n" +
+          "Each question must be short, clear, and easy to understand —\n" +
           "avoid technical jargon where possible and keep sentences simple.",
       }
     );
@@ -230,19 +227,15 @@ Now call the ask_questions tool with your questions.`,
     await generatingMd.delete();
     try {
       getState().emitDynamicUpdate(db.getTenantSchema(), {
-        eval_js: "if(typeof copilotRefreshResearch==='function')copilotRefreshResearch();",
+        eval_js:
+          "if(typeof copilotRefreshResearch==='function')copilotRefreshResearch();",
       });
     } catch (_) {}
   }
 };
 
 const gen_research = async (table_id, viewname, config, body, { req, res }) => {
-  const spec = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "spec",
-  });
-  if (!spec) return { json: { error: "Specification not found" } };
-  doGenResearch(spec, req.user?.id).catch((e) =>
+  doGenResearch(req.user?.id).catch((e) =>
     console.error("gen_research error", e)
   );
   return { json: { success: true } };
@@ -298,7 +291,13 @@ const submit_research = async (
   return { json: { success: true, notify_success: "Answers saved" } };
 };
 
-const del_all_research = async (table_id, viewname, config, body, { req, res }) => {
+const del_all_research = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
   for (const name of ["research_questions", "research_answers"]) {
     const md = await MetaData.findOne({ type: "CopilotConstructMgr", name });
     if (md) await md.delete();

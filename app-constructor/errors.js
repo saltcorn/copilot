@@ -3,7 +3,6 @@ const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Page = require("@saltcorn/data/models/page");
-const Plugin = require("@saltcorn/data/models/plugin");
 const MetaData = require("@saltcorn/data/models/metadata");
 const { mkTable } = require("@saltcorn/markup");
 const {
@@ -23,19 +22,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
 const { viewname } = require("./common");
 const { task_tool } = require("./tools");
-const { getResearchAnswersText } = require("./research");
-const {
-  saltcorn_description,
-  implementation_rules,
-  fieldview_selection_rules,
-  existing_tables_list,
-  existing_entities_list,
-  installed_plugins_list,
-  available_plugins_list,
-  task_planning_rules,
-  task_planning_closing,
-  research_answers_section,
-} = require("./prompts");
+const { PromptGenerator } = require("./prompt-generator");
 
 const doCreateErrorFixTask = async (errorMd, userId) => {
   const currentMd = await MetaData.findOne({
@@ -46,36 +33,10 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
   if (!currentMd || currentMd.body.fixing) return;
   await currentMd.update({ body: { ...currentMd.body, fixing: true } });
   try {
-    const spec = await MetaData.findOne({
-      type: "CopilotConstructMgr",
-      name: "spec",
-    });
-    if (!spec) return;
-
     const tables = await Table.find({});
-    const tableById = Object.fromEntries(tables.map((t) => [t.id, t.name]));
     const views = await View.find({});
     const triggers = await Trigger.find({});
     const pages = await Page.find({});
-    const entitiesSection = existing_entities_list({
-      views,
-      triggers,
-      pages,
-      tableById,
-    });
-    const installedPlugins = await Plugin.find({});
-    const installedNames = new Set(installedPlugins.map((p) => p.name));
-    let storePlugins = [];
-    try {
-      storePlugins = await Plugin.store_plugins_available();
-    } catch (_) {}
-    const installedPluginsSection = installed_plugins_list(installedNames);
-    const pluginsSection = available_plugins_list(storePlugins, installedNames);
-    const allReqs = await MetaData.find({
-      type: "CopilotConstructMgr",
-      name: "requirement",
-    });
-    const researchText = await getResearchAnswersText();
     const errorText = JSON.stringify(errorMd.body.error, null, 2);
 
     // Include the affected entity's config so the planning LLM can name exact broken values.
@@ -205,48 +166,15 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
       },
     };
 
+    const generator = await PromptGenerator.createInstance();
+    if (!generator.spec) return;
+
     const answer = await getState().functions.llm_generate.run(
-      "Fix a bug in the following Saltcorn application.\n\n" +
-        `${spec.body.specification}\n` +
-        `${research_answers_section(researchText)}` +
-        (allReqs.length
-          ? "\nThe existing application requirements are:\n\n" +
-            allReqs.map((r) => `* ${r.body.requirement}`).join("\n") +
-            "\n\n"
-          : "\n") +
-        `${saltcorn_description}\n\n` +
-        `${implementation_rules}\n\n` +
-        `${fieldview_selection_rules}\n\n` +
-        "The database has the following tables:\n\n" +
-        `${existing_tables_list(tables)}\n\n` +
-        (entitiesSection ? entitiesSection + "\n\n" : "") +
-        (installedPluginsSection ? installedPluginsSection + "\n\n" : "") +
-        (pluginsSection ? pluginsSection + "\n\n" : "") +
-        `${task_planning_rules}\n\n` +
-        "The following error occurred in the application:\n```\n" +
-        `${errorText}\n` +
-        "```\n" +
-        `${entityConfigSection}\n` +
-        `${task_planning_closing}\n\n` +
-        "Either call plan_tasks with exactly one fix task, or call cannot_fix if you cannot " +
-        "determine a concrete fix from the information above. Do not invent a task just to " +
-        "produce output — prefer cannot_fix over a vague or speculative task.\n\n" +
-        "Rules for the plan_tasks description (only if you can diagnose the fix):\n" +
-        "- Name the exact Saltcorn entity (view, trigger, page) to fix.\n" +
-        "- Describe what is wrong and what kind of fix is needed. Where you can clearly identify " +
-        "them from the config shown above, state each broken field, its current value, and the correct value. " +
-        "If you are not certain of the exact values, describe the problem instead — do not guess specific values.\n" +
-        "- Cover ALL fields of the same error class in one task.\n" +
-        "- Prefer fixing a broken reference over removing the element that contains it. " +
-        "Only remove an element when there is genuinely no valid replacement. " +
-        "Example: a viewlink column referencing a missing view should have its view name " +
-        "updated to an existing view — not have the column deleted.\n" +
-        "- End with: 'Use get_entity to load the current config, diagnose the exact values, apply the fix, and save with set_entity.'\n" +
-        "- One or two sentences. No prose, no save/test instructions.",
+      generator.errorPrompt(errorText, entityConfigSection),
       {
         tools: [task_tool, cannot_fix_tool],
         systemPrompt:
-          "You are a Saltcorn developer. Analyse the error and decide: can you produce a " +
+          "You are a Saltcorn developer. Analyse the error and decide: can you produce a\n" +
           "concrete, actionable fix? If yes, call plan_tasks. If not, call cannot_fix.",
       }
     );

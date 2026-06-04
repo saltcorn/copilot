@@ -21,6 +21,7 @@ const {
 const { getState, features } = require("@saltcorn/data/db/state");
 const { viewname } = require("./common");
 const { questions_tool } = require("./research");
+const { PromptGenerator } = require("./prompt-generator");
 
 /**
  * Returns the Bootstrap modal HTML that prompts the user to analyse or skip.
@@ -1218,10 +1219,6 @@ const del_all_feedback = async (table_id, vn, config, body, { req, res }) => {
  */
 const analyse_feedback = async (table_id, vn, config, body, { req, res }) => {
   const { title, description, url = "" } = body;
-  const spec = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "spec",
-  });
 
   let knownContext = null;
   if (url) {
@@ -1247,37 +1244,10 @@ const analyse_feedback = async (table_id, vn, config, body, { req, res }) => {
     }
   }
 
-  const specSection = spec?.body?.specification
-    ? "The following application is being built:\n\n" +
-      spec.body.specification +
-      "\n\n"
-    : "";
-  const contextSection = knownContext ? knownContext.section + "\n" : "";
-  const feedbackSection =
-    "User feedback:\n" +
-    `- Title: ${title}` +
-    (description ? `\n- Description: ${description}` : "");
-  const doNotAskSection = knownContext?.doNotAsk
-    ? "Facts already known — do NOT ask about these:\n" +
-      knownContext.doNotAsk +
-      "\n\n"
-    : "";
-  const decisionSection =
-    "Do you have important questions about this feedback,\n" +
-    "or do you already know what needs to be done?\n\n" +
-    "- If you know what to do — no need to call any tool, just respond with nothing.\n" +
-    "- If you have questions that are truly blocking —\n" +
-    "  call ask_questions with only those. 3 is a hard maximum.\n" +
-    "  Each question must be short, clear, and easy to understand.\n" +
-    "  Write for a non-technical user: plain language, no jargon, one idea per question.";
+  const generator = await PromptGenerator.createInstance();
 
   const answer = await getState().functions.llm_generate.run(
-    specSection +
-      contextSection +
-      feedbackSection +
-      "\n\n" +
-      doNotAskSection +
-      decisionSection,
+    generator.feedbackAnalysePrompt({ title, description, knownContext }),
     {
       tools: [questions_tool],
       systemPrompt:

@@ -37,8 +37,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
-const { getResearchAnswersText } = require("./research");
-const { research_answers_section } = require("./prompts");
+const { PromptGenerator } = require("./prompt-generator");
 
 const requirementsStaticScript = `<script>
 const _reqsVn = ${JSON.stringify(viewname)};
@@ -165,7 +164,7 @@ const requirementsList = async (req) => {
   );
 };
 
-const doGenReqs = async (spec, userId) => {
+const doGenReqs = async (userId) => {
   const generatingMd = await MetaData.create({
     type: "CopilotConstructMgr",
     name: "generating_requirements",
@@ -173,27 +172,16 @@ const doGenReqs = async (spec, userId) => {
     user_id: userId,
   });
   try {
-    const researchText = await getResearchAnswersText();
+    const generator = await PromptGenerator.createInstance();
+    if (!generator.spec) throw new Error("Specification not found");
     const answer = await getState().functions.llm_generate.run(
-      `Generate the requirements for this application:
-
-${spec.body.specification}
-${research_answers_section(researchText)}
-Important rules for generating requirements:
-* Every requirement must be directly traceable to something stated in the description, audience, or core features above. Do not infer, invent, or add features that are not explicitly mentioned — even if they seem like an obvious addition.
-* Do not generate any requirement that falls under the Out of scope section above.
-* Only generate requirements for core functionality. Do not generate requirements for features described as optional, "nice to have", "could support", or "can be added later" — omit them entirely.
-* Do NOT generate a requirement for integration with any external third-party system (e.g. QuickBooks, Xero, Stripe, Slack, external APIs, webhooks) unless the specification explicitly names the system AND describes exactly what must be exchanged. A vague mention like "integration with accounting systems" is not sufficient — skip it.
-* Do not generate requirements that are already handled by the platform (e.g. user registration, login, password management — these are built-in).
-* Priority reflects how central the feature is to the core purpose of the application. Assign 5 to features without which the application cannot function at all, 3-4 to features that are important but not blocking, 1-2 to minor convenience features. Do not assign 5 to everything.
-
-Now use the make_requirements tool to list the requirements for this software application
-`,
+      generator.requirementsPlanPrompt(),
       {
         tools: [requirements_tool],
         ...tool_choice("make_requirements"),
         systemPrompt:
-          "You are a project manager extracting requirements from a written specification. Only include what is explicitly stated — do not infer or add plausible extras.",
+          "You are a project manager extracting requirements from a written specification.\n" +
+          "Only include what is explicitly stated — do not infer or add plausible extras.",
       }
     );
     const tc = answer.getToolCalls()[0];
@@ -216,12 +204,7 @@ Now use the make_requirements tool to list the requirements for this software ap
 };
 
 const gen_reqs = async (table_id, viewname, config, body, { req, res }) => {
-  const spec = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "spec",
-  });
-  if (!spec) throw new Error("Specification not found");
-  doGenReqs(spec, req.user?.id).catch((e) =>
+  doGenReqs(req.user?.id).catch((e) =>
     console.error("gen_reqs error", e)
   );
   return { json: { success: true } };
