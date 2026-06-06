@@ -36,15 +36,20 @@ const {
 const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname } = require("./common");
-const { requirementsList, req_routes } = require("./requirements");
-const { showSchema, schema_routes } = require("./schema");
-const { makeTaskList, task_routes } = require("./tasks");
-const { errorList, error_routes } = require("./errors");
+const { showSchema, schema_routes, schemaStaticScript } = require("./schema");
+const { task_routes } = require("./tasks");
+const {
+  errorList,
+  doCreateErrorFixTask,
+  error_routes,
+  errTableStaticHtml,
+} = require("./errors");
+const { req_routes, requirementsStaticScript } = require("./requirements");
 const { feedbackList, feedback_routes } = require("./feedback");
-const { progressList, progress_routes } = require("./progress");
+const { progress_routes } = require("./progress");
 const { runNextTask } = require("./run_task");
-const { makeTaskChart } = require("./taskchart");
 const { researchPanel, research_routes } = require("./research");
+const { phasesPanel, phasesStaticScript, phase_routes } = require("./phases");
 
 const get_state_fields = () => [];
 
@@ -119,6 +124,7 @@ btn.addEventListener('click', (e) => {
     if (deps.hasResearch) items.push({ key: 'clearResearch', label: 'Research questions & answers' });
     if (deps.hasRequirements) items.push({ key: 'clearRequirements', label: 'Requirements' });
     if (deps.hasSchema) items.push({ key: 'clearSchema', label: 'Schema' });
+    if (deps.hasPhases) items.push({ key: 'clearPhases', label: 'Phases' });
     if (deps.hasTasks) items.push({ key: 'clearTasks', label: 'Tasks' });
     if (!items.length) { doSaveSpec(); return; }
     document.getElementById('spec-deps-checks').innerHTML = items.map((item) =>
@@ -158,12 +164,9 @@ document.getElementById('specDepsKeepBtn').addEventListener('click', () => {
 const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const specForm = await makeSpecForm(req);
   const research = await researchPanel(req);
-  const reqList = await requirementsList(req);
-  const taskList = await makeTaskList(req);
+  const phases = await phasesPanel(req);
   const errList = await errorList(req);
   const feedbacks = await feedbackList(req);
-  const progress = await progressList(req);
-  const taskChart = await makeTaskChart(req);
   const schema = await showSchema(req);
   const layout = {
     type: "tabs",
@@ -173,11 +176,8 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
     titles: [
       "Specification",
       "Research",
-      "Requirements",
+      "Phases",
       "Schema",
-      "Tasks",
-      "Task chart",
-      "Progress",
       "Feedback",
       "Errors",
     ],
@@ -192,13 +192,23 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
         ),
       },
       { type: "blank", contents: research },
-      { type: "blank", contents: div({ id: "req-list-area" }, reqList) },
-      { type: "blank", contents: schema },
-      { type: "blank", contents: div({ id: "task-list-area" }, taskList) },
-      { type: "blank", contents: taskChart },
-      { type: "blank", contents: progress },
+      { type: "blank", contents: div(phasesStaticScript, phases) },
+      {
+        type: "blank",
+        contents: div(
+          schemaStaticScript,
+          div({ id: "schema-list-area" }, schema)
+        ),
+      },
       { type: "blank", contents: feedbacks },
-      { type: "blank", contents: errList },
+      {
+        type: "blank",
+        contents: div(
+          requirementsStaticScript,
+          errTableStaticHtml,
+          div({ id: "err-list-area" }, errList)
+        ),
+      },
     ],
     deeplink: true,
     tabsStyle: "Tabs",
@@ -239,6 +249,13 @@ const check_spec_dependencies = async (
     type: "CopilotConstructMgr",
     name: "schema",
   }));
+  const hasPhases =
+    (
+      await MetaData.find({
+        type: "CopilotConstructMgr",
+        name: "phase",
+      })
+    ).length > 0;
   const hasTasks =
     (
       await MetaData.find({
@@ -246,7 +263,9 @@ const check_spec_dependencies = async (
         name: "task",
       })
     ).length > 0;
-  return { json: { hasResearch, hasRequirements, hasSchema, hasTasks } };
+  return {
+    json: { hasResearch, hasRequirements, hasPhases, hasSchema, hasTasks },
+  };
 };
 
 // Clears selected dependencies, saves the spec, and reloads — all in one round trip
@@ -262,6 +281,7 @@ const clear_and_save_spec = async (
     clearResearch,
     clearRequirements,
     clearSchema,
+    clearPhases,
     clearTasks,
     ...specBody
   } = body;
@@ -291,6 +311,13 @@ const clear_and_save_spec = async (
       name: "task",
     });
     for (const t of ts) await t.delete();
+  }
+  if (clearPhases) {
+    const ps = await MetaData.find({
+      type: "CopilotConstructMgr",
+      name: "phase",
+    });
+    for (const ph of ps) await ph.delete();
   }
   const existing = await MetaData.findOne({
     type: "CopilotConstructMgr",
@@ -332,6 +359,35 @@ const submit_specs = async (table_id, viewname, config, body, { req, res }) => {
   };
 };
 
+// Creates fix tasks for application errors recorded while self-healing was off.
+const healPendingErrors = async () => {
+  const settings = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "settings",
+  });
+  if (!settings?.body?.error_heal) return;
+  const spec = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "spec",
+  });
+  if (!spec) return;
+  const errors = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "error",
+  });
+  for (const err of errors) {
+    if (
+      err.body.source !== "application" ||
+      err.body.fix_task_created ||
+      err.body.cannot_fix_reason
+    )
+      continue;
+    doCreateErrorFixTask(err, null).catch((e) =>
+      console.error("healPendingErrors failed", e)
+    );
+  }
+};
+
 const virtual_triggers = () => {
   return [
     {
@@ -341,20 +397,49 @@ const virtual_triggers = () => {
           type: "CopilotConstructMgr",
           name: "error",
         });
-        const messages = new Set(existing.map((m) => m.body?.error?.stack));
-        if (!messages.has(row.stack))
-          await MetaData.create({
+        // Allow a new record once a fix task exists — same error recurring after a fix gets another task.
+        const unfixedDuplicate =
+          row.stack &&
+          existing.find(
+            (m) =>
+              m.body?.error?.stack === row.stack && !m.body?.fix_task_created
+          );
+        if (unfixedDuplicate) return;
+
+        const source = (row.stack || "").includes("/app-constructor/")
+          ? "constructor"
+          : "application";
+
+        const errorMd = await MetaData.create({
+          type: "CopilotConstructMgr",
+          name: "error",
+          body: { status: "New", error: row, source },
+          user_id: null,
+        });
+
+        if (source === "application") {
+          const settings = await MetaData.findOne({
             type: "CopilotConstructMgr",
-            name: "error",
-            body: { status: "New", error: row },
-            user_id: null,
+            name: "settings",
           });
+          if (settings?.body?.error_heal) {
+            const spec = await MetaData.findOne({
+              type: "CopilotConstructMgr",
+              name: "spec",
+            });
+            if (spec)
+              doCreateErrorFixTask(errorMd, null).catch((e) =>
+                console.error("auto error fix task failed", e)
+              );
+          }
+        }
       },
     },
     {
       when_trigger: "Often",
       run: async () => {
         await runNextTask();
+        await healPendingErrors();
       },
     },
   ];
@@ -378,6 +463,7 @@ module.exports = {
     ...feedback_routes,
     ...progress_routes,
     ...schema_routes,
+    ...phase_routes,
   },
   virtual_triggers,
 };

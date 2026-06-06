@@ -376,6 +376,18 @@ with both the entity type and name, and the new JSON definition as a string as a
               const trigger = Trigger.findOne({ name: input.entity_name });
               if (!trigger) return `trigger not found`;
               const value = trigger.toJson;
+              // For workflow triggers, attach all steps so the agent can see their configurations
+              if (trigger.action === "Workflow") {
+                const steps = await WorkflowStep.find({ trigger_id: trigger.id });
+                value.steps = steps.map((s) => ({
+                  id: s.id,
+                  name: s.name,
+                  action_name: s.action_name,
+                  initial_step: s.initial_step,
+                  next_step: s.next_step,
+                  configuration: s.configuration,
+                }));
+              }
               const schema = {
                 name: { type: "string", description: "trigger name" },
                 action: {
@@ -726,8 +738,9 @@ with both the entity type and name, and the new JSON definition as a string as a
                     table || table_name,
                   )?.id;
 
-                // Pre-check action before saving
-                if (tsNoTableName.action) {
+                // Pre-check action before saving (skip built-ins handled outside actions registry)
+                const builtinActions = new Set(["Workflow", "Multi-step action"]);
+                if (tsNoTableName.action && !builtinActions.has(tsNoTableName.action)) {
                   const action = getState().actions[tsNoTableName.action];
                   if (!action)
                     return `Action '${tsNoTableName.action}' not found`;

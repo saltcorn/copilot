@@ -272,6 +272,16 @@ class GenerateWorkflow {
   IMPORTANT — keep row expressions simple; use dedicated steps for data fetching:
   Row expressions (e.g. in modify_row) should be simple references to values already in the context — not inline queries or complex logic. If the values you need are not already in context, add a dedicated step before the row expression step to fetch or compute them and write the results into the context. Choose the step type that fits the job: TableQuery to query a table, run_js_code for custom computation, or any other appropriate step. Each step should do one clear thing; the row expression then just picks the relevant context values.
 
+  CRITICAL — modify_row without a triggering row requires where="Database" + select_table + query (all three):
+  A basic modify_row step updates the row that triggered the workflow. If the workflow is NOT triggered by a specific table row (e.g. triggered by a button with no table, or running inside a ForLoop), there is no triggering row and table is undefined — this crashes with "Cannot read properties of undefined (reading 'tryUpdateRow')".
+  To update arbitrary rows in a workflow, the step configuration MUST include all three of:
+    - where: "Database"
+    - select_table: the name of the table to update (string)
+    - query: a JS expression (evaluated against the workflow context) returning a where-clause object that identifies the row(s) to update — e.g. {id: bh_id}
+  If any of these three is missing, the action falls through to the triggering-row path and crashes when table is undefined.
+  Example modify_row step configuration for updating a billable_hours row inside a ForLoop where bh_id is in context:
+    { "step_type": "modify_row", "where": "Database", "select_table": "billable_hours", "query": "{id: bh_id}", "row_expr": "{invoiced: true}" }
+
   CRITICAL — every workflow must form a single connected chain from the first step to the last:
   - Every step except the very last one MUST have a next_step that names another step in the workflow.
   - The very last step must have next_step omitted or set to an empty string to terminate the workflow.
@@ -281,6 +291,20 @@ class GenerateWorkflow {
   Each run of the workflow is executed in the presence of a context, which is a JavaScript object that individual
   steps can read values from and write values to. This context is a state that is persisted on disk for each workflow
   run.
+
+  Important: every {{}} interpolation in any workflow step (email body, email subject, filename, prompt template,
+  etc.) must reference a variable that already exists in the workflow context at the point the step runs.
+  Do NOT use fallback expressions such as {{invoice_date || new Date().toISOString()}} — if the variable is not
+  defined, the interpolation engine throws before the || fallback can execute. For example, a send_email step
+  using {{invoice_date}} will fail with "invoice_date is not defined" if no prior step put invoice_date in context.
+  If a value might not be in context at that point, retrieve or compute it in an earlier step and store it under
+  a known key.
+
+  Important: when a workflow is triggered from a Show view action button, the trigger must have its table set to
+  the view's table. Saltcorn then automatically passes the full row as the initial workflow context — all field
+  values are available by their field names (e.g. id, name, contact_email). Do NOT attempt to pass row data
+  through a state property on the actions array — it is silently ignored. If the trigger has no table set, the
+  workflow starts with an empty context and all field references will throw "is not defined".
 
   Each step can have a next_step key which is the name of the next step, or a JavaScript expression which evaluates
   to the name of the next step based on the context. In the evaluation of the next step, each value in the context is
@@ -307,16 +331,43 @@ class GenerateWorkflow {
   Most of them are are explained by their parameter descriptions. Here are some additional information for some
   step types:
   
+  TableQuery: stores the query results in the context under the name given in the query_variable configuration field.
+  This name is chosen by you — pick a short descriptive name (e.g. "billable_hours", "lawyer_rows").
+  Every subsequent step that reads those results — whether a run_js_code step or another TableQuery's query_object
+  expression — must use this exact variable name. Mismatched names cause "X is not defined" errors at runtime.
+
+  Important: an insert step writes ONLY the new row's id into the context (e.g. new_invoice_id). It does NOT
+  write any other field values from the inserted row. If a later step needs fields from that row (e.g. invoice_date,
+  total_amount, contact_email), add a TableQuery step immediately after the insert to fetch the row by id and make
+  its fields available in context. For example, query {id: new_invoice_id} on the invoices table with
+  query_variable "invoice_row", then reference invoice_row.invoice_date, invoice_row.total_amount etc. in
+  subsequent steps. Never assume that insert fields are in context — only the id is guaranteed.
+
   run_js_code: if the step_type is "run_js_code" then the step object should include the JavaScript code to be executed in the "code"
   key. You can use await in the code if you need to run asynchronous code. The values in the context are directly in scope and can be accessed using their name. In addition, the variable
   "context" is also in scope and can be used to address the context as a whole. To write values to the context, return an
   object. The following Saltcorn models are already available in scope without any require: Table, Row, Field, User, View, Trigger, Page, File — use them directly.
   When you need to require other modules, always use a plain require call, e.g. const moment = require('moment');
-  NEVER use the pattern const X = X || require(...) — this causes a ReferenceError because const variables cannot be referenced before initialization. The values in this object will be written into the current context. If a value already exists in the context 
+  NEVER use the pattern const X = X || require(...) — this causes a ReferenceError because const variables cannot be referenced before initialization.
+  The values in this object will be written into the current context. If a value already exists in the context
   it will be overwritten. For example, If the context contains values x and y which are numbers and you would like to push
-  the value "sum" which is the sum of x and y, then use this as the code: return {sum: x+y}. You cannot set the next step in the 
+  the value "sum" which is the sum of x and y, then use this as the code: return {sum: x+y}. You cannot set the next step in the
   return object or by returning a string from a run_js_code step, this will not work. To set the next step from a code action, always use the next_step property of the step object.
-  This expression for the next step can depend on value pushed to the context (by the return object in the code) as these values are in scope.  
+  This expression for the next step can depend on value pushed to the context (by the return object in the code) as these values are in scope.
+
+  SetContext: sets one or more variables in the workflow context. The configuration must include a ctx_values key
+  whose value is a JavaScript object expression — it MUST be wrapped in curly braces.
+  Example: {running_total: 0} initialises a counter, {invoice_date: new Date().toISOString().slice(0,10)} sets a date.
+  Do NOT write bare key-value pairs such as running_total: 0 — without the braces the expression is invalid and
+  throws "running_total is not defined" when a later step tries to read it.
+  The object expression can reference existing context variables: {total: subtotal + tax}.
+
+  Early termination pattern: to stop a workflow when a condition is not met (e.g. no rows found),
+  use a run_js_code step that writes a boolean flag to the context (e.g. return {has_rows: billable_hours.length > 0}),
+  then set that step's next_step to a conditional expression (e.g. has_rows ? "next_real_step" : "abort_step"),
+  and add a TerminateWorkflow step named "abort_step".
+  Do NOT try to terminate from inside run_js_code by returning null, throwing, or omitting a return — those do not stop the workflow.
+  The conditional must be in the step's next_step field, not inside the code.  
   
   ForLoop: ForLoop steps loop over an array which is specified by the array_expression JavaScript expression. Execution of the workflow steps is temporarily diverted to another set
   of steps, starting from the step specified by the loop_body_inital_step value, and runs until it encounters a

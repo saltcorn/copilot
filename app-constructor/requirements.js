@@ -37,8 +37,58 @@ const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { requirements_tool } = require("./tools");
-const { getResearchAnswersText } = require("./research");
-const { research_answers_section } = require("./prompts");
+const { PromptGenerator } = require("./prompt-generator");
+
+const requirementsStaticScript = `<script>
+const _reqsVn = ${JSON.stringify(viewname)};
+
+window.copilotRefreshReqs = () => {
+  view_post(_reqsVn, 'req_list_html', {}, (r) => {
+    const a = document.getElementById('req-list-area');
+    if (r && r.html && a) {
+      a.innerHTML = r.html;
+      if (typeof copilotInitReqsState === 'function') copilotInitReqsState();
+    }
+  });
+};
+
+window.copilotGenReqs = function() {
+  const area = document.getElementById('req-gen-area');
+  if (area) area.innerHTML =
+    '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating requirements, please wait...</p>';
+  view_post(_reqsVn, 'gen_reqs', {}, () => {});
+  if (!window.dynamic_updates_cfg?.enabled) {
+    const poll = () => {
+      view_post(_reqsVn, 'req_status', {}, (resp) => {
+        if (resp && !resp.generating) {
+          if (typeof copilotRefreshReqs === 'function') copilotRefreshReqs();
+        } else setTimeout(poll, 3000);
+      });
+    };
+    setTimeout(poll, 3000);
+  }
+};
+
+function copilotInitReqsState() {
+  const isGenerating = !!document.getElementById('reqs-generating-state');
+  if (isGenerating) {
+    const poll = () => {
+      view_post(_reqsVn, 'req_status', {}, (resp) => {
+        if (resp && !resp.generating) {
+          if (typeof copilotRefreshReqs === 'function') copilotRefreshReqs();
+        } else setTimeout(poll, 3000);
+      });
+    };
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(poll, 3000);
+  }
+}
+window.copilotInitReqsState = copilotInitReqsState;
+
+(function () {
+  if (document.readyState !== 'loading') copilotInitReqsState();
+  else document.addEventListener('DOMContentLoaded', copilotInitReqsState);
+})();
+</script>`;
 
 const requirementsList = async (req) => {
   const rs = await MetaData.find(
@@ -107,19 +157,9 @@ const requirementsList = async (req) => {
     return div(
       { class: "mt-2" },
       p(
+        { id: "reqs-generating-state" },
         i({ class: "fas fa-spinner fa-spin me-2" }),
         "Generating requirements, please wait..."
-      ),
-      script(
-        domReady(`
-const poll = () => {
-  view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
-    if (resp && !resp.generating) location.reload();
-    else setTimeout(poll, 3000);
-  });
-};
-setTimeout(poll, 3000);
-`)
       )
     );
   }
@@ -130,27 +170,11 @@ setTimeout(poll, 3000);
     button(
       { class: "btn btn-primary", onclick: `copilotGenReqs()` },
       "Generate requirements"
-    ),
-    script(
-      domReady(`
-window.copilotGenReqs = () => {
-  document.getElementById('req-gen-area').innerHTML =
-    '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating requirements, please wait...</p>';
-  view_post(${JSON.stringify(viewname)}, 'gen_reqs', {}, () => {});
-  const poll = () => {
-    view_post(${JSON.stringify(viewname)}, 'req_status', {}, (resp) => {
-      if (resp && !resp.generating) location.reload();
-      else setTimeout(poll, 3000);
-    });
-  };
-  setTimeout(poll, 3000);
-};
-`)
     )
   );
 };
 
-const doGenReqs = async (spec, userId) => {
+const doGenReqs = async (userId) => {
   const generatingMd = await MetaData.create({
     type: "CopilotConstructMgr",
     name: "generating_requirements",
@@ -158,27 +182,16 @@ const doGenReqs = async (spec, userId) => {
     user_id: userId,
   });
   try {
-    const researchText = await getResearchAnswersText();
+    const generator = await PromptGenerator.createInstance();
+    if (!generator.spec) throw new Error("Specification not found");
     const answer = await getState().functions.llm_generate.run(
-      `Generate the requirements for this application:
-
-${spec.body.specification}
-${research_answers_section(researchText)}
-Important rules for generating requirements:
-* Every requirement must be directly traceable to something stated in the description, audience, or core features above. Do not infer, invent, or add features that are not explicitly mentioned — even if they seem like an obvious addition.
-* Do not generate any requirement that falls under the Out of scope section above.
-* Only generate requirements for core functionality. Do not generate requirements for features described as optional, "nice to have", "could support", or "can be added later" — omit them entirely.
-* Do NOT generate a requirement for integration with any external third-party system (e.g. QuickBooks, Xero, Stripe, Slack, external APIs, webhooks) unless the specification explicitly names the system AND describes exactly what must be exchanged. A vague mention like "integration with accounting systems" is not sufficient — skip it.
-* Do not generate requirements that are already handled by the platform (e.g. user registration, login, password management — these are built-in).
-* Priority reflects how central the feature is to the core purpose of the application. Assign 5 to features without which the application cannot function at all, 3-4 to features that are important but not blocking, 1-2 to minor convenience features. Do not assign 5 to everything.
-
-Now use the make_requirements tool to list the requirements for this software application
-`,
+      generator.requirementsPlanPrompt(),
       {
         tools: [requirements_tool],
         ...tool_choice("make_requirements"),
         systemPrompt:
-          "You are a project manager extracting requirements from a written specification. Only include what is explicitly stated — do not infer or add plausible extras.",
+          "You are a project manager extracting requirements from a written specification.\n" +
+          "Only include what is explicitly stated — do not infer or add plausible extras.",
       }
     );
     const tc = answer.getToolCalls()[0];
@@ -191,18 +204,17 @@ Now use the make_requirements tool to list the requirements for this software ap
       });
   } finally {
     await generatingMd.delete();
+    try {
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js:
+          "if(typeof copilotRefreshReqs==='function')copilotRefreshReqs();",
+      });
+    } catch (_) {}
   }
 };
 
 const gen_reqs = async (table_id, viewname, config, body, { req, res }) => {
-  const spec = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "spec",
-  });
-  if (!spec) throw new Error("Specification not found");
-  doGenReqs(spec, req.user?.id).catch((e) =>
-    console.error("gen_reqs error", e)
-  );
+  doGenReqs(req.user?.id).catch((e) => console.error("gen_reqs error", e));
   return { json: { success: true } };
 };
 
@@ -221,7 +233,12 @@ const del_req = async (table_id, viewname, config, body, { req, res }) => {
 
   if (!r) throw new Error("Requirement not found");
   await r.delete();
-  return { json: { reload_page: true } };
+  return {
+    json: {
+      eval_js:
+        "if(typeof copilotRefreshReqs==='function')copilotRefreshReqs();",
+    },
+  };
 };
 const del_all_reqs = async (table_id, viewname, config, body, { req, res }) => {
   const rs = await MetaData.find({
@@ -229,7 +246,12 @@ const del_all_reqs = async (table_id, viewname, config, body, { req, res }) => {
     name: "requirement",
   });
   for (const r of rs) await r.delete();
-  return { json: { reload_page: true } };
+  return {
+    json: {
+      eval_js:
+        "if(typeof copilotRefreshReqs==='function')copilotRefreshReqs();",
+    },
+  };
 };
 
 /** Route: returns the rendered requirements list HTML for AJAX refresh. */
@@ -252,4 +274,4 @@ const req_routes = {
   req_list_html,
 };
 
-module.exports = { requirementsList, req_routes };
+module.exports = { requirementsList, requirementsStaticScript, req_routes };

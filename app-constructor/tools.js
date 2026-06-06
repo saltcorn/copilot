@@ -46,7 +46,13 @@ const task_tool = {
           type: "array",
           items: {
             type: "object",
-            required: ["name", "description", "priority", "depends_on"],
+            required: [
+              "name",
+              "description",
+              "priority",
+              "depends_on",
+              "task_type",
+            ],
             additionalProperties: false,
             properties: {
               name: {
@@ -70,6 +76,12 @@ const task_tool = {
                 items: {
                   type: "string",
                 },
+              },
+              task_type: {
+                type: "string",
+                enum: ["plugin", "data_model", "feature"],
+                description:
+                  "plugin: specialized — installs a plugin from the Saltcorn plugin store. data_model: specialized — creates or modifies database tables/fields only. feature: broad catch-all — creates views, pages, triggers, workflows, or anything else not covered by the specialized types. Order: plugin tasks first, then data_model, then feature.",
               },
             },
           },

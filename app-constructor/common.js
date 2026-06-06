@@ -1,5 +1,11 @@
 const viewname = "Saltcorn AppConstructor (experimental)";
 
+const TaskType = Object.freeze({
+  PLUGIN: "plugin",
+  DATA_MODEL: "data_model",
+  FEATURE: "feature",
+});
+
 const tool_choice = (tool_name) => ({
   tool_choice: {
     type: "function",
@@ -9,4 +15,4 @@ const tool_choice = (tool_name) => ({
   },
 });
 
-module.exports = { viewname, tool_choice };
+module.exports = { viewname, tool_choice, TaskType };

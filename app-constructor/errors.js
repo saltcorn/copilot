@@ -1,102 +1,790 @@
-const Field = require("@saltcorn/data/models/field");
 const Table = require("@saltcorn/data/models/table");
-const Form = require("@saltcorn/data/models/form");
-const MetaData = require("@saltcorn/data/models/metadata");
 const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
-const { findType } = require("@saltcorn/data/models/discovery");
-const { save_menu_items } = require("@saltcorn/data/models/config");
-const db = require("@saltcorn/data/db");
-const WorkflowRun = require("@saltcorn/data/models/workflow_run");
-const {
-  localeDateTime,
-  renderForm,
-  mkTable,
-  post_delete_btn,
-} = require("@saltcorn/markup");
+const WorkflowStep = require("@saltcorn/data/models/workflow_step");
+const Page = require("@saltcorn/data/models/page");
+const MetaData = require("@saltcorn/data/models/metadata");
+const { mkTable } = require("@saltcorn/markup");
 const {
   div,
   script,
   domReady,
   pre,
-  code,
-  input,
-  h4,
-  style,
-  h5,
   button,
-  text_attr,
   i,
   p,
+  a,
   span,
   small,
-  form,
-  textarea,
+  text,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
-const renderLayout = require("@saltcorn/markup/layout");
+const db = require("@saltcorn/data/db");
 const { viewname } = require("./common");
+const { task_tool } = require("./tools");
+const { PromptGenerator } = require("./prompt-generator");
 
-const errorList = async (req) => {
-  const errs = await MetaData.find({
+const doCreateErrorFixTask = async (errorMd, userId) => {
+  const currentMd = await MetaData.findOne({
+    id: errorMd.id,
     type: "CopilotConstructMgr",
     name: "error",
   });
-  if (errs.length) {
-    return div(
-      { class: "mt-2" },
-      mkTable(
-        [
-          { label: "Status", key: (m) => m.body.status },
-          {
-            label: "Error",
-            key: (m) => pre(JSON.stringify(m.body.error, null, 2)),
+  if (!currentMd || currentMd.body.fixing) return;
+  await currentMd.update({ body: { ...currentMd.body, fixing: true } });
+  try {
+    const tables = await Table.find({});
+    const views = await View.find({});
+    const triggers = await Trigger.find({});
+    const pages = await Page.find({});
+    const errorText = JSON.stringify(errorMd.body.error, null, 2);
+
+    // Include the affected entity's config so the planning LLM can name exact broken values.
+    let entityConfigSection = "";
+    const errorUrl = errorMd.body.error?.url || "";
+    const mView = errorUrl.match(/\/view\/([^/?#]+)/);
+    const mPage = errorUrl.match(/\/page\/([^/?#]+)/);
+    if (mView) {
+      const viewName = decodeURIComponent(mView[1]);
+      const view = views.find((v) => v.name === viewName);
+      if (view)
+        entityConfigSection =
+          `\nThe error occurred while rendering view "${viewName}". ` +
+          `Current configuration:\n\`\`\`json\n` +
+          `${JSON.stringify(view.configuration, null, 2)}\n\`\`\`\n`;
+    } else if (mPage) {
+      const pageName = decodeURIComponent(mPage[1]);
+      const page = pages.find((p) => p.name === pageName);
+      if (page)
+        entityConfigSection =
+          `\nThe error occurred while rendering page "${pageName}". ` +
+          `Current configuration:\n\`\`\`json\n` +
+          `${JSON.stringify(page.layout, null, 2)}\n\`\`\`\n`;
+    }
+
+    // Workflow step errors: inject the trigger config and all its steps
+    const stack = errorMd.body.error?.stack || "";
+    if (!entityConfigSection && stack.includes("workflow_step")) {
+      // Try to identify the trigger from a WorkflowRun referenced in the error context
+      const runIdMatch =
+        stack.match(/workflow_run[^0-9]*(\d+)/i) ||
+        JSON.stringify(errorMd.body.error).match(/"run_id"\s*:\s*(\d+)/);
+      let matchedTrigger = null;
+      if (runIdMatch) {
+        const WorkflowRun = require("@saltcorn/data/models/workflow_run");
+        const run = await WorkflowRun.findOne({
+          id: parseInt(runIdMatch[1]),
+        }).catch(() => null);
+        if (run?.trigger_id) {
+          matchedTrigger = triggers.find((t) => t.id === run.trigger_id);
+        }
+      }
+      // Fall back: include all workflow triggers with steps
+      const workflowTriggers = matchedTrigger
+        ? [matchedTrigger]
+        : triggers.filter(
+            (t) => t.action === "Workflow" || t.action === "workflow"
+          );
+      if (workflowTriggers.length) {
+        const sections = await Promise.all(
+          workflowTriggers.map(async (t) => {
+            const steps = await WorkflowStep.find({ trigger_id: t.id });
+            return (
+              `Trigger "${t.name}" (table: ${t.table_id}, action: ${t.action}):\n` +
+              `Configuration: ${JSON.stringify(t.configuration, null, 2)}\n` +
+              `Steps (${steps.length}):\n` +
+              steps
+                .map(
+                  (s) =>
+                    `  - name: ${s.name}, action: ${s.action_name}, initial: ${s.initial_step}\n` +
+                    `    configuration: ${JSON.stringify(
+                      s.configuration,
+                      null,
+                      2
+                    )}`
+                )
+                .join("\n")
+            );
+          })
+        );
+        entityConfigSection =
+          `\nThe error occurred in a workflow step. Relevant trigger(s) and steps:\n\n` +
+          sections.join("\n\n") +
+          "\n";
+      }
+    }
+
+    // SQL column-not-found: likely a modify_row trigger with a table-qualified key
+    if (!entityConfigSection) {
+      const colErr = (errorMd.body.error?.message || "").match(
+        /column "([^"]+)" of relation "([^"]+)" does not exist/
+      );
+      if (colErr) {
+        const tableName = colErr[2];
+        const matchedTable = tables.find((t) => t.name === tableName);
+        const modifyTriggers = triggers.filter(
+          (t) => t.table_id === matchedTable?.id && t.action === "modify_row"
+        );
+        if (modifyTriggers.length) {
+          entityConfigSection =
+            `\nThe error is a SQL column-not-found on table "${tableName}". ` +
+            `This is typically caused by a modify_row trigger whose row_expr returns a table-qualified key ` +
+            `(e.g. {"${tableName}.some_field": value}) — the dot is stripped by SQL sanitization, ` +
+            `producing an invalid column name. Relevant modify_row triggers:\n\n` +
+            modifyTriggers
+              .map(
+                (t) =>
+                  `Trigger "${t.name}" (when: ${t.when_trigger}):\n` +
+                  `Configuration: ${JSON.stringify(t.configuration, null, 2)}`
+              )
+              .join("\n\n") +
+            "\n";
+        }
+      }
+    }
+
+    const cannot_fix_tool = {
+      type: "function",
+      function: {
+        name: "cannot_fix",
+        description:
+          "Use this when the error cannot be diagnosed or fixed from the available " +
+          "information — e.g. the error is too vague, the stack trace points to platform " +
+          "internals with no clear application-level fix, or no relevant entity configuration " +
+          "is available. Do NOT invent a task just to produce output.",
+        parameters: {
+          type: "object",
+          required: ["reason"],
+          properties: {
+            reason: {
+              type: "string",
+              description:
+                "One sentence explaining why a fix task cannot be created.",
+            },
           },
-          {
-            label: "Delete",
-            key: (r) =>
-              button(
-                {
-                  class: "btn btn-outline-danger btn-sm",
-                  onclick: `view_post("${viewname}", "del_err", {id:${r.id}})`,
-                },
-                i({ class: "fas fa-trash-alt" }),
-              ),
-          },
-        ],
-        errs,
-      ),
-      button(
-        {
-          class: "btn btn-outline-danger",
-          onclick: `view_post("${viewname}", "del_all_errs")`,
         },
-        "Delete all",
-      ),
+      },
+    };
+
+    const generator = await PromptGenerator.createInstance();
+    if (!generator.spec) return;
+
+    const answer = await getState().functions.llm_generate.run(
+      generator.errorPrompt(errorText, entityConfigSection),
+      {
+        tools: [task_tool, cannot_fix_tool],
+        systemPrompt:
+          "You are a Saltcorn developer. Analyse the error and decide: can you produce a\n" +
+          "concrete, actionable fix? If yes, call plan_tasks. If not, call cannot_fix.",
+      }
     );
-  } else {
-    return div({ class: "mt-2" }, p("No errors"));
+
+    const tc =
+      typeof answer.getToolCalls === "function"
+        ? answer.getToolCalls()?.[0]
+        : undefined;
+    if (!tc) return;
+
+    if (tc.tool_name === "cannot_fix") {
+      await currentMd.update({
+        body: { ...currentMd.body, cannot_fix_reason: tc.input.reason },
+      });
+      return;
+    }
+
+    if (tc.tool_name !== "plan_tasks" || !Array.isArray(tc.input.tasks)) return;
+
+    for (const task of tc.input.tasks)
+      await MetaData.create({
+        type: "CopilotConstructMgr",
+        name: "task",
+        body: { ...task, source: "error_fix", error_id: currentMd.id },
+        user_id: userId,
+      });
+
+    await currentMd.update({
+      body: { ...currentMd.body, fix_task_created: true },
+    });
+  } finally {
+    try {
+      const current = await MetaData.findOne({
+        id: currentMd.id,
+        type: "CopilotConstructMgr",
+        name: "error",
+      });
+      if (current) {
+        const { fixing, ...rest } = current.body;
+        await current.update({ body: rest });
+      }
+    } catch (_) {}
+    try {
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js: [
+          "if(typeof copilotRefreshErrs==='function')copilotRefreshErrs();",
+          "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();",
+        ],
+      });
+    } catch (_) {}
   }
 };
 
-const del_err = async (table_id, viewname, config, body, { req, res }) => {
-  const r = await MetaData.findOne({
-    id: body.id,
+/**
+ * Renders the self-healing toggle section and error table.
+ */
+const errorList = async (req) => {
+  const settings = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "settings",
   });
+  const healEnabled = !!settings?.body?.error_heal;
 
+  const healSection = healEnabled
+    ? div(
+        {
+          class:
+            "alert alert-success d-flex align-items-center gap-3 py-2 mb-3",
+        },
+        i({ class: "fas fa-heartbeat" }),
+        span(
+          "Self-healing enabled — new errors will automatically generate fix tasks."
+        ),
+        button(
+          {
+            class: "btn btn-sm btn-outline-secondary ms-auto",
+            onclick: "copilotToggleErrorHealing()",
+          },
+          "Disable"
+        )
+      )
+    : div(
+        {
+          class:
+            "alert alert-secondary d-flex align-items-center gap-3 py-2 mb-3",
+        },
+        i({ class: "fas fa-heartbeat" }),
+        div(
+          span({ class: "d-block" }, "Self-healing is disabled."),
+          small(
+            { class: "text-muted" },
+            "When enabled, new errors automatically generate a fix task."
+          )
+        ),
+        button(
+          {
+            class: "btn btn-sm btn-primary ms-auto",
+            onclick: "copilotToggleErrorHealing()",
+          },
+          "Enable self-healing"
+        )
+      );
+
+  const errs = (
+    await MetaData.find({
+      type: "CopilotConstructMgr",
+      name: "error",
+    })
+  ).sort((a, b) => new Date(b.written_at) - new Date(a.written_at));
+
+  // Build error_id → most recent fix task map for run links
+  const allTasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  const fixTaskByErrorId = {};
+  for (const t of allTasks) {
+    if (t.body.source === "error_fix" && t.body.error_id != null) {
+      const eid = parseInt(t.body.error_id);
+      if (!fixTaskByErrorId[eid] || t.id > fixTaskByErrorId[eid].id)
+        fixTaskByErrorId[eid] = t;
+    }
+  }
+
+  const errTable = errs.length
+    ? div(
+        mkTable(
+          [
+            {
+              label: "Source",
+              key: (m) =>
+                m.body.source === "constructor"
+                  ? span(
+                      {
+                        class: "badge bg-secondary",
+                        title: "Error in the app constructor itself",
+                      },
+                      "constructor"
+                    )
+                  : span(
+                      {
+                        class: "badge bg-primary",
+                        title: "Error in the application being built",
+                      },
+                      "application"
+                    ),
+            },
+            {
+              label: "When",
+              key: (m) => {
+                const d = m.written_at ? new Date(m.written_at) : null;
+                if (!d) return "";
+                return small(
+                  { class: "text-muted", style: "white-space:nowrap" },
+                  d.toLocaleDateString([], { month: "short", day: "numeric" }),
+                  " ",
+                  d.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                );
+              },
+            },
+            {
+              label: "Error",
+              key: (m) => {
+                const err = m.body.error || {};
+                const msg = err.message || String(err) || "(no message)";
+                const urlLine = err.url
+                  ? div(
+                      { class: "text-muted", style: "font-size:0.75rem" },
+                      text(String(err.url))
+                    )
+                  : "";
+                const stackLines = (err.stack || "").split("\n").slice(0, 5);
+                const stackPreview = stackLines.length
+                  ? pre(
+                      {
+                        style:
+                          "font-size:0.72rem;white-space:pre-wrap;overflow-wrap:break-word;margin:4px 0 0;",
+                      },
+                      text(stackLines.join("\n"))
+                    )
+                  : "";
+                return div(
+                  { style: "word-break:break-word;min-width:0;" },
+                  div({ class: "fw-semibold small" }, text(msg)),
+                  urlLine,
+                  stackPreview
+                );
+              },
+            },
+            {
+              label: "Status",
+              key: (r) => {
+                if (r.body.source === "constructor") return "";
+                if (r.body.fixing)
+                  return span(
+                    {
+                      class: "badge bg-info text-dark",
+                      "data-fixing-id": r.id,
+                    },
+                    i({ class: "fas fa-spinner fa-spin me-1" }),
+                    "Creating fix task..."
+                  );
+                if (r.body.cannot_fix_reason)
+                  return div(
+                    span(
+                      { class: "badge bg-warning text-dark" },
+                      "No fix found"
+                    ),
+                    div(
+                      {
+                        class: "text-muted mt-1",
+                        style:
+                          "font-size:0.75rem;max-width:220px;white-space:normal;",
+                      },
+                      r.body.cannot_fix_reason
+                    )
+                  );
+                if (r.body.fix_task_created)
+                  return div(
+                    { class: "d-flex align-items-center gap-1" },
+                    span({ class: "badge bg-success" }, "Fix task created"),
+                    fixTaskByErrorId[r.id]?.body?.run_id
+                      ? a(
+                          {
+                            href: `/view/Saltcorn%20Agent%20copilot?run_id=${
+                              fixTaskByErrorId[r.id].body.run_id
+                            }`,
+                            target: "_blank",
+                            title: "View fix task run",
+                            class: "text-muted",
+                          },
+                          i({ class: "fas fa-external-link-alt" })
+                        )
+                      : ""
+                  );
+                return span(
+                  { class: "badge bg-light text-dark border" },
+                  "New"
+                );
+              },
+            },
+            {
+              label: "",
+              key: (r) => {
+                const iconRow = div(
+                  { class: "d-flex align-items-center gap-1" },
+                  button(
+                    {
+                      class: "btn btn-sm btn-outline-secondary",
+                      onclick: "copilotShowErrDetail(this)",
+                      title: "View full error",
+                      "data-err": JSON.stringify(r.body.error),
+                    },
+                    i({ class: "fas fa-eye" })
+                  ),
+                  button(
+                    {
+                      class: "btn btn-sm btn-outline-danger",
+                      onclick: `copilotDelErr(${r.id})`,
+                      title: "Delete",
+                    },
+                    i({ class: "fas fa-trash-alt" })
+                  )
+                );
+                let fixRow = "";
+                if (r.body.source !== "constructor" && !r.body.fixing) {
+                  const fixTask = fixTaskByErrorId[r.id];
+                  if (r.body.fix_task_created && fixTask) {
+                    const taskStatus = fixTask.body.status || null;
+                    const canRun =
+                      taskStatus !== "Done" && taskStatus !== "Running";
+                    fixRow = div(
+                      { class: "d-flex flex-column gap-1 mt-1" },
+                      button(
+                        {
+                          class: "btn btn-sm btn-outline-secondary",
+                          onclick: `copilotViewFixTask(${r.id})`,
+                          title: "View fix task",
+                        },
+                        i({ class: "fas fa-search me-1" }),
+                        "View task"
+                      ),
+                      canRun
+                        ? button(
+                            {
+                              id: `run-fix-btn-${fixTask.id}`,
+                              class: "btn btn-sm btn-success",
+                              onclick: `copilotRunFixTask(${fixTask.id}, ${r.id})`,
+                              title: "Run fix task",
+                            },
+                            i({ class: "fas fa-play me-1" }),
+                            "Run"
+                          )
+                        : ""
+                    );
+                  } else if (
+                    !r.body.fix_task_created &&
+                    !r.body.cannot_fix_reason
+                  ) {
+                    fixRow = div(
+                      { class: "mt-1" },
+                      button(
+                        {
+                          id: `fix-err-btn-${r.id}`,
+                          class: "btn btn-sm btn-outline-primary",
+                          onclick: `copilotFixError(${r.id})`,
+                        },
+                        "Create fix task"
+                      )
+                    );
+                  }
+                }
+                return div({ style: "white-space:nowrap;" }, iconRow, fixRow);
+              },
+            },
+          ],
+          errs
+        ),
+        button(
+          {
+            class: "btn btn-outline-danger",
+            onclick: "copilotDelAllErrs()",
+          },
+          "Delete all"
+        )
+      )
+    : p("No errors");
+
+  return div({ class: "mt-2" }, healSection, errTable);
+};
+
+const del_err = async (table_id, vn, config, body, { req, res }) => {
+  const r = await MetaData.findOne({
+    id: parseInt(body.id),
+    type: "CopilotConstructMgr",
+    name: "error",
+  });
   if (!r) throw new Error("Error not found");
   await r.delete();
-  return { json: { reload_page: true } };
+  return { json: { success: true } };
 };
-const del_all_errs = async (table_id, viewname, config, body, { req, res }) => {
+
+const del_all_errs = async (table_id, vn, config, body, { req, res }) => {
   const rs = await MetaData.find({
     type: "CopilotConstructMgr",
     name: "error",
   });
   for (const r of rs) await r.delete();
-  return { json: { reload_page: true } };
+  return { json: { success: true } };
 };
 
-const error_routes = { del_err, del_all_errs };
+/** Route: toggles the error_heal setting. */
+const toggle_error_healing = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const settings = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "settings",
+  });
+  if (settings) {
+    await settings.update({
+      body: { ...settings.body, error_heal: !settings.body.error_heal },
+    });
+  } else {
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: "settings",
+      body: { error_heal: true },
+    });
+  }
+  return { json: { success: true } };
+};
 
-module.exports = { errorList, error_routes };
+/** Route: fires doCreateErrorFixTask for a single error record. */
+const fix_error_task = async (table_id, vn, config, body, { req, res }) => {
+  const id = parseInt(body.id);
+  const errorMd = await MetaData.findOne({
+    id,
+    type: "CopilotConstructMgr",
+    name: "error",
+  });
+  if (!errorMd) return { json: { error: "Error record not found" } };
+  doCreateErrorFixTask(errorMd, req.user?.id).catch((e) =>
+    console.error("fix_error_task error", e)
+  );
+  return { json: { success: true } };
+};
+
+/** Route: returns whether a fix task is still being generated for the given error id. */
+const fix_error_status = async (table_id, vn, config, body, { req, res }) => {
+  const id = parseInt(body.id);
+  const errorMd = await MetaData.findOne({
+    id,
+    type: "CopilotConstructMgr",
+    name: "error",
+  });
+  return { json: { fixing: !!errorMd?.body?.fixing } };
+};
+
+/** Route: returns task details for a fix task linked to an error. */
+const get_fix_task = async (table_id, vn, config, body, { req, res }) => {
+  const errorId = parseInt(body.error_id);
+  const allTasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  const fixTask = allTasks
+    .filter(
+      (t) =>
+        t.body.source === "error_fix" && parseInt(t.body.error_id) === errorId
+    )
+    .sort((a, b) => b.id - a.id)[0];
+  if (!fixTask) return { json: { error: "Fix task not found" } };
+  return {
+    json: {
+      task: {
+        id: fixTask.id,
+        name: fixTask.body.name,
+        description: fixTask.body.description,
+        status: fixTask.body.status || null,
+      },
+    },
+  };
+};
+
+/** Route: returns the rendered error list HTML for AJAX refresh. */
+const err_list_html = async (table_id, vn, config, body, { req, res }) => {
+  const html = await errorList(req);
+  return { json: { html } };
+};
+
+const error_routes = {
+  del_err,
+  del_all_errs,
+  toggle_error_healing,
+  fix_error_task,
+  fix_error_status,
+  get_fix_task,
+  err_list_html,
+};
+
+const errTableStaticHtml = `
+<style>
+#err-list-area table { table-layout: auto; width: 100%; }
+#err-list-area table th:nth-child(1),
+#err-list-area table td:nth-child(1),
+#err-list-area table th:nth-child(2),
+#err-list-area table td:nth-child(2),
+#err-list-area table th:nth-child(5),
+#err-list-area table td:nth-child(5) { width: 1px; white-space: nowrap; }
+#err-list-area table th:nth-child(3),
+#err-list-area table td:nth-child(3) { width: 100%; }
+#err-list-area table th:nth-child(4),
+#err-list-area table td:nth-child(4) { padding-right: 2rem; }
+</style>
+<div class="modal fade" id="err-detail-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Error details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <pre id="err-detail-body" style="white-space:pre-wrap;overflow-wrap:break-word;font-size:0.8rem;"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="fix-task-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Fix task: <span id="fix-task-name" class="text-monospace fw-normal"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2" id="fix-task-status-row"></div>
+        <p id="fix-task-desc" style="white-space:pre-wrap;font-size:0.9rem;"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="fix-task-run-btn" class="btn btn-success" style="display:none">
+          <i class="fas fa-play me-1"></i>Run fix task
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const _vn = ${JSON.stringify(viewname)};
+  function refreshErrArea() {
+    view_post(_vn, 'err_list_html', {}, (r) => {
+      const el = document.getElementById('err-list-area');
+      if (r && r.html && el) el.innerHTML = r.html;
+    });
+  }
+  function startFixPolling() {
+    if (window.dynamic_updates_cfg?.enabled) return;
+    document.querySelectorAll('[data-fixing-id]').forEach((el) => {
+      const id = parseInt(el.dataset.fixingId);
+      const poll = () => {
+        view_post(_vn, 'fix_error_status', { id }, (resp) => {
+          if (resp && !resp.fixing) {
+            refreshErrArea();
+          } else {
+            setTimeout(poll, 3000);
+          }
+        });
+      };
+      setTimeout(poll, 3000);
+    });
+  }
+  window.copilotRefreshErrs = refreshErrArea;
+  window.copilotToggleErrorHealing = () => {
+    view_post(_vn, 'toggle_error_healing', {}, () => refreshErrArea());
+  };
+  window.copilotFixError = (id) => {
+    const btn = document.getElementById('fix-err-btn-' + id);
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+    view_post(_vn, 'fix_error_task', { id }, () => {
+      if (window.dynamic_updates_cfg?.enabled) return;
+      const poll = () => {
+        view_post(_vn, 'fix_error_status', { id }, (resp) => {
+          if (resp && !resp.fixing) {
+            refreshErrArea();
+          } else {
+            setTimeout(poll, 3000);
+          }
+        });
+      };
+      setTimeout(poll, 3000);
+    });
+  };
+  window.copilotDelErr = (id) => {
+    view_post(_vn, 'del_err', { id }, () => refreshErrArea());
+  };
+  window.copilotDelAllErrs = () => {
+    view_post(_vn, 'del_all_errs', {}, () => refreshErrArea());
+  };
+  window.copilotShowErrDetail = (btn) => {
+    let err = {};
+    try { err = JSON.parse(btn.dataset.err || '{}'); } catch (e) {}
+    document.getElementById('err-detail-body').textContent = JSON.stringify(err, null, 2);
+    new bootstrap.Modal(document.getElementById('err-detail-modal')).show();
+  };
+  window.copilotViewFixTask = (errorId) => {
+    view_post(_vn, 'get_fix_task', { error_id: errorId }, (r) => {
+      if (!r || !r.task) return;
+      const t = r.task;
+      document.getElementById('fix-task-name').textContent = t.name || '';
+      document.getElementById('fix-task-desc').textContent = t.description || '';
+      const statusBadge =
+        t.status === 'Done' ? '<span class="badge bg-success">Done</span>' :
+        t.status === 'Running' ? '<span class="badge bg-info text-dark"><i class="fas fa-spinner fa-spin me-1"></i>Running</span>' :
+        t.status === 'Error' ? '<span class="badge bg-danger">Error</span>' :
+        '<span class="badge bg-secondary">Pending</span>';
+      document.getElementById('fix-task-status-row').innerHTML = statusBadge;
+      const runBtn = document.getElementById('fix-task-run-btn');
+      if (t.status === 'Done' || t.status === 'Running') {
+        runBtn.style.display = 'none';
+      } else {
+        runBtn.style.display = '';
+        runBtn.disabled = false;
+        runBtn.innerHTML = '<i class="fas fa-play me-1"></i>Run fix task';
+        runBtn.onclick = () => copilotRunFixTask(t.id, errorId);
+      }
+      new bootstrap.Modal(document.getElementById('fix-task-modal')).show();
+    });
+  };
+  window.copilotRunFixTask = (taskId, errorId) => {
+    const modalRunBtn = document.getElementById('fix-task-run-btn');
+    const rowRunBtn = document.getElementById('run-fix-btn-' + taskId);
+    [modalRunBtn, rowRunBtn].forEach((btn) => {
+      if (!btn) return;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running...';
+    });
+    const modal = bootstrap.Modal.getInstance(document.getElementById('fix-task-modal'));
+    if (modal) modal.hide();
+    view_post(_vn, 'run_task', { id: taskId }, () => {
+      const poll = () => {
+        view_post(_vn, 'get_fix_task', { error_id: errorId }, (r) => {
+          const status = r && r.task && r.task.status;
+          if (status === 'Done' || status === 'Error') {
+            refreshErrArea();
+            if (typeof copilotRefreshTasks === 'function') copilotRefreshTasks();
+          } else {
+            setTimeout(poll, 3000);
+          }
+        });
+      };
+      setTimeout(poll, 3000);
+    });
+  };
+  if (document.readyState !== 'loading') startFixPolling();
+  else document.addEventListener('DOMContentLoaded', () => startFixPolling());
+})();
+</script>`;
+
+module.exports = {
+  errorList,
+  doCreateErrorFixTask,
+  error_routes,
+  errTableStaticHtml,
+};

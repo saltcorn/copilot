@@ -27,13 +27,9 @@ designated as ownership fields (set automatically from the logged-in user). \
 All other foreign key fields — including parent-context keys like trip_id — MUST appear as \
 selector inputs; Saltcorn auto-fills them from the URL state when opened in context.`;
 
-const EDIT_FIELDVIEW_SELECTION = `\
-For date fields always prefer fieldview "flatpickr" when available — it provides the best user experience \
-and works for both regular dates and day-only dates. \
-Only use fieldview "edit_day" as a fallback when the field has day_only=true and flatpickr is not installed. \
-For String fields that have an options attribute (a comma-separated list of fixed choices), \
-use fieldview "select" — this renders a dropdown with those options. \
-Do not use "select_by_code" for fields with fixed options.`;
+const {
+  fieldview_selection_rules: EDIT_FIELDVIEW_SELECTION,
+} = require("./app-constructor/prompts");
 
 const EDIT_LAYOUT_STRUCTURE = `\
 Every field MUST be preceded by a label. \
@@ -1309,9 +1305,16 @@ const buildContext = async (mode, tableName) => {
     if (!fieldviews.length && String(typeName).startsWith("Key")) {
       fieldviews = ["select", "show"];
     }
+    // File fields store their fieldviews in state.fileviews, not on the type object
+    let fileFvDefs = {};
+    if (String(typeName) === "File") {
+      fileFvDefs = getState().fileviews || {};
+      fieldviews = Object.keys(fileFvDefs);
+    }
     // editFieldviews: only fieldviews where isEdit is not explicitly false
+    const effectiveFvDefs = String(typeName) === "File" ? fileFvDefs : fvDefs;
     const editFieldviews = fieldviews.filter(
-      (fv) => fvDefs[fv]?.isEdit !== false
+      (fv) => effectiveFvDefs[fv]?.isEdit !== false
     );
 
     const isPkName =

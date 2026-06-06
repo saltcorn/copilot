@@ -327,7 +327,13 @@ const buildBuilderSchema = ({ mode, ctx }) => {
   const actionDef = buildSegmentDef({
     type: "action",
     description: "Action button segment.",
+    required: ["rndid"],
     properties: {
+      rndid: {
+        type: "string",
+        description:
+          "Unique short identifier for this action (e.g. 'act1', 'del2'). REQUIRED — omitting it causes a server crash.",
+      },
       action_name: defs.action_name_enum
         ? { $ref: "#/$defs/action_name_enum", description: "Action name." }
         : { type: "string", description: "Action name." },

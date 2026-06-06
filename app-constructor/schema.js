@@ -1,362 +1,203 @@
-const Field = require("@saltcorn/data/models/field");
 const Table = require("@saltcorn/data/models/table");
-const Form = require("@saltcorn/data/models/form");
 const MetaData = require("@saltcorn/data/models/metadata");
-const View = require("@saltcorn/data/models/view");
-const Trigger = require("@saltcorn/data/models/trigger");
-const { findType } = require("@saltcorn/data/models/discovery");
-const { save_menu_items } = require("@saltcorn/data/models/config");
-const db = require("@saltcorn/data/db");
-const WorkflowRun = require("@saltcorn/data/models/workflow_run");
-const {
-  localeDateTime,
-  renderForm,
-  mkTable,
-  post_delete_btn,
-} = require("@saltcorn/markup");
-const {
-  div,
-  script,
-  domReady,
-  pre,
-  code,
-  input,
-  h4,
-  style,
-  h5,
-  button,
-  text_attr,
-  i,
-  p,
-  span,
-  small,
-  form,
-  textarea,
-} = require("@saltcorn/markup/tags");
-const { getState } = require("@saltcorn/data/db/state");
-const renderLayout = require("@saltcorn/markup/layout");
-const { viewname, tool_choice } = require("./common");
-const { requirements_tool } = require("./tools");
-const { getResearchAnswersText } = require("./research");
-const { saltcorn_description, existing_tables_list } = require("./prompts");
+const { div, pre, p, small, span } = require("@saltcorn/markup/tags");
+const { viewname } = require("./common");
 const GenerateTables = require("../actions/generate-tables");
 const { buildMermaidMarkup } = GenerateTables;
-const GenerateTablesSkill = require("../agent-skills/database-design");
+
+const PHASE_COLORS = [
+  { fill: "#93c5fd", stroke: "#1e40af" },
+  { fill: "#86efac", stroke: "#166534" },
+  { fill: "#fcd34d", stroke: "#92400e" },
+  { fill: "#d8b4fe", stroke: "#6b21a8" },
+  { fill: "#f9a8d4", stroke: "#9d174d" },
+  { fill: "#fdba74", stroke: "#9a3412" },
+];
+const NO_PHASE_COLOR = { fill: "#cbd5e1", stroke: "#334155" };
 
 const showSchema = async (req) => {
-  const schema = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "schema",
-  });
-
-  if (schema) {
-    const newTableDefs = schema.body.tables || [];
-    const newTableInstances = GenerateTables.process_tables(newTableDefs);
-    const reusedMd = await MetaData.findOne({
-      type: "CopilotConstructMgr",
-      name: "reused_schema",
-    });
-    const reusedNames = reusedMd?.body?.table_names || [];
-    const reusedInstances = reusedNames
-      .map((n) => Table.findOne({ name: n }))
-      .filter(Boolean);
-    const allTables = [...newTableInstances, ...reusedInstances];
-    const mmdia = buildMermaidMarkup(allTables);
-    const implemented = !!schema.body.implemented;
-
-    const newNames = newTableDefs.map((t) => t.table_name).filter(Boolean);
-
-    const colorMap = Object.fromEntries([
-      ...newNames.map((n) => [n, "#198754"]),
-      ...reusedNames.map((n) => [n, "#6c757d"]),
-    ]);
-    const colorScript = script(
-      domReady(`
-  const colors = ${JSON.stringify(colorMap)};
-  const pre = document.querySelector('.schema-mermaid');
-  if (!pre) return;
-
-  const doRender = () => {
-    mermaid.run({ nodes: [pre], suppressErrors: true, postRenderCallback: () => {
-      for (const g of pre.querySelectorAll('g[id^="entity-"]')) {
-        const name = g.id.replace(/^entity-/, '').replace(/-\\d+$/, '');
-        const color = colors[name];
-        if (color) {
-          const p = g.querySelector('path');
-          if (p) p.setAttribute('fill', color);
-        }
-      }
-      for (const el of pre.querySelectorAll('g.label.name .nodeLabel')) {
-        el.style.color = 'white';
-        el.style.fontWeight = 'bold';
-      }
-    }});
-  };
-
-  // Defer render until tab is visible, then colorize nodes.
-  const pane = pre.closest('.tab-pane');
-  if (pane && !pane.classList.contains('active')) {
-    const link = document.querySelector('[href="#' + pane.id + '"]');
-    if (link) link.addEventListener('shown.bs.tab', doRender, { once: true });
-    else {
-      const o = new MutationObserver(() => {
-        if (pane.classList.contains('active')) { o.disconnect(); doRender(); }
-      });
-      o.observe(pane, { attributes: true, attributeFilter: ['class'] });
-    }
-  } else doRender();
-`)
-    );
-
-    const legend = div(
-      { class: "mt-3 d-flex flex-wrap gap-3 align-items-start" },
-      newNames.length
-        ? div(
-            { class: "d-flex flex-wrap align-items-center gap-1" },
-            span(
-              { class: "me-1 text-muted small" },
-              implemented ? "Was created:" : "Will be created:"
-            ),
-            ...newNames.map((n) => span({ class: "badge bg-success" }, n))
-          )
-        : "",
-      reusedNames.length
-        ? div(
-            { class: "d-flex flex-wrap align-items-center gap-1" },
-            span(
-              { class: "me-1 text-muted small" },
-              implemented ? "Already existed:" : "Already exists:"
-            ),
-            ...reusedNames.map((n) => span({ class: "badge bg-secondary" }, n))
-          )
-        : ""
-    );
-
-    return div(
-      { class: "mt-2" },
-      pre({ class: "schema-mermaid" }, mmdia),
-      colorScript,
-      legend,
-      !implemented &&
-        div(
-          { class: "mb-4 d-block mt-3" },
-          button(
-            {
-              class: "btn btn-primary me-2",
-              onclick: `view_post("${viewname}", "implement_schema")`,
-            },
-            "Implement schema"
-          ),
-          button(
-            {
-              class: "btn btn-outline-danger",
-              onclick: `view_post("${viewname}", "del_schema")`,
-            },
-            "Delete schema"
-          )
-        )
-    );
-  }
-
-  const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "generating_schema",
-  });
-  if (generating) {
+  const allTables = await Table.find({});
+  const userTables = allTables.filter((t) => !t.name.startsWith("_sc_"));
+  if (!userTables.length) {
     return div(
       { class: "mt-2" },
       p(
-        i({ class: "fas fa-spinner fa-spin me-2" }),
-        "Generating schema, please wait..."
-      ),
-      script(
-        domReady(`
-const poll = () => {
-  view_post(${JSON.stringify(viewname)}, 'schema_status', {}, (resp) => {
-    if (resp && !resp.generating) location.reload();
-    else setTimeout(poll, 3000);
-  });
-};
-setTimeout(poll, 3000);
-`)
+        { class: "text-muted" },
+        "No tables in the database yet. Data model tasks in each phase will create them."
       )
     );
   }
 
-  return div(
-    { class: "mt-2", id: "schema-gen-area" },
-    p("Schema not found"),
-    button(
-      { class: "btn btn-primary", onclick: `copilotGenSchema()` },
-      "Generate schema"
-    ),
-    script(
-      domReady(`
-window.copilotGenSchema = () => {
-  document.getElementById('schema-gen-area').innerHTML =
-    '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating schema, please wait...</p>';
-  view_post(${JSON.stringify(viewname)}, 'gen_schema', {}, () => {});
-  const poll = () => {
-    view_post(${JSON.stringify(viewname)}, 'schema_status', {}, (resp) => {
-      if (resp && !resp.generating) location.reload();
-      else setTimeout(poll, 3000);
-    });
-  };
-  setTimeout(poll, 3000);
-};
-`)
-    )
-  );
-};
-
-const doGenSchema = async (spec, rs, userId) => {
-  const generatingMd = await MetaData.create({
+  const phaseRecords = await MetaData.find({
     type: "CopilotConstructMgr",
-    name: "generating_schema",
-    body: {},
-    user_id: userId,
+    name: "table_phase",
   });
-  try {
-    const researchText = await getResearchAnswersText();
-    const databaseDesignTool = new GenerateTablesSkill({}).provideTools();
-    const existing_tables = await Table.find({});
-    const answer = await getState().functions.llm_generate.run(
-      `Generate the database schema for this application:
+  const tablePhaseMap = {};
+  for (const r of phaseRecords) tablePhaseMap[r.body.table_name] = r.body;
 
-${spec.body.specification}
-${researchText ? `\nThe user was asked clarifying questions about the application. Here are the questions and their answers:\n\n${researchText}\n` : ""}
-These are the requirements of the application:
+  // Collect phases seen, sorted by index
+  const phasesSeen = new Map();
+  for (const r of phaseRecords)
+    if (!phasesSeen.has(r.body.phase_idx))
+      phasesSeen.set(r.body.phase_idx, r.body.phase_name);
+  const orderedPhases = [...phasesSeen.entries()].sort(([a], [b]) => a - b);
 
-${rs.map((r) => `* ${r.body.requirement}`).join("\n")}
+  // Group table names by phase for the legend
+  const phaseTableNames = new Map();
+  const unassignedNames = [];
+  for (const t of userTables) {
+    const entry = tablePhaseMap[t.name];
+    if (entry) {
+      if (!phaseTableNames.has(entry.phase_idx))
+        phaseTableNames.set(entry.phase_idx, []);
+      phaseTableNames.get(entry.phase_idx).push(t.name);
+    } else {
+      unassignedNames.push(t.name);
+    }
+  }
 
-${saltcorn_description}
+  // Pre-compute fill color per table name for the client script
+  const colorMap = {};
+  for (const t of userTables) {
+    const entry = tablePhaseMap[t.name];
+    colorMap[t.name] = entry
+      ? PHASE_COLORS[entry.phase_idx % PHASE_COLORS.length]
+      : NO_PHASE_COLOR;
+  }
 
-${existing_tables_list(existing_tables)}
+  const mmdia = buildMermaidMarkup(userTables);
 
-Design a complete database schema that covers ALL requirements listed above. Every distinct entity in the application must have its own table. Do not produce a minimal or partial schema — all tables needed to implement every requirement must be included in this single call. Do not leave any tables for a later step.
-
-The tables listed above already exist in the database. Do NOT modify or extend them — treat them as fixed. Handle them as follows:
-- If an existing table is already complete and used as-is: add its name to reused_table_names. Do NOT define its fields again in the tables array.
-- New tables not yet in the database: include them in the tables array with all their fields as usual.
-
-For every field that must be unique (e.g. unique email, unique slug, unique combination keys expressed as individual unique fields), set unique=true on that field.
-For every field that must not be empty, set not_null=true. Description, notes, and other free-text fields should NOT be not_null unless the requirements explicitly state they are required.
-Do NOT leave uniqueness or required constraints for a later step — express them fully in this schema.
-
-Note: ownership configuration (automatically populating a FK-to-users field from the logged-in user) is a VIEW-level concern and cannot be expressed in the schema. Do not attempt to annotate fields as "ownership fields" here — simply define the foreign key field normally. Ownership will be configured when the Edit views are generated.
-
-Now use the ${
-        databaseDesignTool.function.name
-      } tool to generate the complete database schema for this software application
-`,
+  const tableBadge = (color, name) =>
+    span(
       {
-        tools: [databaseDesignTool],
-        ...tool_choice(databaseDesignTool.function.name),
-        systemPrompt:
-          "You are a database designer. The user wants to build an application, and you must analyse their application description and requirements and design a complete schema. Every entity needed by any requirement must have its own table. Never produce a partial schema.",
-      }
+        class: "badge rounded-pill",
+        style: `background:${color.fill};color:${color.stroke};border:1.5px solid ${color.stroke}`,
+      },
+      name
     );
 
-    const tc = answer.getToolCalls()[0];
+  const legendGroups = [
+    ...(unassignedNames.length
+      ? [
+          div(
+            { class: "d-flex flex-wrap align-items-center gap-1" },
+            span({ class: "me-1 text-muted small" }, "Pre-existing:"),
+            ...unassignedNames.map((n) => tableBadge(NO_PHASE_COLOR, n))
+          ),
+        ]
+      : []),
+    ...orderedPhases
+      .map(([idx, name]) => {
+        const color = PHASE_COLORS[idx % PHASE_COLORS.length];
+        const names = phaseTableNames.get(idx) || [];
+        if (!names.length) return null;
+        return div(
+          { class: "d-flex flex-wrap align-items-center gap-1" },
+          span(
+            { class: "me-1 text-muted small" },
+            `Phase ${idx + 1}${name ? `: ${name}` : ""}:`
+          ),
+          ...names.map((n) => tableBadge(color, n))
+        );
+      })
+      .filter(Boolean),
+  ];
 
-    const noNewTables = !tc.input.tables || tc.input.tables.length === 0;
-    await MetaData.create({
-      type: "CopilotConstructMgr",
-      name: "schema",
-      body: { tables: tc.input.tables || [], implemented: noNewTables },
-      user_id: userId,
-    });
-
-    const reusedNames = tc.input.reused_table_names || [];
-    if (reusedNames.length) {
-      await MetaData.create({
-        type: "CopilotConstructMgr",
-        name: "reused_schema",
-        body: { table_names: reusedNames },
-        user_id: userId,
-      });
-    }
-  } finally {
-    await generatingMd.delete();
-  }
-};
-
-const gen_schema = async (table_id, viewname, config, body, { req, res }) => {
-  const spec = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "spec",
-  });
-  if (!spec) throw new Error("Specification not found");
-  const rs = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "requirement",
-  });
-  if (!rs.length) throw new Error("No requirements found");
-
-  doGenSchema(spec, rs, req.user?.id).catch((e) =>
-    console.error("gen_schema error", e)
+  return div(
+    { class: "mt-2" },
+    small(
+      { class: "text-muted d-block mb-2" },
+      `${userTables.length} table${
+        userTables.length !== 1 ? "s" : ""
+      } — reflects current database state`
+    ),
+    pre(
+      {
+        class: "schema-mermaid",
+        "data-color-map": JSON.stringify(colorMap),
+      },
+      mmdia
+    ),
+    legendGroups.length
+      ? div({ class: "d-flex flex-column gap-2 mt-2" }, ...legendGroups)
+      : ""
   );
-  return { json: { success: true } };
 };
 
-const schema_status = async (
+const schema_list_html = async (
   table_id,
   viewname,
   config,
   body,
   { req, res }
 ) => {
-  const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "generating_schema",
-  });
-  return { json: { generating: !!generating } };
-};
-
-const del_schema = async (table_id, viewname, config, body, { req, res }) => {
-  for (const name of ["schema", "reused_schema", "generating_schema"]) {
-    const rs = await MetaData.find({ type: "CopilotConstructMgr", name });
-    for (const r of rs) await r.delete();
-  }
-  return { json: { reload_page: true } };
-};
-
-const implement_schema = async (
-  table_id,
-  viewname,
-  config,
-  body,
-  { req, res }
-) => {
-  const md = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "schema",
-  });
-
-  const { apply_copilot_tables } = new GenerateTablesSkill({}).userActions;
-  const existingNames = new Set((await Table.find({})).map((t) => t.name));
-  const newTables = md.body.tables.filter((t) => {
-    if (existingNames.has(t.name)) {
-      getState().log(
-        2,
-        `AppConstructor: skipping table "${t.name}" — already exists in database`
-      );
-      return false;
-    }
-    return true;
-  });
-  await apply_copilot_tables({ tables: newTables, user: req.user });
-  md.body.implemented = true;
-  await md.update({ body: md.body });
-
-  return { json: { reload_page: true } };
+  const html = await showSchema(req);
+  return { json: { html } };
 };
 
 const schema_routes = {
-  gen_schema,
-  schema_status,
-  del_schema,
-  implement_schema,
+  schema_list_html,
 };
 
-module.exports = { showSchema, schema_routes };
+const schemaStaticScript = `<script>
+(function(){
+  const _schemVn = ${JSON.stringify(viewname)};
+
+  // Ensure mermaid won't auto-process on its own — we drive rendering manually
+  if (typeof mermaid !== 'undefined') {
+    try { mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' }); } catch (_) {}
+  }
+
+  function applyColors(el, colorMap) {
+    for (const g of el.querySelectorAll('g[id^="entity-"]')) {
+      const name = g.id.replace(/^entity-/, '').replace(/-\\d+$/, '');
+      const colors = colorMap[name];
+      if (!colors) continue;
+      const path = g.querySelector('path');
+      if (path) {
+        path.style.fill = colors.fill;
+        path.style.stroke = colors.stroke;
+      }
+    }
+  }
+
+  window.copilotRenderSchemaMermaid = () => {
+    const pre = document.querySelector('#schema-list-area .schema-mermaid');
+    if (!pre || typeof mermaid === 'undefined') return;
+    const colorMap = pre.dataset.colorMap ? JSON.parse(pre.dataset.colorMap) : {};
+    const mermaidText = pre.textContent.trim();
+    if (!mermaidText) return;
+
+    const tmp = document.createElement('div');
+    tmp.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden';
+    tmp.textContent = mermaidText;
+    document.body.appendChild(tmp);
+
+    mermaid.run({ nodes: [tmp], suppressErrors: true })
+      .then(() => {
+        const target = document.querySelector('#schema-list-area .schema-mermaid');
+        if (target) { target.innerHTML = tmp.innerHTML; applyColors(target, colorMap); }
+        tmp.remove();
+      })
+      .catch(e => {
+        console.warn('mermaid schema render error', e);
+        tmp.remove();
+      });
+  };
+
+  window.copilotRefreshSchema = function() {
+    view_post(_schemVn, 'schema_list_html', {}, (r) => {
+      const el = document.getElementById('schema-list-area');
+      if (r && r.html && el) {
+        el.innerHTML = r.html;
+        copilotRenderSchemaMermaid();
+      }
+    });
+  };
+
+  if (document.readyState !== 'loading') copilotRenderSchemaMermaid();
+  else document.addEventListener('DOMContentLoaded', copilotRenderSchemaMermaid);
+})()
+</script>`;
+
+module.exports = { showSchema, schema_routes, schemaStaticScript };

@@ -319,7 +319,8 @@ class GenerateTables {
   }
 
   static async execute({ tables }, req) {
-    const sctables = this.process_tables(tables);
+    const existingDbTables = await Table.find({});
+    const sctables = this.process_tables(tables, existingDbTables);
     for (const table of sctables)
       await Table.create(table.name, { description: table.description || "" });
     for (const table of sctables) {
@@ -350,10 +351,11 @@ class GenerateTables {
     const added = [];
     const updated = [];
 
+    const existingDbTables = await Table.find({});
     for (const f of sanitized) {
       const fname = (f?.name || "").toLowerCase();
       if (!fname) continue;
-      const processed = this.process_field(f, []);
+      const processed = this.process_field(f, [], existingDbTables);
       const existing = existingFieldMap.get(fname);
       if (!existing) {
         processed.table = table;
@@ -387,7 +389,7 @@ class GenerateTables {
     return { added, updated };
   }
 
-  static process_field(f, allTablesList = []) {
+  static process_field(f, allTablesList = [], dbTables = []) {
     if (f.aggregation) {
       const { data_type } = f.type_and_configuration || {
         data_type: "Integer",
@@ -415,6 +417,8 @@ class GenerateTables {
       f.type_and_configuration || { data_type: "String" };
     let type = data_type;
     const scattributes = { ...attributes, importance: f.importance };
+    if (!scattributes.min_length) delete scattributes.min_length;
+    if (!scattributes.max_length) delete scattributes.max_length;
     if (data_type === "ForeignKey") {
       type = `Key to ${reference_table}`;
       const refTableHere = allTablesList.find(
@@ -432,6 +436,21 @@ class GenerateTables {
         }
       } else if (reference_table === "users") {
         scattributes.summary_field = "email";
+      } else {
+        const dbTable = dbTables.find((t) => t.name === reference_table);
+        if (dbTable) {
+          const strFields = (dbTable.fields || []).filter(
+            (rf) => rf.type?.name === "String" || rf.type === "String"
+          );
+          if (strFields.length) {
+            const maxImp = strFields.reduce((prev, curr) => {
+              const pi = prev?.attributes?.importance ?? 0;
+              const ci = curr?.attributes?.importance ?? 0;
+              return pi >= ci ? prev : curr;
+            });
+            scattributes.summary_field = maxImp.name;
+          }
+        }
       }
     }
     return {
@@ -445,7 +464,7 @@ class GenerateTables {
     };
   }
 
-  static process_tables(tables) {
+  static process_tables(tables, dbTables = []) {
     return tables.map((table) => {
       const sanitizedFields = Array.isArray(table.fields)
         ? table.fields.filter((f) => (f?.name || "").toLowerCase() !== "id")
@@ -453,7 +472,9 @@ class GenerateTables {
       return new Table({
         name: table.table_name,
         description: table.description || "",
-        fields: sanitizedFields.map((f) => this.process_field(f, tables)),
+        fields: sanitizedFields.map((f) =>
+          this.process_field(f, tables, dbTables)
+        ),
       });
     });
   }
