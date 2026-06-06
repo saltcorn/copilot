@@ -191,6 +191,13 @@ window.delPhaseTask = function(id, phaseIdx, taskType) {
   });
 };
 
+window.resetPhaseTask = function(id, phaseIdx, taskType) {
+  if (!confirm('Reset this task to To do?')) return;
+  view_post(_phasesVn, 'reset_task', { id }, () => {
+    _refreshPhaseArea(phaseIdx, taskType);
+  });
+};
+
 window.delAllPhaseTasks = function(idx, taskType) {
   if (!confirm('Delete all tasks in this tab?')) return;
   view_post(_phasesVn, 'del_phase_type_tasks', { idx, task_type: taskType }, () => {
@@ -721,6 +728,18 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
           )
         : "";
 
+    const resetBtn =
+      isRunning || isDone
+        ? button(
+            {
+              class: "btn btn-outline-secondary btn-sm",
+              onclick: `resetPhaseTask(${t.id},${phaseIdx},'${taskType}')`,
+              title: "Reset to To do",
+            },
+            i({ class: "fas fa-undo" })
+          )
+        : "";
+
     const deleteBtn = button(
       {
         class: "btn btn-outline-danger btn-sm",
@@ -754,6 +773,7 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
             { class: "d-flex gap-1 flex-shrink-0 ms-2" },
             taskRunBtn,
             editBtn,
+            resetBtn,
             deleteBtn
           )
         )

@@ -642,6 +642,12 @@ two locations (e.g. navbar and one hero call-to-action). Do not repeat them in a
 "Get started" section or anywhere else. For links that take an already-authenticated
 user to their dashboard, use href="/" — not /auth/login.`,
 
+  `Important: Saltcorn page URLs always use the prefix /page/. To link to a page named
+"teacher_dashboard", the href must be "/page/teacher_dashboard" — NOT "/teacher_dashboard".
+This applies to every link, button, or navigation item that points to a Saltcorn page,
+regardless of where the link appears (landing page, navbar, other pages, etc.).
+Views use /view/view_name — also with the /view/ prefix, not a bare name.`,
+
   `Important: Do not name any page or view "Admin dashboard" — that name is reserved by
 the Saltcorn platform. For pages intended for role 1 (admin), use a name like "App
 admin dashboard" or prefix it with the application name (e.g. "Law Firm admin

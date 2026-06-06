@@ -170,17 +170,20 @@ const schemaStaticScript = `<script>
     const pre = document.querySelector('#schema-list-area .schema-mermaid');
     if (!pre) return;
     const colorMap = pre.dataset.colorMap ? JSON.parse(pre.dataset.colorMap) : {};
+    // Capture the mermaid source text now — the <pre> may be replaced by the time doRender fires
+    const mermaidText = pre.textContent.trim();
+    if (!mermaidText) return;
     const doRender = () => {
       _schemaPending = null;
-      const result = mermaid.run({
-        nodes: [pre],
-        suppressErrors: true,
-        postRenderCallback: () => applyColors(pre, colorMap),
-      });
-      if (result && typeof result.then === 'function')
-        result.then(() => applyColors(pre, colorMap));
-      else if (!result)
-        setTimeout(() => applyColors(pre, colorMap), 200);
+      // Re-query so we act on the current element even after a deferred render
+      const target = document.querySelector('#schema-list-area .schema-mermaid');
+      if (!target) return;
+      mermaid.render('sc-schema-' + Date.now(), mermaidText)
+        .then(({ svg }) => {
+          target.innerHTML = svg;
+          applyColors(target, colorMap);
+        })
+        .catch(e => console.warn('mermaid schema render error', e));
     };
     const pane = pre.closest('.tab-pane');
     if (pane && !pane.classList.contains('active')) {

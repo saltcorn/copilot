@@ -50,6 +50,18 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
   return { json: { success: true } };
 };
 
+const reset_task = async (table_id, viewname, config, body, { req, res }) => {
+  const r = await MetaData.findOne({
+    id: body.id,
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  if (!r) throw new Error("Task not found");
+  const { status, run_id, ...rest } = r.body;
+  await r.update({ body: { ...rest, status: "To do" } });
+  return { json: { success: true } };
+};
+
 const task_status = async (table_id, viewname, config, body, { req, res }) => {
   const ids = body.ids || [];
   const tasks = await MetaData.find({
@@ -122,6 +134,7 @@ const save_task_desc = async (table_id, vname, config, body, { req, res }) => {
 
 const task_routes = {
   del_task,
+  reset_task,
   edit_task_desc,
   save_task_desc,
   run_task,

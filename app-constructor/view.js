@@ -124,6 +124,7 @@ btn.addEventListener('click', (e) => {
     if (deps.hasResearch) items.push({ key: 'clearResearch', label: 'Research questions & answers' });
     if (deps.hasRequirements) items.push({ key: 'clearRequirements', label: 'Requirements' });
     if (deps.hasSchema) items.push({ key: 'clearSchema', label: 'Schema' });
+    if (deps.hasPhases) items.push({ key: 'clearPhases', label: 'Phases' });
     if (deps.hasTasks) items.push({ key: 'clearTasks', label: 'Tasks' });
     if (!items.length) { doSaveSpec(); return; }
     document.getElementById('spec-deps-checks').innerHTML = items.map((item) =>
@@ -247,6 +248,13 @@ const check_spec_dependencies = async (
     type: "CopilotConstructMgr",
     name: "schema",
   }));
+  const hasPhases =
+    (
+      await MetaData.find({
+        type: "CopilotConstructMgr",
+        name: "phase",
+      })
+    ).length > 0;
   const hasTasks =
     (
       await MetaData.find({
@@ -254,7 +262,9 @@ const check_spec_dependencies = async (
         name: "task",
       })
     ).length > 0;
-  return { json: { hasResearch, hasRequirements, hasSchema, hasTasks } };
+  return {
+    json: { hasResearch, hasRequirements, hasPhases, hasSchema, hasTasks },
+  };
 };
 
 // Clears selected dependencies, saves the spec, and reloads — all in one round trip
@@ -270,6 +280,7 @@ const clear_and_save_spec = async (
     clearResearch,
     clearRequirements,
     clearSchema,
+    clearPhases,
     clearTasks,
     ...specBody
   } = body;
@@ -299,6 +310,13 @@ const clear_and_save_spec = async (
       name: "task",
     });
     for (const t of ts) await t.delete();
+  }
+  if (clearPhases) {
+    const ps = await MetaData.find({
+      type: "CopilotConstructMgr",
+      name: "phase",
+    });
+    for (const ph of ps) await ph.delete();
   }
   const existing = await MetaData.findOne({
     type: "CopilotConstructMgr",
