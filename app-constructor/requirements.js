@@ -42,6 +42,16 @@ const { PromptGenerator } = require("./prompt-generator");
 const requirementsStaticScript = `<script>
 const _reqsVn = ${JSON.stringify(viewname)};
 
+window.copilotRefreshReqs = () => {
+  view_post(_reqsVn, 'req_list_html', {}, (r) => {
+    const a = document.getElementById('req-list-area');
+    if (r && r.html && a) {
+      a.innerHTML = r.html;
+      if (typeof copilotInitReqsState === 'function') copilotInitReqsState();
+    }
+  });
+};
+
 window.copilotGenReqs = function() {
   const area = document.getElementById('req-gen-area');
   if (area) area.innerHTML =
@@ -204,9 +214,7 @@ const doGenReqs = async (userId) => {
 };
 
 const gen_reqs = async (table_id, viewname, config, body, { req, res }) => {
-  doGenReqs(req.user?.id).catch((e) =>
-    console.error("gen_reqs error", e)
-  );
+  doGenReqs(req.user?.id).catch((e) => console.error("gen_reqs error", e));
   return { json: { success: true } };
 };
 

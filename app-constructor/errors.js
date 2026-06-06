@@ -696,30 +696,6 @@ const errTableStaticHtml = `
     });
   }
   window.copilotRefreshErrs = refreshErrArea;
-  window.copilotRefreshReqs = () => {
-    view_post(_vn, 'req_list_html', {}, (r) => {
-      const a = document.getElementById('req-list-area');
-      if (r && r.html && a) {
-        a.innerHTML = r.html;
-        if (typeof copilotInitReqsState === 'function') copilotInitReqsState();
-      }
-    });
-  };
-  window.copilotRefreshSchema = () => {
-    view_post(_vn, 'schema_list_html', {}, (r) => {
-      const a = document.getElementById('schema-list-area');
-      if (r && r.html && a) {
-        a.innerHTML = r.html;
-        if (typeof copilotInitSchemaState === 'function') copilotInitSchemaState();
-      }
-    });
-  };
-  window.copilotRefreshResearch = () => {
-    view_post(_vn, 'research_html', {}, (r) => {
-      const a = document.getElementById('research-panel');
-      if (r && r.html && a) a.innerHTML = r.html;
-    });
-  };
   window.copilotToggleErrorHealing = () => {
     view_post(_vn, 'toggle_error_healing', {}, () => refreshErrArea());
   };

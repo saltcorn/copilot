@@ -151,6 +151,12 @@ function researchStartPoll() {
   };
   setTimeout(poll, 3000);
 }
+window.copilotRefreshResearch = () => {
+  view_post(_vn, 'research_html', {}, (r) => {
+    const a = document.getElementById('research-panel');
+    if (r && r.html && a) a.innerHTML = r.html;
+  });
+};
 window.copilotGenResearch = window.copilotRegenResearch = () => {
   document.getElementById('research-panel').innerHTML = ${JSON.stringify(
     spinnerHtml

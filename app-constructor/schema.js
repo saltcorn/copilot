@@ -143,8 +143,13 @@ const schemaStaticScript = `<script>
 (function(){
   const _schemVn = ${JSON.stringify(viewname)};
 
-  function applyColors(pre, colorMap) {
-    for (const g of pre.querySelectorAll('g[id^="entity-"]')) {
+  // Ensure mermaid won't auto-process on its own — we drive rendering manually
+  if (typeof mermaid !== 'undefined') {
+    try { mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' }); } catch (_) {}
+  }
+
+  function applyColors(el, colorMap) {
+    for (const g of el.querySelectorAll('g[id^="entity-"]')) {
       const name = g.id.replace(/^entity-/, '').replace(/-\\d+$/, '');
       const colors = colorMap[name];
       if (!colors) continue;
@@ -156,53 +161,28 @@ const schemaStaticScript = `<script>
     }
   }
 
-  let _schemaPending = null;
-  function _cancelSchemaPending() {
-    if (!_schemaPending) return;
-    const { link, handler, observer } = _schemaPending;
-    if (link) link.removeEventListener('shown.bs.tab', handler);
-    if (observer) observer.disconnect();
-    _schemaPending = null;
-  }
-
   window.copilotRenderSchemaMermaid = () => {
-    _cancelSchemaPending();
     const pre = document.querySelector('#schema-list-area .schema-mermaid');
-    if (!pre) return;
+    if (!pre || typeof mermaid === 'undefined') return;
     const colorMap = pre.dataset.colorMap ? JSON.parse(pre.dataset.colorMap) : {};
-    // Capture the mermaid source text now — the <pre> may be replaced by the time doRender fires
     const mermaidText = pre.textContent.trim();
     if (!mermaidText) return;
-    const doRender = () => {
-      _schemaPending = null;
-      // Re-query so we act on the current element even after a deferred render
-      const target = document.querySelector('#schema-list-area .schema-mermaid');
-      if (!target) return;
-      mermaid.render('sc-schema-' + Date.now(), mermaidText)
-        .then(({ svg }) => {
-          target.innerHTML = svg;
-          applyColors(target, colorMap);
-        })
-        .catch(e => console.warn('mermaid schema render error', e));
-    };
-    const pane = pre.closest('.tab-pane');
-    if (pane && !pane.classList.contains('active')) {
-      // Saltcorn tabs use href="#TabName", not data-bs-target
-      const link = document.querySelector(
-        '[data-bs-target="#' + pane.id + '"], a[href="#' + pane.id + '"]'
-      );
-      if (link) {
-        const handler = () => { _schemaPending = null; doRender(); };
-        _schemaPending = { link, handler, observer: null };
-        link.addEventListener('shown.bs.tab', handler, { once: true });
-      } else {
-        const o = new MutationObserver(() => {
-          if (pane.classList.contains('active')) { o.disconnect(); _schemaPending = null; doRender(); }
-        });
-        _schemaPending = { link: null, handler: null, observer: o };
-        o.observe(pane, { attributes: true, attributeFilter: ['class'] });
-      }
-    } else doRender();
+
+    const tmp = document.createElement('div');
+    tmp.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden';
+    tmp.textContent = mermaidText;
+    document.body.appendChild(tmp);
+
+    mermaid.run({ nodes: [tmp], suppressErrors: true })
+      .then(() => {
+        const target = document.querySelector('#schema-list-area .schema-mermaid');
+        if (target) { target.innerHTML = tmp.innerHTML; applyColors(target, colorMap); }
+        tmp.remove();
+      })
+      .catch(e => {
+        console.warn('mermaid schema render error', e);
+        tmp.remove();
+      });
   };
 
   window.copilotRefreshSchema = function() {
