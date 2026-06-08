@@ -121,10 +121,12 @@ const task_planning_rules = [
   dedicated task. Do NOT bundle its creation into the same task as the view that embeds it —
   the embedded view must exist before the embedding task runs and must be listed in depends_on.
   When such a view is meant to be embedded inside a Show view, plan a dedicated Show view
-  shell whose only purpose is to carry the parent row id in state and embed the view. Keep
-  the main Show view (which displays the record's fields) separate and unmodified. Access the
-  shell via a viewlink in the List view — not via a dashboard page embed. Add both the
-  embedded view task and the shell Show task to the List task's depends_on.
+  whose only purpose is to carry the parent row id in state and embed the view. Keep the
+  main Show view (which displays the record's fields) separate and unmodified. Name this
+  dedicated Show view after its functional purpose, not its technical role — e.g.
+  "class_teachers_assign" not "class_teachers_shell_show". Access it via a viewlink in the
+  List view — not via a dashboard page embed. Add both the embedded view task and this
+  dedicated Show task to the List task's depends_on.
 * Every link or viewlink that targets a Show view MUST include the row's \`id\` as a URL query
   parameter (e.g. \`?id={{id}}\`). A Show view with no \`id\` in the URL displays "No row
   selected". This applies to viewlinks in List views, page links, and any other navigation
@@ -138,6 +140,12 @@ const task_planning_rules = [
   logged-in user, omit from the form) or a selector field (the user picks a value, include a
   selector in the form). Example: "user_id records the owner and is set automatically;
   shared_with_user_id must have a user selector."
+  Critical distinction: tables that represent a user's role or profile (e.g. parents,
+  students, teachers — where the record IS the user's role in the system) have a user_id
+  that is a SELECTOR, not an ownership field. These records are created by admins or staff
+  who assign the correct user account; the logged-in user creating the record is NOT
+  necessarily the user the record represents. Never auto-set user_id from the session on
+  role/profile tables — always include a user selector in the form.
 * For FK fields that represent a parent context (e.g. trip_id on packing_items), always
   include the field as a normal selector in the Edit view form. Do NOT say to omit it.
   Saltcorn automatically pre-fills the selector from the URL query parameter when the view is
@@ -189,6 +197,16 @@ const task_planning_rules = [
   locks out the intended users.`,
 
   `Important dashboard rules:
+* When a dashboard for a specific role (teacher, parent, student, etc.) should show lists
+  filtered to the logged-in user's own records, use a Show view of the user's profile/role
+  table as an intermediary. The page embeds this Show view with extra_state_fml supplying
+  the profile table's FK-to-users field (e.g. "{user_id: user.id}"), and the Show view
+  embeds the list with a relation path from the profile table to the list's table. This
+  makes the list show only rows reachable from the logged-in user's profile record.
+  Task descriptions for such dashboards must mention this pattern explicitly — e.g.
+  "embed a Show view of teachers filtered to the logged-in user via extra_state_fml, then
+  embed classes_list inside it using the relation path from teachers to classes."
+  The Show view used as an intermediary must already exist (list it in depends_on).
 * A dashboard page that shows aggregate statistics (totals, counts, revenue, etc.) must NEVER
   use client-side JavaScript fetch stubs or placeholder values. Every stat card must be backed
   by a real Saltcorn Statistic view embedded with an embed-view tag.
@@ -676,6 +694,13 @@ two locations (e.g. navbar and one hero call-to-action). Do not repeat them in a
 "Get started" section or anywhere else. For links that take an already-authenticated
 user to their dashboard, use href="/" — not /auth/login.`,
 
+  `Important: Never add Log in (/auth/login) or Create account (/auth/signup) links to
+role-specific dashboards or any page whose min_role is not public (100). A teacher
+dashboard, student dashboard, parent dashboard, or any page with min_role 40, 80, or 1
+is only reachable by users who are already authenticated — adding auth links there is
+wrong and confusing. Auth links belong only on public-facing pages (landing pages,
+marketing pages, min_role 100).`,
+
   `Important: Saltcorn page URLs always use the prefix /page/. To link to a page named
 "teacher_dashboard", the href must be "/page/teacher_dashboard" — NOT "/teacher_dashboard".
 This applies to every link, button, or navigation item that points to a Saltcorn page,
@@ -735,18 +760,44 @@ write conversational text, explanations, or instructions to the user inside the 
 Always create the page with whatever views exist. Do the same for pages: call
 list_entities (entity_type "page") before linking to any page by name.`,
 
-  `Important: Before embedding a view on a page, check whether it requires state (e.g. an id)
-that the page cannot supply. A page can only supply state from URL query params or from
-extra_state_fml (e.g. user.id for the logged-in user's own record). If a view requires a
-specific row id that is neither in the URL nor derivable from the logged-in user, do NOT
-embed it directly on the page — it will render empty or broken. Instead:
-• Add a ViewLink column in an existing List view that links to the view with the row id
-  resolved via the relation path (same-table relation for views on the same table).
-• Or embed the view inside a Show view of the relevant table, where state: "shared" and
-  the relation path provide the correct row id.
-Creating a placeholder card or static button with a link that has no id is also wrong —
-it produces a broken URL. If there is no clean way to supply the required state on a
-dashboard page, place the view elsewhere (List viewlink or Show embed) and link to it.`,
+  `Important: Before placing any reference to a view on a page — whether as an embed, a
+button, a link, or any other navigation element — check whether that view requires state
+(e.g. an id) that the page cannot supply. A page can only supply state from URL query
+params or from extra_state_fml (e.g. user.id for the logged-in user's own record).
+If a view requires a specific row id that is neither in the URL nor derivable from the
+logged-in user, do NOT reference it on the page in any form:
+• Do NOT embed it — it will render empty or broken.
+• Do NOT add a button or link to it — the URL will have no id and the view will show
+  "No row selected" or crash. This applies even if the link looks like a simple
+  navigation button (e.g. "Class-teacher assignments" linking to a view that needs a
+  class id). A link without the required id is always wrong.
+Instead:
+• Add a ViewLink column in the relevant List view, where the row id is resolved via the
+  relation path.
+• Or embed the view inside a Show view of the relevant table using state: "shared" and
+  the relation path.
+If there is no clean way to supply the required state on a dashboard page, place the
+access point in the List view or a Show view — not on the dashboard at all.`,
+
+  `Important: To embed a list on a dashboard page filtered to the logged-in user's own
+records (e.g. a teacher seeing only their classes), use this two-level pattern:
+1. On the page: embed a Show view of the user's profile/role table (e.g. teachers_show)
+   with state: "shared" and extra_state_fml set to the profile table's FK-to-users field,
+   e.g. extra_state_fml: "{ user_id: user.id }" (replace user_id with the actual field
+   name that is the FK from the profile table to users).
+2. Inside that Show view: embed the list view with state: "shared" and a relation field
+   containing the path from the profile table to the list's table, found via
+   get_relation_paths. Example: relation: ".teachers.forms$form_teacher_id.classes$form_id"
+   traverses teachers → forms → classes.
+The page segment looks like:
+  {"type":"view","view":"teachers_show","state":"shared","extra_state_fml":"{ user_id: user.id }"}
+The Show view layout segment for the list looks like:
+  {"type":"view","view":"classes_list","state":"shared","relation":".teachers.forms$form_teacher_id.classes$form_id"}
+Always call get_relation_paths to find the correct relation string — do not guess it.
+CRITICAL: Both steps must be completed in the same task. Updating the Show view to embed
+the list is a prerequisite step — it does NOT fulfil a task that says "Create a Page".
+The page must be created with set_entity before the task is done. Never stop after
+updating the Show view alone.`,
 
   `Important: A plain Edit view creates or edits a single record — it is NOT a bulk CSV
 import tool. Never use an Edit view as a solution for CSV import. List views have no
