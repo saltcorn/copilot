@@ -7,7 +7,7 @@ const GenerateAnyAction = require("../actions/generate-trigger");
 
 const flattenOptionGroups = (options = []) =>
   options.flatMap((opt) =>
-    opt?.optgroup && Array.isArray(opt.options) ? opt.options : [opt],
+    opt?.optgroup && Array.isArray(opt.options) ? opt.options : [opt]
   );
 
 class AnyActionSkill {
@@ -59,7 +59,7 @@ class AnyActionSkill {
             trigger_table,
             action_config,
           },
-          { user },
+          { user }
         );
         return { notify: result?.postExec || `Action saved: ${name}` };
       },
@@ -82,7 +82,7 @@ class AnyActionSkill {
     const stateActionNames = Object.keys(stateActions);
     const catalogNames = flattenOptionGroups(allActionOptions);
     const actionEnum = Array.from(
-      new Set([...catalogNames, ...stateActionNames]),
+      new Set([...catalogNames, ...stateActionNames])
     ).sort();
 
     const tables = (state.tables || []).map((t) => t.name);
@@ -157,7 +157,7 @@ class AnyActionSkill {
           } catch (_) {}
 
           const configurable = cfgFields.filter(
-            (f) => f.input_type !== "section_header",
+            (f) => f.input_type !== "section_header"
           );
           if (configurable.length > 0) {
             const properties = {};
@@ -181,15 +181,62 @@ class AnyActionSkill {
               )
                 actionPrompt =
                   await stateAction.copilot_generate_trigger_prompt(
-                    tool_call.input,
+                    tool_call.input
                   );
             }
 
             const llm = getState().functions.llm_generate;
+            const actionConfigSystemPrompt =
+              action_type === "run_js_code"
+                ? `You are configuring a Saltcorn run_js_code action.
+
+The code runs inside a CommonJS (vm2) sandbox. Rules:
+- Write plain statements directly — no function wrapper, no export, no import.
+- Never use ES module syntax (import, export, export const, export default).
+- Context variables from the trigger row are in scope as direct variables (e.g. use \`id\`, not \`params.id\`).
+- To read or write data use the Table API (already in scope — no require needed):
+    const tbl = await Table.findOne({ name: 'table_name' });
+    const row = await tbl.getRow({ id });
+    await tbl.updateRow({ field: value }, id);
+    const newId = await tbl.insertRow({ field: value });
+    const rows = await tbl.getRows({ where: { field: value } });
+- The logged-in user is available as \`user\` (with \`user.id\`).
+- Never use fetch or HTTP calls to access application data — use Table API only.
+- Return an object to write values back to context, or nothing if no return value is needed.
+- Do not add comment blocks about exports, params, apiUrl, or Expected inputs.`
+                : `You are a helpful assistant.`;
+
+            let schemaSection = "";
+            if (action_type === "run_js_code") {
+              try {
+                const allTables = await Table.find({});
+                const userTables = allTables.filter(
+                  (t) => !t.name.startsWith("_sc_")
+                );
+                const lines = await Promise.all(
+                  userTables.map(async (t) => {
+                    const fields = await t.getFields();
+                    const fieldList = fields
+                      .map((f) => `${f.name}:${f.type?.name || f.type}`)
+                      .join(", ");
+                    return `* ${t.name} – fields: ${fieldList}`;
+                  })
+                );
+                schemaSection =
+                  `The application database contains these tables:\n${lines.join(
+                    "\n"
+                  )}\n\n` +
+                  `Use the exact table names above when calling Table.findOne({ name: '...' }).\n\n`;
+              } catch (_) {}
+            }
+
             const answer = await llm.run(
-              `${actionPrompt ? actionPrompt + "\n\n" : ""}Configure the "${action_type}" action named "${name}". ` +
+              `${schemaSection}${
+                actionPrompt ? actionPrompt + "\n\n" : ""
+              }Configure the "${action_type}" action named "${name}". ` +
                 `Fill in the configuration by calling the generate_action_config tool.`,
               {
+                systemPrompt: actionConfigSystemPrompt,
                 tools: [
                   {
                     type: "function",
@@ -204,7 +251,7 @@ class AnyActionSkill {
                   type: "function",
                   function: { name: "generate_action_config" },
                 },
-              },
+              }
             );
 
             const tc = answer.getToolCalls()[0];
@@ -221,7 +268,7 @@ class AnyActionSkill {
               trigger_table,
               action_config,
             },
-            {},
+            {}
           );
           return {
             stop: true,

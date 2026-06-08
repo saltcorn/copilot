@@ -115,6 +115,16 @@ const task_planning_rules = [
 * When a List view links to a Show view or Edit view, the task description must say: "Add a
   viewlink column to [view_name] for the current row" — not just "link each row". This wording
   makes it unambiguous that a viewlink column must be added to the list for each target view.
+* When the plan includes a view that requires a specific row id to function — such as a
+  many-to-many assignment view (e.g. assigning teachers to a class, tagging, linking
+  students to groups), a detail view, or a related-record manager — plan it as its own
+  dedicated task. Do NOT bundle its creation into the same task as the view that embeds it —
+  the embedded view must exist before the embedding task runs and must be listed in depends_on.
+  When such a view is meant to be embedded inside a Show view, plan a dedicated Show view
+  shell whose only purpose is to carry the parent row id in state and embed the view. Keep
+  the main Show view (which displays the record's fields) separate and unmodified. Access the
+  shell via a viewlink in the List view — not via a dashboard page embed. Add both the
+  embedded view task and the shell Show task to the List task's depends_on.
 * Every link or viewlink that targets a Show view MUST include the row's \`id\` as a URL query
   parameter (e.g. \`?id={{id}}\`). A Show view with no \`id\` in the URL displays "No row
   selected". This applies to viewlinks in List views, page links, and any other navigation
@@ -309,6 +319,30 @@ correct when viewed in the browser later.`,
 (snake_case). Do NOT use \`RunJsCode\` or any PascalCase variant — those will throw "Action
 or trigger not found" at runtime. Built-in step types (TableQuery, ForLoop, SetContext, etc.)
 are PascalCase, but run_js_code is the exception and must always be written in snake_case.`,
+
+  `Important: \`run_js_code\` bodies execute inside a CommonJS (vm2) sandbox — ES module
+syntax is not supported and will throw "SyntaxError: 'import' and 'export' may only appear
+at the top level". Never use \`import\`, \`export\`, \`export const\`, or \`export default\` in
+any \`run_js_code\` body. Use plain variable assignments (\`const x = ...\`) and the
+\`return\` statement to produce output. The step name is set in the workflow step definition,
+not inside the code — do NOT write \`export const name = '...'\`.`,
+
+  `Important: \`run_js_code\` is a plain code body — NOT a named function or module.
+Never wrap the code in \`async function run(params, context) { ... }\` or any other function
+declaration. Write the statements directly, as if they are the body of an async function.
+Workflow context variables (set by SetContext, ForLoop, or trigger row fields) are available
+as direct local variables — e.g. use \`id\` directly, not \`params.id\` or \`context.id\`.
+Never hallucinate a \`params\` or \`context\` argument — those do not exist.
+To read or write application data, use the provided Table API:
+  const tbl = await Table.findOne({ name: 'my_table' });
+  const row = await tbl.getRow({ id });
+  await tbl.updateRow({ field: value }, id);
+  const newId = await tbl.insertRow({ field: value });
+  const rows = await tbl.getRows({ where: { field: value } });
+Never use \`fetch\` or any HTTP call to read or update your own application's data — that is
+always a hallucination. Internal data operations MUST go through the Table API.
+Do not add comment blocks describing "exports", "params", "apiUrl", or "Expected inputs" —
+those concepts do not apply inside \`run_js_code\`.`,
 
   `Important: Saltcorn where-clause objects use nested operator objects — NEVER use
 space-separated key suffixes. Space-separated keys like \`"entry_date >="\` or
@@ -701,6 +735,19 @@ write conversational text, explanations, or instructions to the user inside the 
 Always create the page with whatever views exist. Do the same for pages: call
 list_entities (entity_type "page") before linking to any page by name.`,
 
+  `Important: Before embedding a view on a page, check whether it requires state (e.g. an id)
+that the page cannot supply. A page can only supply state from URL query params or from
+extra_state_fml (e.g. user.id for the logged-in user's own record). If a view requires a
+specific row id that is neither in the URL nor derivable from the logged-in user, do NOT
+embed it directly on the page — it will render empty or broken. Instead:
+• Add a ViewLink column in an existing List view that links to the view with the row id
+  resolved via the relation path (same-table relation for views on the same table).
+• Or embed the view inside a Show view of the relevant table, where state: "shared" and
+  the relation path provide the correct row id.
+Creating a placeholder card or static button with a link that has no id is also wrong —
+it produces a broken URL. If there is no clean way to supply the required state on a
+dashboard page, place the view elsewhere (List viewlink or Show embed) and link to it.`,
+
   `Important: A plain Edit view creates or edits a single record — it is NOT a bulk CSV
 import tool. Never use an Edit view as a solution for CSV import. List views have no
 built-in CSV export feature — do not add an export button or column to a List view.
@@ -724,6 +771,23 @@ pages. If you find yourself about to write raw HTML (<!doctype>, <html>, <head>,
 <body>), stop and ask yourself: does this task explicitly require a standalone HTML
 page — like a public landing page, a marketing page, or a dashboard? If not, use
 page_type "Layout page". Do not output HTML to the conversation.`,
+
+  `Important: Passing state into an embedded view — two independent concerns:
+• state: "shared" passes the parent view's URL/state variables (e.g. query params)
+  down into the embedded view. It does not describe a relationship.
+• relation: ".sourcetable.segment..." describes the FK path from the parent view's
+  table to the embedded view's table, so Saltcorn knows which row to show. Use
+  get_relation_paths to find the correct string.
+These two fields are independent and can coexist on the same segment:
+  {"type":"view","view":"my_view","state":"shared","relation":".parenttable.fk_field"}
+Inside a Show or Edit view, always set the relation field so Saltcorn can resolve the
+correct row. Add state: "shared" as well if the embedded view also needs URL state
+variables passed through.
+• On a Page: the relation field is not processed — use state: "shared" to pass URL
+  query params, and add extra_state_fml: "{id: user.id}" when the id comes from the
+  logged-in user rather than the URL.
+  Example: {"type":"view","view":"my_view","state":"shared","extra_state_fml":"{id: user.id}"}
+  The formula has access to \`user\` (the logged-in user object) and URL query variables.`,
 ];
 
 const data_model_exec_rules = [
