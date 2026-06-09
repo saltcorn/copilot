@@ -203,10 +203,15 @@ const task_planning_rules = [
   the profile table's FK-to-users field (e.g. "{user_id: user.id}"), and the Show view
   embeds the list with a relation path from the profile table to the list's table. This
   makes the list show only rows reachable from the logged-in user's profile record.
-  Task descriptions for such dashboards must mention this pattern explicitly — e.g.
-  "embed a Show view of teachers filtered to the logged-in user via extra_state_fml, then
-  embed classes_list inside it using the relation path from teachers to classes."
-  The Show view used as an intermediary must already exist (list it in depends_on).
+  This always requires TWO separate tasks — never bundle them:
+  1. A task that updates the profile Show view to embed the list(s) with the relation path
+     (e.g. "update_teachers_show_embed"). This task depends on the Show view and the list view.
+  2. A task that creates the dashboard page and embeds the Show view with extra_state_fml
+     (e.g. "teacher_dashboard"). This task depends on the Show view update task (step 1).
+  The dashboard page task's description must say: "Create a Page ... embed [profile]_show
+  with extra_state_fml = {<fk_field>: user.id}" — it does NOT update any Show view.
+  The Show view update task's description must say: "Update [profile]_show to embed
+  [list]_list using the relation path from [profile] to [list]" — it does NOT create a Page.
 * A dashboard page that shows aggregate statistics (totals, counts, revenue, etc.) must NEVER
   use client-side JavaScript fetch stubs or placeholder values. Every stat card must be backed
   by a real Saltcorn Statistic view embedded with an embed-view tag.
@@ -794,10 +799,16 @@ The page segment looks like:
 The Show view layout segment for the list looks like:
   {"type":"view","view":"classes_list","state":"shared","relation":".teachers.forms$form_teacher_id.classes$form_id"}
 Always call get_relation_paths to find the correct relation string — do not guess it.
-CRITICAL: Both steps must be completed in the same task. Updating the Show view to embed
-the list is a prerequisite step — it does NOT fulfil a task that says "Create a Page".
-The page must be created with set_entity before the task is done. Never stop after
-updating the Show view alone.`,
+This pattern is always split into two separate tasks by the planner:
+- Task A updates the Show view to embed the list — it calls set_entity on the Show view
+  and is done when the Show view layout is saved. It does NOT create a page.
+- Task B creates the dashboard page and embeds the Show view with extra_state_fml — it
+  calls set_entity to create the page and is done when the page exists. It does NOT
+  update the Show view.
+CRITICAL: If your task description says "Create a Page", you must call set_entity to
+create the page. Updating a Show view alone does not fulfil a page-creation task.
+If your task description says "Update [view] to embed [list]", you must call set_entity
+on the view. Creating a page alone does not fulfil a view-update task.`,
 
   `Important: A plain Edit view creates or edits a single record — it is NOT a bulk CSV
 import tool. Never use an Edit view as a solution for CSV import. List views have no
