@@ -1,4 +1,4 @@
-const viewname = "Saltcorn AppConstructor (experimental)";
+const viewname = "Saltcorn AppConstructor";
 
 const TaskType = Object.freeze({
   PLUGIN: "plugin",

@@ -1,6 +1,6 @@
 const Table = require("@saltcorn/data/models/table");
 const MetaData = require("@saltcorn/data/models/metadata");
-const { div, pre, p, small, span } = require("@saltcorn/markup/tags");
+const { div, pre, p, small, span, button } = require("@saltcorn/markup/tags");
 const { viewname } = require("./common");
 const GenerateTables = require("../actions/generate-tables");
 const { buildMermaidMarkup } = GenerateTables;
@@ -103,6 +103,38 @@ const showSchema = async (req) => {
       .filter(Boolean),
   ];
 
+  const controls = div(
+    { class: "d-flex gap-1 mb-2 align-items-center" },
+    button(
+      {
+        type: "button",
+        class: "btn btn-sm btn-outline-secondary",
+        onclick: "schemaHelper.zoom(0.15)",
+        title: "Zoom in",
+      },
+      "+"
+    ),
+    button(
+      {
+        type: "button",
+        class: "btn btn-sm btn-outline-secondary",
+        onclick: "schemaHelper.zoom(-0.15)",
+        title: "Zoom out",
+      },
+      "−"
+    ),
+    button(
+      {
+        type: "button",
+        class: "btn btn-sm btn-outline-secondary",
+        onclick: "schemaHelper.reset()",
+        title: "Reset view",
+      },
+      "⊙"
+    ),
+    small({ class: "text-muted ms-1" }, "Scroll to zoom · Drag to pan")
+  );
+
   return div(
     { class: "mt-2" },
     small(
@@ -111,12 +143,21 @@ const showSchema = async (req) => {
         userTables.length !== 1 ? "s" : ""
       } — reflects current database state`
     ),
-    pre(
+    controls,
+    div(
       {
-        class: "schema-mermaid",
-        "data-color-map": JSON.stringify(colorMap),
+        id: "schema-diagram-wrapper",
+        style:
+          "overflow:hidden;cursor:grab;border:1px solid #dee2e6;border-radius:4px;background:#fff",
       },
-      mmdia
+      pre(
+        {
+          class: "schema-mermaid",
+          "data-color-map": JSON.stringify(colorMap),
+          style: "overflow:visible;margin:0;",
+        },
+        mmdia
+      )
     ),
     legendGroups.length
       ? div({ class: "d-flex flex-column gap-2 mt-2" }, ...legendGroups)
@@ -148,6 +189,47 @@ const schemaStaticScript = `<script>
     try { mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' }); } catch (_) {}
   }
 
+  // ── Zoom/pan helper ──────────────────────────────────────────────────────────
+  let _tx = 0, _ty = 0, _scale = 1.0, _mouseDown = false;
+
+  const _getSvg = () => document.querySelector('#schema-list-area svg');
+  const _applyTransform = () => {
+    const svg = _getSvg();
+    if (svg) svg.style.transform = 'translateX(' + _tx + 'px) translateY(' + _ty + 'px) scale(' + _scale + ')';
+  };
+  window.schemaHelper = {
+    zoom: (val) => {
+      _scale = Math.min(20, Math.max(0.1, _scale + val));
+      _applyTransform();
+    },
+    translateX: (val) => { _tx += val; _applyTransform(); },
+    translateY: (val) => { _ty += val; _applyTransform(); },
+    reset: () => { _tx = 0; _ty = 0; _scale = 1.0; _applyTransform(); },
+  };
+
+  const _onWheel = (e) => { e.preventDefault(); schemaHelper.zoom(-0.001 * e.deltaY); };
+  const _onMouseDown = () => { _mouseDown = true; };
+  const _onMouseUp = () => { _mouseDown = false; };
+  const _onMouseMove = (e) => {
+    if (_mouseDown) {
+      document.getSelection().removeAllRanges();
+      schemaHelper.translateX(e.movementX);
+      schemaHelper.translateY(e.movementY);
+    }
+  };
+
+  const _wireEvents = () => {
+    const wrapper = document.getElementById('schema-diagram-wrapper');
+    if (!wrapper || wrapper._schemaEventsWired) return;
+    wrapper._schemaEventsWired = true;
+    wrapper.addEventListener('wheel', _onWheel, { passive: false });
+    wrapper.addEventListener('mousedown', _onMouseDown);
+    wrapper.addEventListener('mouseup', _onMouseUp);
+    window.addEventListener('mousemove', _onMouseMove);
+    wrapper.addEventListener('mouseleave', _onMouseUp);
+  };
+  // ── End zoom/pan helper ──────────────────────────────────────────────────────
+
   function applyColors(el, colorMap) {
     for (const g of el.querySelectorAll('g[id^="entity-"]')) {
       const name = g.id.replace(/^entity-/, '').replace(/-\\d+$/, '');
@@ -176,7 +258,12 @@ const schemaStaticScript = `<script>
     mermaid.run({ nodes: [tmp], suppressErrors: true })
       .then(() => {
         const target = document.querySelector('#schema-list-area .schema-mermaid');
-        if (target) { target.innerHTML = tmp.innerHTML; applyColors(target, colorMap); }
+        if (target) {
+          target.innerHTML = tmp.innerHTML;
+          applyColors(target, colorMap);
+          _applyTransform();
+          _wireEvents();
+        }
         tmp.remove();
       })
       .catch(e => {
@@ -190,6 +277,7 @@ const schemaStaticScript = `<script>
       const el = document.getElementById('schema-list-area');
       if (r && r.html && el) {
         el.innerHTML = r.html;
+        schemaHelper.reset();
         copilotRenderSchemaMermaid();
       }
     });

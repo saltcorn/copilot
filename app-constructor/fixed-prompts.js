@@ -115,6 +115,18 @@ const task_planning_rules = [
 * When a List view links to a Show view or Edit view, the task description must say: "Add a
   viewlink column to [view_name] for the current row" — not just "link each row". This wording
   makes it unambiguous that a viewlink column must be added to the list for each target view.
+* When the plan includes a view that requires a specific row id to function — such as a
+  many-to-many assignment view (e.g. assigning teachers to a class, tagging, linking
+  students to groups), a detail view, or a related-record manager — plan it as its own
+  dedicated task. Do NOT bundle its creation into the same task as the view that embeds it —
+  the embedded view must exist before the embedding task runs and must be listed in depends_on.
+  When such a view is meant to be embedded inside a Show view, plan a dedicated Show view
+  whose only purpose is to carry the parent row id in state and embed the view. Keep the
+  main Show view (which displays the record's fields) separate and unmodified. Name this
+  dedicated Show view after its functional purpose, not its technical role — e.g.
+  "class_teachers_assign" not "class_teachers_shell_show". Access it via a viewlink in the
+  List view — not via a dashboard page embed. Add both the embedded view task and this
+  dedicated Show task to the List task's depends_on.
 * Every link or viewlink that targets a Show view MUST include the row's \`id\` as a URL query
   parameter (e.g. \`?id={{id}}\`). A Show view with no \`id\` in the URL displays "No row
   selected". This applies to viewlinks in List views, page links, and any other navigation
@@ -128,6 +140,12 @@ const task_planning_rules = [
   logged-in user, omit from the form) or a selector field (the user picks a value, include a
   selector in the form). Example: "user_id records the owner and is set automatically;
   shared_with_user_id must have a user selector."
+  Critical distinction: tables that represent a user's role or profile (e.g. parents,
+  students, teachers — where the record IS the user's role in the system) have a user_id
+  that is a SELECTOR, not an ownership field. These records are created by admins or staff
+  who assign the correct user account; the logged-in user creating the record is NOT
+  necessarily the user the record represents. Never auto-set user_id from the session on
+  role/profile tables — always include a user selector in the form.
 * For FK fields that represent a parent context (e.g. trip_id on packing_items), always
   include the field as a normal selector in the Edit view form. Do NOT say to omit it.
   Saltcorn automatically pre-fills the selector from the URL query parameter when the view is
@@ -179,6 +197,21 @@ const task_planning_rules = [
   locks out the intended users.`,
 
   `Important dashboard rules:
+* When a dashboard for a specific role (teacher, parent, student, etc.) should show lists
+  filtered to the logged-in user's own records, use a Show view of the user's profile/role
+  table as an intermediary. The page embeds this Show view with extra_state_fml supplying
+  the profile table's FK-to-users field (e.g. "{user_id: user.id}"), and the Show view
+  embeds the list with a relation path from the profile table to the list's table. This
+  makes the list show only rows reachable from the logged-in user's profile record.
+  This always requires TWO separate tasks — never bundle them:
+  1. A task that updates the profile Show view to embed the list(s) with the relation path
+     (e.g. "update_teachers_show_embed"). This task depends on the Show view and the list view.
+  2. A task that creates the dashboard page and embeds the Show view with extra_state_fml
+     (e.g. "teacher_dashboard"). This task depends on the Show view update task (step 1).
+  The dashboard page task's description must say: "Create a Page ... embed [profile]_show
+  with extra_state_fml = {<fk_field>: user.id}" — it does NOT update any Show view.
+  The Show view update task's description must say: "Update [profile]_show to embed
+  [list]_list using the relation path from [profile] to [list]" — it does NOT create a Page.
 * A dashboard page that shows aggregate statistics (totals, counts, revenue, etc.) must NEVER
   use client-side JavaScript fetch stubs or placeholder values. Every stat card must be backed
   by a real Saltcorn Statistic view embedded with an embed-view tag.
@@ -309,6 +342,30 @@ correct when viewed in the browser later.`,
 (snake_case). Do NOT use \`RunJsCode\` or any PascalCase variant — those will throw "Action
 or trigger not found" at runtime. Built-in step types (TableQuery, ForLoop, SetContext, etc.)
 are PascalCase, but run_js_code is the exception and must always be written in snake_case.`,
+
+  `Important: \`run_js_code\` bodies execute inside a CommonJS (vm2) sandbox — ES module
+syntax is not supported and will throw "SyntaxError: 'import' and 'export' may only appear
+at the top level". Never use \`import\`, \`export\`, \`export const\`, or \`export default\` in
+any \`run_js_code\` body. Use plain variable assignments (\`const x = ...\`) and the
+\`return\` statement to produce output. The step name is set in the workflow step definition,
+not inside the code — do NOT write \`export const name = '...'\`.`,
+
+  `Important: \`run_js_code\` is a plain code body — NOT a named function or module.
+Never wrap the code in \`async function run(params, context) { ... }\` or any other function
+declaration. Write the statements directly, as if they are the body of an async function.
+Workflow context variables (set by SetContext, ForLoop, or trigger row fields) are available
+as direct local variables — e.g. use \`id\` directly, not \`params.id\` or \`context.id\`.
+Never hallucinate a \`params\` or \`context\` argument — those do not exist.
+To read or write application data, use the provided Table API:
+  const tbl = await Table.findOne({ name: 'my_table' });
+  const row = await tbl.getRow({ id });
+  await tbl.updateRow({ field: value }, id);
+  const newId = await tbl.insertRow({ field: value });
+  const rows = await tbl.getRows({ where: { field: value } });
+Never use \`fetch\` or any HTTP call to read or update your own application's data — that is
+always a hallucination. Internal data operations MUST go through the Table API.
+Do not add comment blocks describing "exports", "params", "apiUrl", or "Expected inputs" —
+those concepts do not apply inside \`run_js_code\`.`,
 
   `Important: Saltcorn where-clause objects use nested operator objects — NEVER use
 space-separated key suffixes. Space-separated keys like \`"entry_date >="\` or
@@ -642,6 +699,13 @@ two locations (e.g. navbar and one hero call-to-action). Do not repeat them in a
 "Get started" section or anywhere else. For links that take an already-authenticated
 user to their dashboard, use href="/" — not /auth/login.`,
 
+  `Important: Never add Log in (/auth/login) or Create account (/auth/signup) links to
+role-specific dashboards or any page whose min_role is not public (100). A teacher
+dashboard, student dashboard, parent dashboard, or any page with min_role 40, 80, or 1
+is only reachable by users who are already authenticated — adding auth links there is
+wrong and confusing. Auth links belong only on public-facing pages (landing pages,
+marketing pages, min_role 100).`,
+
   `Important: Saltcorn page URLs always use the prefix /page/. To link to a page named
 "teacher_dashboard", the href must be "/page/teacher_dashboard" — NOT "/teacher_dashboard".
 This applies to every link, button, or navigation item that points to a Saltcorn page,
@@ -701,6 +765,51 @@ write conversational text, explanations, or instructions to the user inside the 
 Always create the page with whatever views exist. Do the same for pages: call
 list_entities (entity_type "page") before linking to any page by name.`,
 
+  `Important: Before placing any reference to a view on a page — whether as an embed, a
+button, a link, or any other navigation element — check whether that view requires state
+(e.g. an id) that the page cannot supply. A page can only supply state from URL query
+params or from extra_state_fml (e.g. user.id for the logged-in user's own record).
+If a view requires a specific row id that is neither in the URL nor derivable from the
+logged-in user, do NOT reference it on the page in any form:
+• Do NOT embed it — it will render empty or broken.
+• Do NOT add a button or link to it — the URL will have no id and the view will show
+  "No row selected" or crash. This applies even if the link looks like a simple
+  navigation button (e.g. "Class-teacher assignments" linking to a view that needs a
+  class id). A link without the required id is always wrong.
+Instead:
+• Add a ViewLink column in the relevant List view, where the row id is resolved via the
+  relation path.
+• Or embed the view inside a Show view of the relevant table using state: "shared" and
+  the relation path.
+If there is no clean way to supply the required state on a dashboard page, place the
+access point in the List view or a Show view — not on the dashboard at all.`,
+
+  `Important: To embed a list on a dashboard page filtered to the logged-in user's own
+records (e.g. a teacher seeing only their classes), use this two-level pattern:
+1. On the page: embed a Show view of the user's profile/role table (e.g. teachers_show)
+   with state: "shared" and extra_state_fml set to the profile table's FK-to-users field,
+   e.g. extra_state_fml: "{ user_id: user.id }" (replace user_id with the actual field
+   name that is the FK from the profile table to users).
+2. Inside that Show view: embed the list view with state: "shared" and a relation field
+   containing the path from the profile table to the list's table, found via
+   get_relation_paths. Example: relation: ".teachers.forms$form_teacher_id.classes$form_id"
+   traverses teachers → forms → classes.
+The page segment looks like:
+  {"type":"view","view":"teachers_show","state":"shared","extra_state_fml":"{ user_id: user.id }"}
+The Show view layout segment for the list looks like:
+  {"type":"view","view":"classes_list","state":"shared","relation":".teachers.forms$form_teacher_id.classes$form_id"}
+Always call get_relation_paths to find the correct relation string — do not guess it.
+This pattern is always split into two separate tasks by the planner:
+- Task A updates the Show view to embed the list — it calls set_entity on the Show view
+  and is done when the Show view layout is saved. It does NOT create a page.
+- Task B creates the dashboard page and embeds the Show view with extra_state_fml — it
+  calls set_entity to create the page and is done when the page exists. It does NOT
+  update the Show view.
+CRITICAL: If your task description says "Create a Page", you must call set_entity to
+create the page. Updating a Show view alone does not fulfil a page-creation task.
+If your task description says "Update [view] to embed [list]", you must call set_entity
+on the view. Creating a page alone does not fulfil a view-update task.`,
+
   `Important: A plain Edit view creates or edits a single record — it is NOT a bulk CSV
 import tool. Never use an Edit view as a solution for CSV import. List views have no
 built-in CSV export feature — do not add an export button or column to a List view.
@@ -724,6 +833,23 @@ pages. If you find yourself about to write raw HTML (<!doctype>, <html>, <head>,
 <body>), stop and ask yourself: does this task explicitly require a standalone HTML
 page — like a public landing page, a marketing page, or a dashboard? If not, use
 page_type "Layout page". Do not output HTML to the conversation.`,
+
+  `Important: Passing state into an embedded view — two independent concerns:
+• state: "shared" passes the parent view's URL/state variables (e.g. query params)
+  down into the embedded view. It does not describe a relationship.
+• relation: ".sourcetable.segment..." describes the FK path from the parent view's
+  table to the embedded view's table, so Saltcorn knows which row to show. Use
+  get_relation_paths to find the correct string.
+These two fields are independent and can coexist on the same segment:
+  {"type":"view","view":"my_view","state":"shared","relation":".parenttable.fk_field"}
+Inside a Show or Edit view, always set the relation field so Saltcorn can resolve the
+correct row. Add state: "shared" as well if the embedded view also needs URL state
+variables passed through.
+• On a Page: the relation field is not processed — use state: "shared" to pass URL
+  query params, and add extra_state_fml: "{id: user.id}" when the id comes from the
+  logged-in user rather than the URL.
+  Example: {"type":"view","view":"my_view","state":"shared","extra_state_fml":"{id: user.id}"}
+  The formula has access to \`user\` (the logged-in user object) and URL query variables.`,
 ];
 
 const data_model_exec_rules = [
