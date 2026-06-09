@@ -228,10 +228,12 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
   }
 };
 
+const ERROR_PAGE_SIZE = 20;
+
 /**
  * Renders the self-healing toggle section and error table.
  */
-const errorList = async (req) => {
+const errorList = async (req, page = 1) => {
   const settings = await MetaData.findOne({
     type: "CopilotConstructMgr",
     name: "settings",
@@ -278,12 +280,43 @@ const errorList = async (req) => {
         )
       );
 
-  const errs = (
+  const allErrs = (
     await MetaData.find({
       type: "CopilotConstructMgr",
       name: "error",
     })
   ).sort((a, b) => new Date(b.written_at) - new Date(a.written_at));
+
+  const totalPages = Math.max(1, Math.ceil(allErrs.length / ERROR_PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const errs = allErrs.slice(
+    (currentPage - 1) * ERROR_PAGE_SIZE,
+    currentPage * ERROR_PAGE_SIZE
+  );
+
+  const errPagination =
+    totalPages > 1
+      ? `<nav class="mt-2"><ul class="pagination pagination-sm mb-0">` +
+        `<li class="page-item${
+          currentPage === 1 ? " disabled" : ""
+        }"><a class="page-link" href="#" onclick="event.preventDefault();copilotErrGoPage(${
+          currentPage - 1
+        })">&#8249;</a></li>` +
+        Array.from({ length: totalPages }, (_, i) => i + 1)
+          .map(
+            (pg) =>
+              `<li class="page-item${
+                pg === currentPage ? " active" : ""
+              }"><a class="page-link" href="#" onclick="event.preventDefault();copilotErrGoPage(${pg})">${pg}</a></li>`
+          )
+          .join("") +
+        `<li class="page-item${
+          currentPage === totalPages ? " disabled" : ""
+        }"><a class="page-link" href="#" onclick="event.preventDefault();copilotErrGoPage(${
+          currentPage + 1
+        })">&#8250;</a></li>` +
+        `</ul></nav>`
+      : "";
 
   // Build error_id → most recent fix task map for run links
   const allTasks = await MetaData.find({
@@ -299,7 +332,7 @@ const errorList = async (req) => {
     }
   }
 
-  const errTable = errs.length
+  const errTable = allErrs.length
     ? div(
         mkTable(
           [
@@ -342,14 +375,22 @@ const errorList = async (req) => {
               label: "Error",
               key: (m) => {
                 const err = m.body.error || {};
-                const msg = err.message || String(err) || "(no message)";
+                const fullMsg = err.message || String(err) || "(no message)";
+                const msg =
+                  fullMsg.length > 120 ? fullMsg.slice(0, 120) + "…" : fullMsg;
                 const urlLine = err.url
                   ? div(
                       { class: "text-muted", style: "font-size:0.75rem" },
                       text(String(err.url))
                     )
                   : "";
-                const stackLines = (err.stack || "").split("\n").slice(0, 5);
+                // Skip line 0 — it duplicates the message ("Error: ...")
+                const stackLines = (err.stack || "")
+                  .split("\n")
+                  .slice(1)
+                  .filter(Boolean)
+                  .slice(0, 3)
+                  .map((l) => (l.length > 100 ? l.slice(0, 100) + "…" : l));
                 const stackPreview = stackLines.length
                   ? pre(
                       {
@@ -360,7 +401,9 @@ const errorList = async (req) => {
                     )
                   : "";
                 return div(
-                  { style: "word-break:break-word;min-width:0;" },
+                  {
+                    style: "word-break:break-word;min-width:0;max-width:480px;",
+                  },
                   div({ class: "fw-semibold small" }, text(msg)),
                   urlLine,
                   stackPreview
@@ -502,7 +545,8 @@ const errorList = async (req) => {
             onclick: "copilotDelAllErrs()",
           },
           "Delete all"
-        )
+        ),
+        errPagination
       )
     : p("No errors");
 
@@ -609,7 +653,8 @@ const get_fix_task = async (table_id, vn, config, body, { req, res }) => {
 
 /** Route: returns the rendered error list HTML for AJAX refresh. */
 const err_list_html = async (table_id, vn, config, body, { req, res }) => {
-  const html = await errorList(req);
+  const page = body.page ? parseInt(body.page) : 1;
+  const html = await errorList(req, page);
   return { json: { html } };
 };
 
@@ -679,6 +724,12 @@ const errTableStaticHtml = `
       if (r && r.html && el) el.innerHTML = r.html;
     });
   }
+  window.copilotErrGoPage = function(pg) {
+    view_post(_vn, 'err_list_html', { page: pg }, function(r) {
+      var el = document.getElementById('err-list-area');
+      if (r && r.html && el) el.innerHTML = r.html;
+    });
+  };
   function startFixPolling() {
     if (window.dynamic_updates_cfg?.enabled) return;
     document.querySelectorAll('[data-fixing-id]').forEach((el) => {

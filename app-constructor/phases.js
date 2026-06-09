@@ -96,7 +96,14 @@ function _refreshAllAreas(idx) {
 window.copilotRefreshPhaseProgress = function(idx) {
   const el = document.getElementById('phase-progress-area-' + idx);
   if (!el) return;
-  view_post(_phasesVn, 'phase_progress_html', { idx }, (r) => {
+  view_post(_phasesVn, 'phase_progress_html', { idx }, function(r) {
+    if (r && r.html) el.innerHTML = r.html;
+  });
+};
+window.copilotProgressGoPage = function(idx, pg) {
+  var el = document.getElementById('phase-progress-area-' + idx);
+  if (!el) return;
+  view_post(_phasesVn, 'phase_progress_html', { idx: idx, page: pg }, function(r) {
     if (r && r.html) el.innerHTML = r.html;
   });
 };
@@ -833,7 +840,9 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
 
 // ── Phase detail view ─────────────────────────────────────────────────────────
 
-const phaseProgressHtml = async (idx) => {
+const PROGRESS_PAGE_SIZE = 20;
+
+const phaseProgressHtml = async (idx, page = 1) => {
   const allTasks = await MetaData.find({
     type: "CopilotConstructMgr",
     name: "task",
@@ -850,6 +859,37 @@ const phaseProgressHtml = async (idx) => {
 
   if (!entries.length)
     return p({ class: "text-muted mt-2" }, "No completed tasks yet.");
+
+  const totalPages = Math.ceil(entries.length / PROGRESS_PAGE_SIZE);
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const pageEntries = entries.slice(
+    (currentPage - 1) * PROGRESS_PAGE_SIZE,
+    currentPage * PROGRESS_PAGE_SIZE
+  );
+
+  const pagination =
+    totalPages > 1
+      ? `<nav class="mt-2"><ul class="pagination pagination-sm mb-0">` +
+        `<li class="page-item${
+          currentPage === 1 ? " disabled" : ""
+        }"><a class="page-link" href="#" onclick="event.preventDefault();copilotProgressGoPage(${idx},${
+          currentPage - 1
+        })">&#8249;</a></li>` +
+        Array.from({ length: totalPages }, (_, i) => i + 1)
+          .map(
+            (pg) =>
+              `<li class="page-item${
+                pg === currentPage ? " active" : ""
+              }"><a class="page-link" href="#" onclick="event.preventDefault();copilotProgressGoPage(${idx},${pg})">${pg}</a></li>`
+          )
+          .join("") +
+        `<li class="page-item${
+          currentPage === totalPages ? " disabled" : ""
+        }"><a class="page-link" href="#" onclick="event.preventDefault();copilotProgressGoPage(${idx},${
+          currentPage + 1
+        })">&#8250;</a></li>` +
+        `</ul></nav>`
+      : "";
 
   return (
     mkTable(
@@ -887,8 +927,9 @@ const phaseProgressHtml = async (idx) => {
             ),
         },
       ],
-      entries
+      pageEntries
     ) +
+    pagination +
     button(
       {
         class: "btn btn-outline-danger btn-sm mt-2",
@@ -993,6 +1034,20 @@ const phasesPanel = async (req) => {
 
 // ── Phase generation ──────────────────────────────────────────────────────────
 
+const deletePhaseScopedFeedback = async () => {
+  for (const name of ["feedback_pending", "feedback"]) {
+    const records = await MetaData.find({ type: "CopilotConstructMgr", name });
+    for (const r of records.filter((r) => r.body?.phase_idx != null)) {
+      const research = await MetaData.findOne({
+        type: "CopilotConstructMgr",
+        name: `feedback_research_${r.id}`,
+      });
+      if (research) await research.delete();
+      await r.delete();
+    }
+  }
+};
+
 const doGenPhases = async (userId) => {
   const generatingMd = await MetaData.create({
     type: "CopilotConstructMgr",
@@ -1017,13 +1072,15 @@ const doGenPhases = async (userId) => {
 
     const tc = answer.getToolCalls()[0];
 
-    // Delete all phase tasks before replacing phases (phase indices will shift)
+    // Delete all phase tasks and phase-scoped feedback before replacing phases
+    // (phase indices will shift, making both stale)
     const allTasks = await MetaData.find({
       type: "CopilotConstructMgr",
       name: "task",
     });
     for (const t of allTasks.filter((t) => t.body?.phase_idx !== undefined))
       await t.delete();
+    await deletePhaseScopedFeedback();
 
     const existing = await MetaData.findOne({
       type: "CopilotConstructMgr",
@@ -1414,6 +1471,7 @@ const del_all_phases = async (table_id, vn, config, body, { req, res }) => {
   });
   for (const t of allTasks.filter((t) => t.body?.phase_idx !== undefined))
     await t.delete();
+  await deletePhaseScopedFeedback();
   const markers = await MetaData.find({
     type: "CopilotConstructMgr",
     name: "phase_plugin_generated",
@@ -1450,7 +1508,8 @@ const phase_progress_html = async (
   { req, res }
 ) => {
   const idx = parseInt(body.idx);
-  const html = await phaseProgressHtml(idx);
+  const page = body.page ? parseInt(body.page) : 1;
+  const html = await phaseProgressHtml(idx, page);
   return { json: { html } };
 };
 
