@@ -29,7 +29,7 @@ selector inputs; Saltcorn auto-fills them from the URL state when opened in cont
 
 const {
   fieldview_selection_rules: EDIT_FIELDVIEW_SELECTION,
-} = require("./app-constructor/prompts");
+} = require("./app-constructor/fixed-prompts");
 
 const EDIT_LAYOUT_STRUCTURE = `\
 Every field MUST be preceded by a label. \
