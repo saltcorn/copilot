@@ -1,5 +1,15 @@
 const MetaData = require("@saltcorn/data/models/metadata");
-const { div, button, text_attr, textarea } = require("@saltcorn/markup/tags");
+const {
+  div,
+  button,
+  text_attr,
+  textarea,
+  input,
+  label,
+  select,
+  option,
+  small,
+} = require("@saltcorn/markup/tags");
 const { runTask, runNextTask } = require("./run_task");
 
 const del_task = async (table_id, viewname, config, body, { req, res }) => {
@@ -73,40 +83,119 @@ const task_status = async (table_id, viewname, config, body, { req, res }) => {
   return { json: { any_done } };
 };
 
-const edit_task_desc = async (table_id, vname, config, body, { req, res }) => {
-  const id = body.id || req.query?.id;
-  const r = await MetaData.findOne({
-    id: Number(id),
-    type: "CopilotConstructMgr",
-    name: "task",
-  });
-  if (!r) return { json: { error: "Task not found" } };
-  const html =
+/** Build the modal form HTML for edit (when task is provided) or create. */
+const taskFormHtml = (
+  vname,
+  { task = null, phaseIdx, taskType, peerTasks = [] }
+) => {
+  const isEdit = !!task;
+  const existingDeps = task?.body?.depends_on || [];
+  const currentPriority = task?.body?.priority ?? 3;
+  const pi = isEdit ? task.body.phase_idx : phaseIdx;
+  const tt = isEdit ? task.body.task_type || "feature" : taskType;
+
+  const depsSelect = select(
+    {
+      id: "task-form-deps",
+      class: "form-select",
+      multiple: true,
+      size: Math.min(6, Math.max(3, peerTasks.length)),
+    },
+    ...peerTasks.map((t) =>
+      option(
+        {
+          value: t.body.name,
+          ...(existingDeps.includes(t.body.name) ? { selected: true } : {}),
+        },
+        t.body.name
+      )
+    )
+  );
+
+  const saveOnclick = `view_post(${JSON.stringify(vname)}, 'save_task', {
+  id: ${isEdit ? task.id : -1},
+  phaseIdx: ${pi},
+  taskType: ${JSON.stringify(tt)},
+  name: document.getElementById('task-form-name').value,
+  description: document.getElementById('task-form-desc').value,
+  priority: parseInt(document.getElementById('task-form-priority').value),
+  depends_on: Array.from(document.getElementById('task-form-deps').selectedOptions).map(o => o.value)
+}, () => {
+  $('#scmodal').modal('hide');
+  if (typeof _refreshPhaseArea === 'function') _refreshPhaseArea(${pi}, ${JSON.stringify(
+    tt
+  )});
+})`;
+
+  return (
     div(
       { class: "mb-3" },
+      label({ class: "form-label fw-semibold", for: "task-form-name" }, "Name"),
+      input({
+        type: "text",
+        id: "task-form-name",
+        class: "form-control",
+        value: text_attr(task?.body?.name || ""),
+      })
+    ) +
+    div(
+      { class: "mb-3" },
+      label(
+        { class: "form-label fw-semibold", for: "task-form-desc" },
+        "Description"
+      ),
       textarea(
-        {
-          id: "edit-task-desc-text",
-          class: "form-control",
-          rows: "10",
-        },
-        text_attr(r.body.description || "")
+        { id: "task-form-desc", class: "form-control", rows: 8 },
+        text_attr(task?.body?.description || "")
       )
     ) +
     div(
+      { class: "mb-3" },
+      label(
+        { class: "form-label fw-semibold", for: "task-form-priority" },
+        "Priority"
+      ),
+      select(
+        { id: "task-form-priority", class: "form-select" },
+        ...[1, 2, 3, 4, 5].map((n) =>
+          option(
+            { value: n, ...(n === currentPriority ? { selected: true } : {}) },
+            String(n)
+          )
+        )
+      )
+    ) +
+    (peerTasks.length
+      ? div(
+          { class: "mb-4" },
+          label(
+            { class: "form-label fw-semibold", for: "task-form-deps" },
+            "Dependencies"
+          ),
+          depsSelect,
+          div(
+            { class: "d-flex justify-content-between mt-1" },
+            small(
+              { class: "text-muted" },
+              "Hold Ctrl / Cmd to select multiple."
+            ),
+            button(
+              {
+                type: "button",
+                class: "btn btn-link btn-sm p-0 text-muted",
+                onclick:
+                  "Array.from(document.getElementById('task-form-deps')" +
+                  ".options).forEach(o => o.selected = false)",
+              },
+              "Clear all"
+            )
+          )
+        )
+      : "") +
+    div(
       { class: "d-flex gap-2 mt-3" },
       button(
-        {
-          type: "button",
-          class: "btn btn-primary",
-          onclick: `view_post(${JSON.stringify(vname)}, 'save_task_desc', {
-  id: ${r.id},
-  description: document.getElementById('edit-task-desc-text').value
-}, () => {
-  $('#scmodal').modal('hide');
-  if (typeof copilotRefreshTasks === 'function') copilotRefreshTasks();
-})`,
-        },
+        { type: "button", class: "btn btn-primary", onclick: saveOnclick },
         "Save"
       ),
       button(
@@ -117,26 +206,121 @@ const edit_task_desc = async (table_id, vname, config, body, { req, res }) => {
         },
         "Cancel"
       )
-    );
-  return { html, title: `Edit: ${r.body.name || "task"}` };
+    )
+  );
 };
 
-const save_task_desc = async (table_id, vname, config, body, { req, res }) => {
+/** Modal form for editing an existing task (name, description, priority, deps). */
+const get_task_form = async (table_id, vname, config, body, { req, res }) => {
+  const id = body.id || req.query?.id;
   const r = await MetaData.findOne({
-    id: Number(body.id),
+    id: Number(id),
     type: "CopilotConstructMgr",
     name: "task",
   });
-  if (!r) throw new Error("Task not found");
-  await r.update({ body: { ...r.body, description: body.description } });
+  if (!r) return { json: { error: "Task not found" } };
+
+  const phaseIdx = r.body.phase_idx;
+  const taskType = r.body.task_type || "feature";
+
+  const allTasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  const peerTasks = allTasks.filter(
+    (t) =>
+      t.id !== r.id &&
+      t.body?.phase_idx === phaseIdx &&
+      (t.body?.task_type || "feature") === taskType
+  );
+
+  const html = taskFormHtml(vname, { task: r, peerTasks });
+  return { html, title: `Edit: ${r.body.name || "task"}` };
+};
+
+/** Modal form for creating a new task in a given phase + task type. */
+const get_new_task_form = async (
+  table_id,
+  vname,
+  config,
+  body,
+  { req, res }
+) => {
+  const phaseIdx = parseInt(body.phaseIdx ?? req.query?.phaseIdx);
+  const taskType = body.taskType ?? req.query?.taskType ?? "feature";
+
+  const allTasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
+  const peerTasks = allTasks.filter(
+    (t) =>
+      t.body?.phase_idx === phaseIdx &&
+      (t.body?.task_type || "feature") === taskType
+  );
+
+  const html = taskFormHtml(vname, { phaseIdx, taskType, peerTasks });
+  const label =
+    taskType === "plugin"
+      ? "Plugin"
+      : taskType === "data_model"
+      ? "Data model"
+      : "Feature";
+  return { html, title: `New ${label} task — Phase ${phaseIdx + 1}` };
+};
+
+/** Save handler for both edit (id >= 0) and create (id === -1). */
+const save_task = async (table_id, vname, config, body, { req, res }) => {
+  const { id, phaseIdx, taskType, name, description, priority, depends_on } =
+    body;
+
+  const deps = Array.isArray(depends_on)
+    ? depends_on
+    : depends_on
+    ? [depends_on]
+    : [];
+
+  if (Number(id) >= 0) {
+    const r = await MetaData.findOne({
+      id: Number(id),
+      type: "CopilotConstructMgr",
+      name: "task",
+    });
+    if (!r) return { json: { error: "Task not found" } };
+    await r.update({
+      body: {
+        ...r.body,
+        name,
+        description,
+        priority: parseInt(priority),
+        depends_on: deps,
+      },
+    });
+  } else {
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: "task",
+      body: {
+        name,
+        description,
+        priority: parseInt(priority),
+        depends_on: deps,
+        status: "To do",
+        phase_idx: parseInt(phaseIdx),
+        task_type: taskType || "feature",
+      },
+      user_id: req.user?.id,
+    });
+  }
   return { json: { success: true } };
 };
 
 const task_routes = {
   del_task,
   reset_task,
-  edit_task_desc,
-  save_task_desc,
+  get_task_form,
+  get_new_task_form,
+  save_task,
   run_task,
   task_status,
 };

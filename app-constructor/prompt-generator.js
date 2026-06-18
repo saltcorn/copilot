@@ -18,7 +18,6 @@ const {
   feedback_task_overrides,
   feature_exec_rules,
   data_model_exec_rules,
-  req_gen_rules,
   phase_gen_rules,
   phase_scope_rule,
   no_roles_table_rule,
@@ -60,6 +59,21 @@ const research_answers_section = (text) =>
   text
     ? `\nThe user was asked clarifying questions about the application. Here are the questions and their answers:\n\n${text}\n`
     : "";
+
+const web_findings_text = (findings) => {
+  if (!findings || !findings.length) return "";
+  const items = findings
+    .map((f) => `Search: "${f.query}"\n${f.snippet}`)
+    .join("\n\n---\n\n");
+  return (
+    "BACKGROUND REFERENCE (web search results) — not part of the specification:\n" +
+    "Use the information below only when it is directly relevant to something " +
+    "mentioned in the specification or in the user's answers. " +
+    "Do not plan, implement, or derive requirements from this block alone. " +
+    "It provides context, not scope.\n\n" +
+    items
+  );
+};
 
 const available_plugins_list = (storePlugins, installedNames) => {
   const uninstalled = storePlugins.filter((p) => !installedNames.has(p.name));
@@ -298,30 +312,43 @@ class PromptGenerator {
       await getResearchAnswersText()
     );
 
+    const webFindingsMd = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: "research_web_findings",
+    });
+    instance.webFindings = webFindingsMd?.body?.findings || [];
+    instance.webFindingsSection = web_findings_text(instance.webFindings);
+
     return instance;
   }
 
-  /** Prompt for the ask_questions LLM call — generates clarifying research questions from the spec. */
-  researchQuestionsPrompt() {
+  /** Prompt for the suggest_searches LLM call — produces web search queries from the spec. */
+  webSearchQueriesPrompt() {
     return [
-      research_questions_rules,
       `Specification:\n${this.spec?.body?.specification}`,
-      "Now call the ask_questions tool with your questions.",
+      "Identify the parts of the specification that require external knowledge " +
+        "to implement correctly — a named rule, formula, process, or regulation " +
+        "that is referenced but not explained.",
+      "For each gap, ask yourself: 'Is this knowledge directly needed to build " +
+        "what the spec describes, or am I filling in details the spec never asked for?' " +
+        "Only search if the answer is clearly the former.",
+      "Do not aim for full domain coverage. Serve the specification, not the topic.",
+      "Up to 3 queries is usually enough; 5 is the hard maximum.",
+      "Now call the suggest_searches tool with your queries.",
     ].join("\n\n");
   }
 
-  /** Prompt for the make_requirements LLM call — extracts requirements from the spec. */
-  requirementsPlanPrompt() {
+  /** Prompt for the ask_questions LLM call — generates clarifying research questions from the spec.
+   *  @param {Array<{query:string, snippet:string}>} [webFindings] fresh findings from this run */
+  researchQuestionsPrompt(webFindings = []) {
     const parts = [
-      "Generate the requirements for this application:",
-      this.spec?.body?.specification,
+      research_questions_rules,
+      `Specification:\n${this.spec?.body?.specification}`,
     ];
-    if (this.researchSection) parts.push(this.researchSection);
-    parts.push(
-      req_gen_rules.join("\n\n"),
-      "Now use the make_requirements tool to list the requirements for this software application."
-    );
-    return parts.filter(Boolean).join("\n\n");
+    const findingsText = web_findings_text(webFindings);
+    if (findingsText) parts.push(findingsText);
+    parts.push("Now call the ask_questions tool with your questions.");
+    return parts.join("\n\n");
   }
 
   /** Prompt for the set_phases LLM call — groups requirements into delivery phases. */
@@ -331,6 +358,7 @@ class PromptGenerator {
         "requirements that belong together and form a coherent milestone.",
       this.spec?.body?.specification,
     ];
+    if (this.webFindingsSection) parts.push(this.webFindingsSection);
     if (this.researchSection) parts.push(this.researchSection);
     parts.push(
       phase_gen_rules.join("\n\n"),
@@ -349,6 +377,7 @@ class PromptGenerator {
       "You are planning the implementation tasks for a single phase of a Saltcorn application.",
       `Application specification:\n${this.spec?.body?.specification}`,
     ];
+    if (this.webFindingsSection) parts.push(this.webFindingsSection);
     if (this.researchSection) parts.push(this.researchSection);
     parts.push(
       `Phase: ${this.phase.name}\n${this.phase.description}`,
@@ -405,6 +434,7 @@ class PromptGenerator {
         ? exec_schema_rule_data_model
         : exec_schema_rule_feature,
     ];
+    if (this.webFindingsSection) parts.push(this.webFindingsSection);
     if (this.researchSection) parts.push(this.researchSection);
     if (taskType === TaskType.PLUGIN)
       parts.push(...this.pluginAvailabilitySections);
@@ -436,6 +466,7 @@ class PromptGenerator {
     const parts = [
       `Fix a bug in the following Saltcorn application.\n\n${this.spec?.body?.specification}`,
     ];
+    if (this.webFindingsSection) parts.push(this.webFindingsSection);
     if (this.researchSection) parts.push(this.researchSection);
     if (this.allReqs.length)
       parts.push(
@@ -506,6 +537,7 @@ class PromptGenerator {
     const parts = [
       `The following application is being built:\n\n${this.spec?.body?.specification}`,
     ];
+    if (this.webFindingsSection) parts.push(this.webFindingsSection);
     if (this.researchSection) parts.push(this.researchSection);
     parts.push(
       `A new piece of feedback has come in from a user:\n\nTitle: ${title}\nDescription: ${description}`
@@ -541,6 +573,7 @@ class PromptGenerator {
     const parts = [
       `Generate implementation tasks for a new piece of feedback for this application:\n\n${this.spec?.body?.specification}`,
     ];
+    if (this.webFindingsSection) parts.push(this.webFindingsSection);
     if (this.researchSection) parts.push(this.researchSection);
     parts.push(
       `A new piece of feedback has come in from a user:\n\nTitle: ${title}\nDescription: ${description}`
