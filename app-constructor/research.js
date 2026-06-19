@@ -247,23 +247,40 @@ const renderWebFindings = (findings) => {
   return div({ class: "mt-2" }, findingCards, customSearchForm);
 };
 
+const sectionSpinnerHtml =
+  '<div class="py-3 px-1 text-muted">' +
+  i({ class: "fas fa-spinner fa-spin me-2" }) +
+  "Please wait…</div>";
+
 const renderWebResearchSection = (findings) => {
   const sectionId = "research-web-section-collapse";
   return div(
-    { class: "mb-4 border rounded p-3" },
-    button(
-      {
-        type: "button",
-        class:
-          "btn btn-sm btn-link text-start p-0 fw-semibold text-body " +
-          "d-flex align-items-center mb-1",
-        "data-bs-toggle": "collapse",
-        "data-bs-target": `#${sectionId}`,
-        "aria-expanded": "false",
-        "aria-controls": sectionId,
-      },
-      i({ class: "fas fa-chevron-down me-2 sc-collapse-chevron" }),
-      "Web Research"
+    { class: "mb-4 border rounded p-3", id: "web-research-section" },
+    div(
+      { class: "d-flex align-items-center justify-content-between mb-1" },
+      button(
+        {
+          type: "button",
+          class:
+            "btn btn-sm btn-link text-start p-0 fw-semibold text-body " +
+            "d-flex align-items-center",
+          "data-bs-toggle": "collapse",
+          "data-bs-target": `#${sectionId}`,
+          "aria-expanded": "false",
+          "aria-controls": sectionId,
+        },
+        i({ class: "fas fa-chevron-down me-2 sc-collapse-chevron" }),
+        "Web Research"
+      ),
+      button(
+        {
+          type: "button",
+          class: "btn btn-sm btn-outline-secondary",
+          onclick: "copilotRegenWebOnly()",
+        },
+        i({ class: "fas fa-sync-alt me-1" }),
+        "Regenerate"
+      )
     ),
     small(
       { class: "text-muted d-block mb-2" },
@@ -333,55 +350,40 @@ const researchPanelHtml = async (req) => {
       })
       .join("");
 
-    const hasFindingsMd = !!findings_md;
     const findingsHtml = findings_md
       ? renderWebResearchSection(findings_md.body?.findings || [])
       : "";
-
-    const regenBtn = hasFindingsMd
-      ? button(
-          {
-            type: "button",
-            class: "btn btn-outline-secondary me-2",
-            onclick: "copilotGenQuestionsOnly()",
-          },
-          "Regenerate questions"
-        ) +
-        button(
-          {
-            type: "button",
-            class: "btn btn-outline-secondary",
-            onclick: "copilotRegenResearch()",
-          },
-          "Regenerate all"
-        )
-      : button(
-          {
-            type: "button",
-            class: "btn btn-outline-secondary",
-            onclick: "copilotRegenResearch()",
-          },
-          "Regenerate questions"
-        );
 
     const questionsSectionId = "research-questions-section-collapse";
     return (
       findingsHtml +
       div(
-        { class: "mb-4 border rounded p-3" },
-        button(
-          {
-            type: "button",
-            class:
-              "btn btn-sm btn-link text-start p-0 fw-semibold text-body " +
-              "d-flex align-items-center mb-1",
-            "data-bs-toggle": "collapse",
-            "data-bs-target": `#${questionsSectionId}`,
-            "aria-expanded": "true",
-            "aria-controls": questionsSectionId,
-          },
-          i({ class: "fas fa-chevron-down me-2 sc-collapse-chevron" }),
-          "Specification Questions"
+        { class: "mb-4 border rounded p-3", id: "questions-section" },
+        div(
+          { class: "d-flex align-items-center justify-content-between mb-1" },
+          button(
+            {
+              type: "button",
+              class:
+                "btn btn-sm btn-link text-start p-0 fw-semibold text-body " +
+                "d-flex align-items-center",
+              "data-bs-toggle": "collapse",
+              "data-bs-target": `#${questionsSectionId}`,
+              "aria-expanded": "true",
+              "aria-controls": questionsSectionId,
+            },
+            i({ class: "fas fa-chevron-down me-2 sc-collapse-chevron" }),
+            "Specification Questions"
+          ),
+          button(
+            {
+              type: "button",
+              class: "btn btn-sm btn-outline-secondary",
+              onclick: "copilotGenQuestionsOnly()",
+            },
+            i({ class: "fas fa-sync-alt me-1" }),
+            "Regenerate"
+          )
         ),
         small(
           { class: "text-muted d-block mb-2" },
@@ -394,7 +396,7 @@ const researchPanelHtml = async (req) => {
             { id: "research-form" },
             fieldRows,
             div(
-              { class: "d-flex flex-wrap gap-2 mt-3" },
+              { class: "mt-3" },
               button(
                 {
                   type: "button",
@@ -402,15 +404,6 @@ const researchPanelHtml = async (req) => {
                   onclick: "copilotSubmitResearch()",
                 },
                 "Save answers"
-              ),
-              regenBtn,
-              button(
-                {
-                  type: "button",
-                  class: "btn btn-outline-danger",
-                  onclick: "copilotDelAllResearch()",
-                },
-                "Delete all"
               )
             )
           )
@@ -443,12 +436,16 @@ const researchPanel = async (req) => {
     script(
       domReady(`
 const _vn = ${JSON.stringify(viewname)};
+const _webRegenToastMsg = "Web research updated — consider regenerating the specification questions to reflect the new findings.";
 function researchStartPoll() {
   const poll = () => {
     view_post(_vn, 'research_status', {}, (resp) => {
       if (resp && !resp.generating) {
+        const showWebToast = !!window._copilotWebRegenPending;
+        window._copilotWebRegenPending = false;
         view_post(_vn, 'research_html', {}, (r) => {
           if (r && r.html) document.getElementById('research-panel').innerHTML = r.html;
+          if (showWebToast) notifyAlert({ type: 'info', text: _webRegenToastMsg });
         });
       } else setTimeout(poll, 3000);
     });
@@ -461,6 +458,15 @@ window.copilotRefreshResearch = () => {
     if (r && r.html && a) a.innerHTML = r.html;
   });
 };
+window.copilotWebRegenDone = () => {
+  view_post(_vn, 'research_html', {}, (r) => {
+    const a = document.getElementById('research-panel');
+    if (r && r.html && a) {
+      a.innerHTML = r.html;
+      notifyAlert({ type: 'info', text: _webRegenToastMsg });
+    }
+  });
+};
 window.copilotGenResearch = window.copilotRegenResearch = () => {
   document.getElementById('research-panel').innerHTML = ${JSON.stringify(
     spinnerHtml
@@ -468,10 +474,16 @@ window.copilotGenResearch = window.copilotRegenResearch = () => {
   view_post(_vn, 'gen_research', {}, () => {});
   if (!window.dynamic_updates_cfg?.enabled) researchStartPoll();
 };
+window.copilotRegenWebOnly = () => {
+  const el = document.getElementById('web-research-section');
+  if (el) el.innerHTML = ${JSON.stringify(sectionSpinnerHtml)};
+  window._copilotWebRegenPending = true;
+  view_post(_vn, 'gen_web_only', {}, () => {});
+  if (!window.dynamic_updates_cfg?.enabled) researchStartPoll();
+};
 window.copilotGenQuestionsOnly = () => {
-  document.getElementById('research-panel').innerHTML = ${JSON.stringify(
-    spinnerHtml
-  )};
+  const el = document.getElementById('questions-section');
+  if (el) el.innerHTML = ${JSON.stringify(sectionSpinnerHtml)};
   view_post(_vn, 'gen_questions_only', {}, () => {});
   if (!window.dynamic_updates_cfg?.enabled) researchStartPoll();
 };
@@ -694,9 +706,82 @@ const doGenQuestionsOnly = async (userId) => {
   }
 };
 
+const doGenWebOnly = async (userId) => {
+  const generatingMd = await MetaData.create({
+    type: "CopilotConstructMgr",
+    name: "generating_research",
+    body: {},
+    user_id: userId,
+  });
+  try {
+    const generator = await PromptGenerator.createInstance();
+    if (!generator.spec) throw new Error("Specification not found");
+
+    const webSkillCfg = await getWebSkillCfg();
+    if (!webSkillCfg) return;
+
+    const queryAnswer = await getState().functions.llm_generate.run(
+      generator.webSearchQueriesPrompt(),
+      {
+        tools: [suggest_searches_tool],
+        ...tool_choice("suggest_searches"),
+        systemPrompt:
+          "You are a research assistant. Your job is to identify the parts of " +
+          "the specification that require external knowledge to implement correctly. " +
+          "For each such gap, suggest one focused web search query. " +
+          "Only suggest a query if it is directly needed to implement what the spec describes. " +
+          "Up to 3 queries is usually enough — 5 is a hard maximum.",
+      }
+    );
+    const queriesCall = queryAnswer.getToolCalls()[0];
+    const queries = queriesCall?.input?.queries || [];
+
+    const webFindings = [];
+    for (const query of queries.slice(0, 5)) {
+      try {
+        const raw = await doWebSearch(query, webSkillCfg);
+        const snippet = extractSearchSnippet(raw);
+        if (snippet) webFindings.push({ query, snippet });
+      } catch (e) {
+        console.warn("web search failed for:", query, e.message);
+      }
+    }
+
+    const existingFindings = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: "research_web_findings",
+    });
+    if (existingFindings) {
+      await existingFindings.update({ body: { findings: webFindings } });
+    } else if (webFindings.length) {
+      await MetaData.create({
+        type: "CopilotConstructMgr",
+        name: "research_web_findings",
+        body: { findings: webFindings },
+        user_id: userId,
+      });
+    }
+  } finally {
+    await generatingMd.delete();
+    try {
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js:
+          "if(typeof copilotWebRegenDone==='function')copilotWebRegenDone();",
+      });
+    } catch (_) {}
+  }
+};
+
 const gen_research = async (table_id, viewname, config, body, { req, res }) => {
   doGenResearch(req.user?.id).catch((e) =>
     console.error("gen_research error", e)
+  );
+  return { json: { success: true } };
+};
+
+const gen_web_only = async (table_id, viewname, config, body, { req, res }) => {
+  doGenWebOnly(req.user?.id).catch((e) =>
+    console.error("gen_web_only error", e)
   );
   return { json: { success: true } };
 };
@@ -872,6 +957,7 @@ const getResearchAnswersText = async () => {
 
 const research_routes = {
   gen_research,
+  gen_web_only,
   gen_questions_only,
   dismiss_finding,
   add_custom_finding,
