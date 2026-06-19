@@ -44,7 +44,6 @@ const {
   error_routes,
   errTableStaticHtml,
 } = require("./errors");
-const { req_routes, requirementsStaticScript } = require("./requirements");
 const { feedbackList, feedback_routes } = require("./feedback");
 const { progress_routes } = require("./progress");
 const { runNextTask } = require("./run_task");
@@ -204,7 +203,6 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
       {
         type: "blank",
         contents: div(
-          requirementsStaticScript,
           errTableStaticHtml,
           div({ id: "err-list-area" }, errList)
         ),
@@ -456,7 +454,6 @@ module.exports = {
     submit_specs,
     check_spec_dependencies,
     clear_and_save_spec,
-    ...req_routes,
     ...research_routes,
     ...task_routes,
     ...error_routes,

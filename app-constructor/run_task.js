@@ -4,12 +4,20 @@ const View = require("@saltcorn/data/models/view");
 const Page = require("@saltcorn/data/models/page");
 const Trigger = require("@saltcorn/data/models/trigger");
 const Plugin = require("@saltcorn/data/models/plugin");
+const Tag = require("@saltcorn/data/models/tag");
 const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
 const User = require("@saltcorn/data/models/user");
 const { getState } = require("@saltcorn/data/db/state");
 const { viewname, TaskType } = require("./common");
 const { PromptGenerator } = require("./prompt-generator");
+
+const getOrCreatePhaseTag = async (phaseIdx, phaseName) => {
+  const tagName = `Phase ${phaseIdx + 1}: ${phaseName}`;
+  const existing = await Tag.findOne({ name: tagName });
+  if (existing) return existing;
+  return await Tag.create({ name: tagName });
+};
 
 /**
  * @param {number} md_id - MetaData id of the task to run
@@ -203,7 +211,8 @@ const runTask = async (md_id, req) => {
       md.body.phase_idx !== undefined
     ) {
       const viewsAfter = await View.find({});
-      for (const v of viewsAfter.filter((v) => !viewNamesBefore.has(v.name))) {
+      const newViews = viewsAfter.filter((v) => !viewNamesBefore.has(v.name));
+      for (const v of newViews) {
         await MetaData.create({
           type: "CopilotConstructMgr",
           name: "view_phase",
@@ -217,7 +226,8 @@ const runTask = async (md_id, req) => {
         });
       }
       const pagesAfter = await Page.find({});
-      for (const p of pagesAfter.filter((p) => !pageNamesBefore.has(p.name))) {
+      const newPages = pagesAfter.filter((p) => !pageNamesBefore.has(p.name));
+      for (const p of newPages) {
         await MetaData.create({
           type: "CopilotConstructMgr",
           name: "view_phase",
@@ -229,6 +239,18 @@ const runTask = async (md_id, req) => {
           },
           user_id: req?.user?.id,
         });
+      }
+      if (newViews.length || newPages.length) {
+        try {
+          const tag = await getOrCreatePhaseTag(
+            md.body.phase_idx,
+            md.body.phase_name || `Phase ${md.body.phase_idx + 1}`
+          );
+          for (const v of newViews) await tag.addEntry({ view_id: v.id });
+          for (const p of newPages) await tag.addEntry({ page_id: p.id });
+        } catch (e) {
+          console.warn("phase tag update failed:", e.message);
+        }
       }
     }
     try {

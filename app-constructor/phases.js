@@ -16,6 +16,10 @@ const {
   li,
   a,
   pre,
+  textarea,
+  label,
+  select,
+  option,
 } = require("@saltcorn/markup/tags");
 const { mkTable } = require("@saltcorn/markup");
 const { getState, features } = require("@saltcorn/data/db/state");
@@ -133,8 +137,10 @@ window.openPhaseDetail = function(idx) {
 window.startPhaseTasks = function(btn, idx, taskType) {
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…';
-  view_post(_phasesVn, 'run_phase_tasks', { idx, task_type: taskType }, () => {});
-  if (!window.dynamic_updates_cfg?.enabled) phasePollRunning(idx, taskType);
+  view_post(_phasesVn, 'run_phase_tasks', { idx, task_type: taskType }, (resp) => {
+    if (!resp) { _refreshPhaseArea(idx, taskType); return; }
+    if (!window.dynamic_updates_cfg?.enabled) phasePollRunning(idx, taskType);
+  });
 };
 
 window.stopPhaseTasks = function(idx, taskType) {
@@ -153,7 +159,7 @@ function phasePollRunning(idx, taskType) {
   let lastTaskName;
   const poll = () => {
     view_post(_phasesVn, 'phase_run_status', { idx, task_type: taskType }, (resp) => {
-      if (!resp) return;
+      if (!resp) { _refreshPhaseArea(idx, taskType); return; }
       if (resp.isRunning || resp.anyRunning) {
         if (resp.runningTaskName !== lastTaskName) {
           lastTaskName = resp.runningTaskName;
@@ -335,17 +341,44 @@ const tasksSpinner =
 const phaseCard = (phase, idx, req, allDone, hasFeedback) => {
   const starFieldview = getState().types.Integer.fieldviews.show_star_rating;
   const reqs = phase.requirements || [];
+  const canEdit = features.view_route_modal && !allDone;
+
   const reqList = reqs.length
     ? ul(
         { class: "list-unstyled mb-0 mt-2" },
-        ...reqs.map((r) =>
+        ...reqs.map((r, rIdx) =>
           li(
             { class: "d-flex align-items-start gap-2 mb-2" },
             span(
               { class: "flex-shrink-0" },
               starFieldview.run(r.priority, req, { min: 1, max: 5 })
             ),
-            span({ class: "text-muted small" }, r.requirement)
+            span({ class: "text-muted small flex-grow-1" }, r.requirement),
+            canEdit
+              ? div(
+                  { class: "d-flex gap-1 flex-shrink-0" },
+                  button(
+                    {
+                      type: "button",
+                      class: "btn btn-outline-secondary btn-sm",
+                      title: "Edit requirement",
+                      onclick: `ajax_modal('/view/${encodeURIComponent(
+                        viewname
+                      )}/get_requirement_form?phaseIdx=${idx}&reqIdx=${rIdx}', {method:'POST'})`,
+                    },
+                    i({ class: "fas fa-edit" })
+                  ),
+                  button(
+                    {
+                      type: "button",
+                      class: "btn btn-outline-danger btn-sm",
+                      title: "Delete requirement",
+                      onclick: `if(confirm('Delete this requirement?')) view_post(_phasesVn,'delete_requirement',{phaseIdx:${idx},reqIdx:${rIdx}},()=>copilotRefreshPhases())`,
+                    },
+                    i({ class: "fas fa-times" })
+                  )
+                )
+              : ""
           )
         )
       )
@@ -408,19 +441,34 @@ const phaseCard = (phase, idx, req, allDone, hasFeedback) => {
           )
         )
       ),
-      reqs.length
-        ? div(
-            { class: "border-top pt-2 mt-1" },
-            small(
-              {
-                class: "text-muted text-uppercase fw-semibold d-block mb-2",
-                style: "font-size:0.7rem;letter-spacing:.05em;",
-              },
-              `${reqs.length} requirement${reqs.length !== 1 ? "s" : ""}`
-            ),
-            reqList
-          )
-        : ""
+      div(
+        { class: "border-top pt-2 mt-1" },
+        small(
+          {
+            class: "text-muted text-uppercase fw-semibold d-block mb-2",
+            style: "font-size:0.7rem;letter-spacing:.05em;",
+          },
+          `${reqs.length} requirement${reqs.length !== 1 ? "s" : ""}`
+        ),
+        reqList,
+        canEdit
+          ? div(
+              { class: "mt-3" },
+              button(
+                {
+                  type: "button",
+                  class: "btn btn-outline-primary btn-sm",
+                  title: "Add requirement",
+                  onclick: `ajax_modal('/view/${encodeURIComponent(
+                    viewname
+                  )}/get_requirement_form?phaseIdx=${idx}', {method:'POST'})`,
+                },
+                i({ class: "fas fa-plus me-1" }),
+                "Add requirement"
+              )
+            )
+          : ""
+      )
     )
   );
 };
@@ -572,6 +620,36 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
 
   const allDone = tasks.length > 0 && !hasTodo && !isRunning && !runningTask;
 
+  const staleMarkers = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "phase_reqs_changed",
+  });
+  const isStale = staleMarkers.some((m) => m.body?.phase_idx === phaseIdx);
+  const staleNotice = isStale
+    ? div(
+        {
+          class:
+            "alert alert-warning d-flex align-items-center gap-2 py-2 mb-3",
+          role: "alert",
+        },
+        i({ class: "fas fa-exclamation-triangle flex-shrink-0" }),
+        span(
+          { class: "small flex-grow-1" },
+          "The requirements for this phase have changed. " +
+            "Consider regenerating the tasks to keep them in sync."
+        ),
+        button({
+          type: "button",
+          class: "btn-close btn-sm flex-shrink-0",
+          title: "Dismiss",
+          onclick:
+            `if(confirm('Dismiss this warning? The tasks may still be outdated.'))` +
+            ` view_post(_phasesVn,'dismiss_stale_notice',{phaseIdx:${phaseIdx}},` +
+            `()=>_refreshPhaseArea(${phaseIdx},${JSON.stringify(taskType)}))`,
+        })
+      )
+    : "";
+
   const genLabel = tasks.length ? "Regenerate" : "Generate tasks";
   const genOnclick = tasks.length
     ? `if(confirm('Regenerate tasks? This will replace the existing tasks.')) generatePhaseTasks(${phaseIdx},'${taskType}')`
@@ -637,6 +715,20 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
       )
     : "";
 
+  const addTaskBtn = features.view_route_modal
+    ? button(
+        {
+          class: "btn btn-outline-secondary btn-sm",
+          title: "Add task",
+          onclick: `ajax_modal('/view/${encodeURIComponent(
+            viewname
+          )}/get_new_task_form?phaseIdx=${phaseIdx}&taskType=${taskType}', {method:'POST'})`,
+        },
+        i({ class: "fas fa-plus me-1" }),
+        "Add task"
+      )
+    : "";
+
   const statusBar = div(
     { class: "d-flex align-items-center gap-2 mb-3 flex-wrap" },
     span(
@@ -657,7 +749,8 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
     ),
     runBtn,
     stopBtn,
-    genBtn
+    genBtn,
+    addTaskBtn
   );
 
   const renderTask = (t) => {
@@ -726,10 +819,10 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
         ? button(
             {
               class: "btn btn-outline-primary btn-sm",
-              title: "Edit description",
+              title: "Edit task",
               onclick: `ajax_modal('/view/${encodeURIComponent(
                 viewname
-              )}/edit_task_desc?id=${t.id}', {method:'POST'})`,
+              )}/get_task_form?id=${t.id}', {method:'POST'})`,
             },
             i({ class: "fas fa-edit" })
           )
@@ -808,7 +901,9 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
       if (markers.some((m) => m.body?.phase_idx === phaseIdx))
         emptyMsg = "No schema changes needed for this phase.";
     }
-    return statusBar + p({ class: "text-muted small mt-2" }, emptyMsg);
+    return (
+      staleNotice + statusBar + p({ class: "text-muted small mt-2" }, emptyMsg)
+    );
   }
 
   const feedbackSection = feedbackTasks.length
@@ -831,6 +926,7 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
     : "";
 
   return (
+    staleNotice +
     statusBar +
     plannedTasks.map(renderTask).join("") +
     feedbackSection +
@@ -1168,6 +1264,8 @@ const doGenPhaseTasks = async (phase, userId, taskType) => {
         body: { ...task, phase_idx: phase.idx, phase_name: phase.name },
         user_id: userId,
       });
+
+    await clearPhaseStaleMarker(phase.idx);
 
     // If generation produced 0 tasks, record that it was considered
     if (
@@ -1524,6 +1622,189 @@ const del_phase_progress = async (table_id, vn, config, body, { req, res }) => {
   return { json: { success: true } };
 };
 
+const get_requirement_form = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const phaseIdx = parseInt(body.phaseIdx ?? req.query?.phaseIdx);
+  const reqIdx =
+    body.reqIdx !== undefined
+      ? parseInt(body.reqIdx)
+      : req.query?.reqIdx !== undefined
+      ? parseInt(req.query.reqIdx)
+      : -1;
+
+  const phasesMd = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "phases",
+  });
+  const phase = phasesMd?.body?.phases?.[phaseIdx];
+  if (!phase) return { json: { error: "Phase not found" } };
+
+  const existing = reqIdx >= 0 ? (phase.requirements || [])[reqIdx] : null;
+
+  const prioritySelect = select(
+    { id: "req-form-priority", class: "form-select" },
+    ...[1, 2, 3, 4, 5].map((n) =>
+      option(
+        {
+          value: n,
+          ...(n === (existing?.priority ?? 3) ? { selected: true } : {}),
+        },
+        String(n)
+      )
+    )
+  );
+
+  const html =
+    div(
+      { class: "mb-3" },
+      label(
+        { class: "form-label fw-semibold", for: "req-form-text" },
+        "Requirement"
+      ),
+      textarea(
+        { id: "req-form-text", class: "form-control", rows: 4 },
+        existing?.requirement || ""
+      )
+    ) +
+    div(
+      { class: "mb-4" },
+      label(
+        { class: "form-label fw-semibold", for: "req-form-priority" },
+        "Priority (1–5)"
+      ),
+      prioritySelect
+    ) +
+    div(
+      { class: "d-flex gap-2" },
+      button(
+        {
+          type: "button",
+          class: "btn btn-primary",
+          onclick: `view_post(${JSON.stringify(vn)}, 'save_requirement', {
+  phaseIdx: ${phaseIdx},
+  reqIdx: ${reqIdx},
+  requirement: document.getElementById('req-form-text').value,
+  priority: parseInt(document.getElementById('req-form-priority').value)
+}, () => {
+  $('#scmodal').modal('hide');
+  if (typeof copilotRefreshPhases === 'function') copilotRefreshPhases();
+})`,
+        },
+        "Save"
+      ),
+      button(
+        {
+          type: "button",
+          class: "btn btn-secondary",
+          "data-bs-dismiss": "modal",
+        },
+        "Cancel"
+      )
+    );
+
+  const title = existing
+    ? "Edit requirement"
+    : `Add requirement — Phase ${phaseIdx + 1}`;
+  return { html, title };
+};
+
+const markPhaseTasksStale = async (phaseIdx, userId) => {
+  const all = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "phase_reqs_changed",
+  });
+  if (!all.some((m) => m.body?.phase_idx === phaseIdx)) {
+    await MetaData.create({
+      type: "CopilotConstructMgr",
+      name: "phase_reqs_changed",
+      body: { phase_idx: phaseIdx },
+      user_id: userId,
+    });
+  }
+};
+
+const clearPhaseStaleMarker = async (phaseIdx) => {
+  const all = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "phase_reqs_changed",
+  });
+  for (const m of all.filter((m) => m.body?.phase_idx === phaseIdx))
+    await m.delete();
+};
+
+const save_requirement = async (table_id, vn, config, body, { req, res }) => {
+  const phaseIdx = parseInt(body.phaseIdx);
+  const reqIdx = parseInt(body.reqIdx);
+  const { requirement, priority } = body;
+
+  const phasesMd = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "phases",
+  });
+  if (!phasesMd) return { json: { error: "Phases not found" } };
+
+  const phases = phasesMd.body.phases || [];
+  if (!phases[phaseIdx]) return { json: { error: "Phase not found" } };
+
+  const reqs = phases[phaseIdx].requirements || [];
+  if (reqIdx >= 0 && reqIdx < reqs.length) {
+    reqs[reqIdx] = { requirement, priority: parseInt(priority) };
+  } else {
+    reqs.push({ requirement, priority: parseInt(priority) });
+  }
+  phases[phaseIdx].requirements = reqs;
+  await phasesMd.update({ body: { ...phasesMd.body, phases } });
+
+  const hasTasks = (
+    await MetaData.find({ type: "CopilotConstructMgr", name: "task" })
+  ).some((t) => t.body?.phase_idx === phaseIdx);
+  if (hasTasks) await markPhaseTasksStale(phaseIdx, req.user?.id);
+
+  return { json: { success: true } };
+};
+
+const delete_requirement = async (table_id, vn, config, body, { req, res }) => {
+  const phaseIdx = parseInt(body.phaseIdx);
+  const reqIdx = parseInt(body.reqIdx);
+
+  const phasesMd = await MetaData.findOne({
+    type: "CopilotConstructMgr",
+    name: "phases",
+  });
+  if (!phasesMd) return { json: { error: "Phases not found" } };
+
+  const phases = phasesMd.body.phases || [];
+  if (!phases[phaseIdx]) return { json: { error: "Phase not found" } };
+
+  const reqs = phases[phaseIdx].requirements || [];
+  reqs.splice(reqIdx, 1);
+  phases[phaseIdx].requirements = reqs;
+  await phasesMd.update({ body: { ...phasesMd.body, phases } });
+
+  const hasTasks = (
+    await MetaData.find({ type: "CopilotConstructMgr", name: "task" })
+  ).some((t) => t.body?.phase_idx === phaseIdx);
+  if (hasTasks) await markPhaseTasksStale(phaseIdx, req.user?.id);
+
+  return { json: { success: true } };
+};
+
+const dismiss_stale_notice = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  await clearPhaseStaleMarker(parseInt(body.phaseIdx));
+  return { json: { success: true } };
+};
+
 const phase_routes = {
   gen_phases,
   phases_status,
@@ -1539,6 +1820,10 @@ const phase_routes = {
   del_all_phases,
   phase_progress_html,
   del_phase_progress,
+  get_requirement_form,
+  save_requirement,
+  delete_requirement,
+  dismiss_stale_notice,
 };
 
 module.exports = { phasesPanel, phasesStaticScript, phase_routes };

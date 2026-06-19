@@ -223,7 +223,13 @@ const task_planning_rules = [
 * No list view may be left orphaned. Every list view planned in the phase must be reachable
   from at least one dashboard or page — embedded directly or linked via a navigation section.
   Check each list view and confirm it appears in at least one page or dashboard task's
-  description.`,
+  description.
+* No detail page may be left unreachable. Whenever a page is planned that requires an
+  ?id= query parameter (a detail page, a record page), the plan MUST also include a task
+  that adds a link or viewlink button to the relevant list view pointing to that page with
+  the row id in the URL (e.g. /page/order_detail?id= interpolated with the current row id).
+  This link task must list the page task and the list view task in its depends_on. A detail
+  page with no inbound link is always a planning error — the user has no way to reach it.`,
 
   `Important home page rules:
 * Every role should land on the right page after visiting /. Plan a single task "Set home
@@ -710,7 +716,27 @@ marketing pages, min_role 100).`,
 "teacher_dashboard", the href must be "/page/teacher_dashboard" — NOT "/teacher_dashboard".
 This applies to every link, button, or navigation item that points to a Saltcorn page,
 regardless of where the link appears (landing page, navbar, other pages, etc.).
-Views use /view/view_name — also with the /view/ prefix, not a bare name.`,
+Views use /view/view_name — also with the /view/ prefix, not a bare name.
+
+To add a link column to a List view that navigates to a detail page with the current row
+id, use a Link column (not ViewLink — ViewLink only targets views, not pages). The URL
+must be a JavaScript formula (isFormula.url = true) using a template literal so that the
+row's id is substituted at render time. Static URL strings are NOT interpolated —
+{{id}} does NOT work in link URLs and must never be used there.
+The column entry in the columns array and the corresponding layout.besides contents
+segment MUST both include url, text, and isFormula — omitting any field leaves the
+link empty or broken:
+  columns entry:
+    {"type":"Link","url":"\`/page/order_detail?id=\${id}\`","text":"Detail",
+     "link_src":"URL","link_style":"btn btn-sm btn-outline-secondary",
+     "isFormula":{"url":true}}
+  layout.besides contents segment:
+    {"type":"link","url":"\`/page/order_detail?id=\${id}\`","text":"Detail",
+     "link_src":"URL","link_style":"btn btn-sm btn-outline-secondary",
+     "isFormula":{"url":true}}
+Both the columns array entry and the layout segment must be present and consistent.
+In the url formula, row fields are available by name: id, title, name, etc.
+Use a JS template literal (backtick string): \`/page/order_detail?id=\${id}\``,
 
   `Important: Do not name any page or view "Admin dashboard" — that name is reserved by
 the Saltcorn platform. For pages intended for role 1 (admin), use a name like "App
@@ -768,7 +794,8 @@ list_entities (entity_type "page") before linking to any page by name.`,
   `Important: Before placing any reference to a view on a page — whether as an embed, a
 button, a link, or any other navigation element — check whether that view requires state
 (e.g. an id) that the page cannot supply. A page can only supply state from URL query
-params or from extra_state_fml (e.g. user.id for the logged-in user's own record).
+params (accessed in extra_state_fml with a $ prefix, e.g. $id for ?id=45) or from
+extra_state_fml using user.id for the logged-in user's own record.
 If a view requires a specific row id that is neither in the URL nor derivable from the
 logged-in user, do NOT reference it on the page in any form:
 • Do NOT embed it — it will render empty or broken.
@@ -846,10 +873,36 @@ Inside a Show or Edit view, always set the relation field so Saltcorn can resolv
 correct row. Add state: "shared" as well if the embedded view also needs URL state
 variables passed through.
 • On a Page: the relation field is not processed — use state: "shared" to pass URL
-  query params, and add extra_state_fml: "{id: user.id}" when the id comes from the
-  logged-in user rather than the URL.
-  Example: {"type":"view","view":"my_view","state":"shared","extra_state_fml":"{id: user.id}"}
-  The formula has access to \`user\` (the logged-in user object) and URL query variables.`,
+  query params through to embedded views.
+  There are TWO completely separate mechanisms for referencing a row id — do NOT confuse them:
+  1. \`{{id}}\` — Saltcorn HTML template syntax. Use ONLY inside raw HTML string values
+     (e.g. href="/page/order_detail?id={{id}}"). This is rendered server-side when the
+     surrounding view/page displays a row. It is NOT JavaScript and cannot be used in
+     extra_state_fml.
+  2. \`$id\` — JavaScript expression for extra_state_fml on a page or Show view. Reads the
+     ?id= value from the URL query string. Use this whenever you need to pass a URL query
+     parameter into an embedded view's state formula.
+  The \`user\` variable (no prefix) gives the logged-in user object.
+  Examples:
+    URL query param:   extra_state_fml: "{order_id: $id}"   (passes ?id=45 as order_id)
+    Logged-in user:    extra_state_fml: "{user_id: user.id}"
+    HTML href:         href="/page/order_detail?id={{id}}"   (in a raw HTML block inside a List)
+  Full segment example: {"type":"view","view":"my_view","state":"shared","extra_state_fml":"{order_id: $id}"}
+  Never write {order_id: id} — \`id\` without $ is undefined in extra_state_fml on a page.
+  Never write extra_state_fml: "{order_id: {{id}}}" — \`{{id}}\` is HTML template syntax, not JS.
+  Show views embedded on a page also need extra_state_fml to receive their row id —
+  they do NOT pick it up automatically from the URL. A Show view without extra_state_fml
+  on a page will display "No row selected" regardless of what is in the URL.
+  Pass the page's id query param directly as the Show view's id:
+    extra_state_fml: "typeof $id !== \\"undefined\\" ? {id: $id} : {}"
+  Filtered list views on the same page pass it as their FK field instead:
+    extra_state_fml: "typeof $id !== \\"undefined\\" ? {order_id: $id} : {}"
+  Defensive pattern — pages opened without the expected query parameter must not crash.
+  Always guard URL query param references with a typeof check and return an empty object
+  when the parameter is absent, so the embedded view receives no forced filter instead of
+  crashing on an undefined value.
+  Use this pattern for EVERY view embedded on a page that depends on a URL query param —
+  both Show views (using {id: $id}) and filtered lists (using {fk_field: $id}).`,
 ];
 
 const data_model_exec_rules = [
@@ -896,10 +949,12 @@ in your reasoning first, then pass only the finished result to the tool.`,
 const research_questions_rules =
   "Based on the following application specification, generate clarifying questions\n" +
   "that would help better understand what the user wants to build.\n" +
-  "Ask only about genuinely ambiguous or underspecified aspects.\n" +
-  "Do not ask about things that are already clear from the specification.\n" +
-  "Only ask questions that are truly necessary — if 2 or 3 questions cover everything unclear, stop there.\n" +
-  "Do not pad the list. 10 is a hard maximum, not a target.";
+  "Rules:\n" +
+  "- Only ask about things that are genuinely unclear and would change what gets built.\n" +
+  "- Do not ask about things already clear from the specification or answered by web research.\n" +
+  "- Plain language: no abbreviations or technical terms without explanation.\n" +
+  "- One idea per question. Short, direct, and easy to understand.\n" +
+  "- Stop when the unclear parts are covered — 2 or 3 questions is fine. 10 is a hard maximum, not a target.";
 
 const feedback_analyse_decision =
   "Do you have important questions about this feedback,\n" +
