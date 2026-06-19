@@ -201,7 +201,9 @@ const renderWebFindings = (findings) => {
                   type: "button",
                   class: "btn btn-sm btn-link text-danger p-0 ms-2 lh-1",
                   title: "Dismiss this finding",
-                  onclick: `copilotDismissFinding(${JSON.stringify(query)})`,
+                  onclick: text_attr(
+                    `copilotDismissFinding(${JSON.stringify(query)})`
+                  ),
                 },
                 i({ class: "fas fa-times" })
               )
@@ -578,11 +580,11 @@ const doGenResearch = async (userId) => {
         }
       }
 
+      const existingFindings = await MetaData.findOne({
+        type: "CopilotConstructMgr",
+        name: "research_web_findings",
+      });
       if (webFindings.length) {
-        const existingFindings = await MetaData.findOne({
-          type: "CopilotConstructMgr",
-          name: "research_web_findings",
-        });
         if (existingFindings) {
           await existingFindings.update({ body: { findings: webFindings } });
         } else {
@@ -593,6 +595,8 @@ const doGenResearch = async (userId) => {
             user_id: userId,
           });
         }
+      } else if (existingFindings) {
+        await existingFindings.delete();
       }
     }
 
@@ -707,6 +711,9 @@ const doGenQuestionsOnly = async (userId) => {
 };
 
 const doGenWebOnly = async (userId) => {
+  const webSkillCfg = await getWebSkillCfg();
+  if (!webSkillCfg) return;
+
   const generatingMd = await MetaData.create({
     type: "CopilotConstructMgr",
     name: "generating_research",
@@ -716,9 +723,6 @@ const doGenWebOnly = async (userId) => {
   try {
     const generator = await PromptGenerator.createInstance();
     if (!generator.spec) throw new Error("Specification not found");
-
-    const webSkillCfg = await getWebSkillCfg();
-    if (!webSkillCfg) return;
 
     const queryAnswer = await getState().functions.llm_generate.run(
       generator.webSearchQueriesPrompt(),
@@ -751,15 +755,19 @@ const doGenWebOnly = async (userId) => {
       type: "CopilotConstructMgr",
       name: "research_web_findings",
     });
-    if (existingFindings) {
-      await existingFindings.update({ body: { findings: webFindings } });
-    } else if (webFindings.length) {
-      await MetaData.create({
-        type: "CopilotConstructMgr",
-        name: "research_web_findings",
-        body: { findings: webFindings },
-        user_id: userId,
-      });
+    if (webFindings.length) {
+      if (existingFindings) {
+        await existingFindings.update({ body: { findings: webFindings } });
+      } else {
+        await MetaData.create({
+          type: "CopilotConstructMgr",
+          name: "research_web_findings",
+          body: { findings: webFindings },
+          user_id: userId,
+        });
+      }
+    } else if (existingFindings) {
+      await existingFindings.delete();
     }
   } finally {
     await generatingMd.delete();

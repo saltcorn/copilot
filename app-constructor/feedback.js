@@ -184,7 +184,13 @@ const feedbackViewsContent = async () => {
           title: t.body.name,
         },
         i({ class: "fas fa-play me-1" }),
-        span({ class: "text-truncate d-inline-block", style: "max-width:120px;vertical-align:middle" }, t.body.name)
+        span(
+          {
+            class: "text-truncate d-inline-block",
+            style: "max-width:120px;vertical-align:middle",
+          },
+          t.body.name
+        )
       );
     if (status === "Running")
       return span(
@@ -198,10 +204,7 @@ const feedbackViewsContent = async () => {
         i({ class: "fas fa-check me-1" }),
         "Done"
       );
-    return span(
-      { class: "badge bg-danger", title: t.body.name },
-      status
-    );
+    return span({ class: "badge bg-danger", title: t.body.name }, status);
   };
 
   const processedSection = div(
@@ -218,7 +221,8 @@ const feedbackViewsContent = async () => {
                 label: "Tasks",
                 key: (m) => {
                   const tasks = tasksByTitle[m.body.title] || [];
-                  if (!tasks.length) return span({ class: "text-muted small" }, "—");
+                  if (!tasks.length)
+                    return span({ class: "text-muted small" }, "—");
                   return div(
                     { class: "d-flex flex-column gap-1" },
                     ...tasks.map(taskBadge)
@@ -422,12 +426,6 @@ function startApprovalPolling() {
       });
     };
     setTimeout(poll, 3000);
-  });
-}
-function refreshReqTaskAreas() {
-  view_post(safeViewName, 'req_list_html', {}, (r) => {
-    const el = document.getElementById('req-list-area');
-    if (r && r.html && el) el.innerHTML = r.html;
   });
 }
 window.refreshFeedbackViews = () => {

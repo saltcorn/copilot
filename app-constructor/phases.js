@@ -1714,11 +1714,6 @@ const get_requirement_form = async (
 };
 
 const markPhaseTasksStale = async (phaseIdx, userId) => {
-  const existing = await MetaData.findOne({
-    type: "CopilotConstructMgr",
-    name: "phase_reqs_changed",
-    // MetaData.findOne doesn't filter on body, so filter manually below
-  });
   const all = await MetaData.find({
     type: "CopilotConstructMgr",
     name: "phase_reqs_changed",
