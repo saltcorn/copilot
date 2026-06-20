@@ -18,7 +18,7 @@ const {
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
-const { viewname, tool_choice } = require("./common");
+const { viewname, tool_choice, projectType } = require("./common");
 const { PromptGenerator } = require("./prompt-generator");
 
 const questions_tool = {
@@ -301,25 +301,25 @@ const spinnerHtml =
   "Generating questions, please wait...</p>";
 
 // Pure HTML for each state — no embedded scripts
-const researchPanelHtml = async (req) => {
+const researchPanelHtml = async (req, pt) => {
   const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_research",
   });
   if (generating) return spinnerHtml;
 
   const questions_md = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "research_questions",
   });
 
   if (questions_md) {
     const answers_md = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_answers",
     });
     const findings_md = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_web_findings",
     });
     const questions = questions_md.body.questions || [];
@@ -424,12 +424,12 @@ const researchPanelHtml = async (req) => {
 };
 
 // Outer wrapper rendered once on page load — includes the single script block
-const researchPanel = async (req) => {
+const researchPanel = async (req, pt) => {
   const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_research",
   });
-  const innerHtml = await researchPanelHtml(req);
+  const innerHtml = await researchPanelHtml(req, pt);
 
   return div(
     { class: "mt-2" },
@@ -528,15 +528,15 @@ ${
   );
 };
 
-const doGenResearch = async (userId) => {
+const doGenResearch = async (userId, pt) => {
   const generatingMd = await MetaData.create({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_research",
     body: {},
     user_id: userId,
   });
   try {
-    const generator = await PromptGenerator.createInstance();
+    const generator = await PromptGenerator.createInstance({ pt });
     if (!generator.spec) throw new Error("Specification not found");
 
     let webFindings = [];
@@ -581,7 +581,7 @@ const doGenResearch = async (userId) => {
       }
 
       const existingFindings = await MetaData.findOne({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "research_web_findings",
       });
       if (webFindings.length) {
@@ -589,7 +589,7 @@ const doGenResearch = async (userId) => {
           await existingFindings.update({ body: { findings: webFindings } });
         } else {
           await MetaData.create({
-            type: "CopilotConstructMgr",
+            type: pt,
             name: "research_web_findings",
             body: { findings: webFindings },
             user_id: userId,
@@ -618,21 +618,21 @@ const doGenResearch = async (userId) => {
     );
     const tc = answer.getToolCalls()[0];
     const existing = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_questions",
     });
     if (existing) {
       await existing.update({ body: { questions: tc.input.questions } });
     } else {
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "research_questions",
         body: { questions: tc.input.questions },
         user_id: userId,
       });
     }
     const oldAnswers = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_answers",
     });
     if (oldAnswers) await oldAnswers.delete();
@@ -647,19 +647,19 @@ const doGenResearch = async (userId) => {
   }
 };
 
-const doGenQuestionsOnly = async (userId) => {
+const doGenQuestionsOnly = async (userId, pt) => {
   const generatingMd = await MetaData.create({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_research",
     body: {},
     user_id: userId,
   });
   try {
-    const generator = await PromptGenerator.createInstance();
+    const generator = await PromptGenerator.createInstance({ pt });
     if (!generator.spec) throw new Error("Specification not found");
 
     const findingsMd = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_web_findings",
     });
     const webFindings = findingsMd?.body?.findings || [];
@@ -681,21 +681,21 @@ const doGenQuestionsOnly = async (userId) => {
     );
     const tc = answer.getToolCalls()[0];
     const existing = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_questions",
     });
     if (existing) {
       await existing.update({ body: { questions: tc.input.questions } });
     } else {
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "research_questions",
         body: { questions: tc.input.questions },
         user_id: userId,
       });
     }
     const oldAnswers = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_answers",
     });
     if (oldAnswers) await oldAnswers.delete();
@@ -710,18 +710,18 @@ const doGenQuestionsOnly = async (userId) => {
   }
 };
 
-const doGenWebOnly = async (userId) => {
+const doGenWebOnly = async (userId, pt) => {
   const webSkillCfg = await getWebSkillCfg();
   if (!webSkillCfg) return;
 
   const generatingMd = await MetaData.create({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_research",
     body: {},
     user_id: userId,
   });
   try {
-    const generator = await PromptGenerator.createInstance();
+    const generator = await PromptGenerator.createInstance({ pt });
     if (!generator.spec) throw new Error("Specification not found");
 
     const queryAnswer = await getState().functions.llm_generate.run(
@@ -752,7 +752,7 @@ const doGenWebOnly = async (userId) => {
     }
 
     const existingFindings = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_web_findings",
     });
     if (webFindings.length) {
@@ -760,7 +760,7 @@ const doGenWebOnly = async (userId) => {
         await existingFindings.update({ body: { findings: webFindings } });
       } else {
         await MetaData.create({
-          type: "CopilotConstructMgr",
+          type: pt,
           name: "research_web_findings",
           body: { findings: webFindings },
           user_id: userId,
@@ -781,14 +781,16 @@ const doGenWebOnly = async (userId) => {
 };
 
 const gen_research = async (table_id, viewname, config, body, { req, res }) => {
-  doGenResearch(req.user?.id).catch((e) =>
+  const pt = projectType(body.project_id);
+  doGenResearch(req.user?.id, pt).catch((e) =>
     console.error("gen_research error", e)
   );
   return { json: { success: true } };
 };
 
 const gen_web_only = async (table_id, viewname, config, body, { req, res }) => {
-  doGenWebOnly(req.user?.id).catch((e) =>
+  const pt = projectType(body.project_id);
+  doGenWebOnly(req.user?.id, pt).catch((e) =>
     console.error("gen_web_only error", e)
   );
   return { json: { success: true } };
@@ -801,7 +803,8 @@ const gen_questions_only = async (
   body,
   { req, res }
 ) => {
-  doGenQuestionsOnly(req.user?.id).catch((e) =>
+  const pt = projectType(body.project_id);
+  doGenQuestionsOnly(req.user?.id, pt).catch((e) =>
     console.error("gen_questions_only error", e)
   );
   return { json: { success: true } };
@@ -814,16 +817,17 @@ const dismiss_finding = async (
   body,
   { req, res }
 ) => {
+  const pt = projectType(body.project_id);
   const { query } = body;
   const md = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "research_web_findings",
   });
   if (md) {
     const findings = (md.body?.findings || []).filter((f) => f.query !== query);
     await md.update({ body: { findings } });
   }
-  const html = await researchPanelHtml(req);
+  const html = await researchPanelHtml(req, pt);
   return { json: { html } };
 };
 
@@ -834,6 +838,7 @@ const add_custom_finding = async (
   body,
   { req, res }
 ) => {
+  const pt = projectType(body.project_id);
   const { query } = body;
   if (!query || !query.trim()) return { json: { error: "No query provided" } };
 
@@ -851,7 +856,7 @@ const add_custom_finding = async (
 
   if (snippet) {
     const md = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_web_findings",
     });
     if (md) {
@@ -860,7 +865,7 @@ const add_custom_finding = async (
       await md.update({ body: { findings } });
     } else {
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "research_web_findings",
         body: { findings: [{ query: query.trim(), snippet }] },
         user_id: req.user?.id,
@@ -868,7 +873,7 @@ const add_custom_finding = async (
     }
   }
 
-  const html = await researchPanelHtml(req);
+  const html = await researchPanelHtml(req, pt);
   return { json: { html } };
 };
 
@@ -879,8 +884,9 @@ const research_status = async (
   body,
   { req, res }
 ) => {
+  const pt = projectType(body.project_id);
   const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_research",
   });
   return { json: { generating: !!generating } };
@@ -893,7 +899,8 @@ const research_html = async (
   body,
   { req, res }
 ) => {
-  const html = await researchPanelHtml(req);
+  const pt = projectType(body.project_id);
+  const html = await researchPanelHtml(req, pt);
   return { json: { html } };
 };
 
@@ -904,16 +911,17 @@ const submit_research = async (
   body,
   { req, res }
 ) => {
-  const { _csrf, ...answers } = body;
+  const pt = projectType(body.project_id);
+  const { _csrf, project_id, ...answers } = body;
   const existing = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "research_answers",
   });
   if (existing) {
     await existing.update({ body: answers });
   } else {
     await MetaData.create({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_answers",
       body: answers,
       user_id: req.user?.id,
@@ -929,24 +937,25 @@ const del_all_research = async (
   body,
   { req, res }
 ) => {
+  const pt = projectType(body.project_id);
   for (const name of [
     "research_questions",
     "research_answers",
     "research_web_findings",
   ]) {
-    const md = await MetaData.findOne({ type: "CopilotConstructMgr", name });
+    const md = await MetaData.findOne({ type: pt, name });
     if (md) await md.delete();
   }
   return { json: { success: true } };
 };
 
-const getResearchAnswersText = async () => {
+const getResearchAnswersText = async (pt) => {
   const questions_md = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "research_questions",
   });
   const answers_md = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "research_answers",
   });
   if (!questions_md || !answers_md) return null;

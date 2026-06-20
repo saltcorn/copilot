@@ -161,11 +161,11 @@ const existing_entities_list = ({ views, triggers, pages, tableById = {} }) => {
 const flatTablesList = (allTables) =>
   (allTables || []).map(format_table_entry).join("\n\n");
 
-const buildGroupedTablesSection = async (allTables, currentPhaseIdx) => {
+const buildGroupedTablesSection = async (allTables, currentPhaseIdx, pt) => {
   if (!allTables.length) return "";
 
   const records = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "table_phase",
   });
   const tablePhaseMap = {};
@@ -227,17 +227,18 @@ class PromptGenerator {
    * @param {{ phase?: object|null }} [opts]
    * @returns {Promise<PromptGenerator>}
    */
-  static async createInstance({ phase = null } = {}) {
+  static async createInstance({ phase = null, pt = "CopilotConstructMgr" } = {}) {
     const instance = new PromptGenerator();
 
+    instance.pt = pt;
     instance.phase = phase;
     instance.spec = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "spec",
     });
 
     instance.allReqs = await MetaData.find({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "requirement",
     });
 
@@ -247,7 +248,7 @@ class PromptGenerator {
         .join("\n");
 
       const allPhaseTasks = await MetaData.find({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "task",
       });
       instance.existingDmNames = allPhaseTasks
@@ -264,7 +265,7 @@ class PromptGenerator {
 
     instance.allTables = await Table.find({});
     instance.existingTablesSection = phase
-      ? await buildGroupedTablesSection(instance.allTables, phase.idx)
+      ? await buildGroupedTablesSection(instance.allTables, phase.idx, pt)
       : "";
 
     const tableById = Object.fromEntries(
@@ -309,11 +310,11 @@ class PromptGenerator {
 
     const { getResearchAnswersText } = require("./research");
     instance.researchSection = research_answers_section(
-      await getResearchAnswersText()
+      await getResearchAnswersText(pt)
     );
 
     const webFindingsMd = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "research_web_findings",
     });
     instance.webFindings = webFindingsMd?.body?.findings || [];

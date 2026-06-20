@@ -1,7 +1,7 @@
 const Table = require("@saltcorn/data/models/table");
 const MetaData = require("@saltcorn/data/models/metadata");
 const { div, pre, p, small, span, button } = require("@saltcorn/markup/tags");
-const { viewname } = require("./common");
+const { viewname, projectType } = require("./common");
 const GenerateTables = require("../actions/generate-tables");
 const { buildMermaidMarkup } = GenerateTables;
 
@@ -15,7 +15,7 @@ const PHASE_COLORS = [
 ];
 const NO_PHASE_COLOR = { fill: "#cbd5e1", stroke: "#334155" };
 
-const showSchema = async (req) => {
+const showSchema = async (req, pt) => {
   const allTables = await Table.find({});
   const userTables = allTables.filter((t) => !t.name.startsWith("_sc_"));
   if (!userTables.length) {
@@ -29,7 +29,7 @@ const showSchema = async (req) => {
   }
 
   const phaseRecords = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "table_phase",
   });
   const tablePhaseMap = {};
@@ -172,7 +172,8 @@ const schema_list_html = async (
   body,
   { req, res }
 ) => {
-  const html = await showSchema(req);
+  const pt = projectType(body.project_id ?? req.query?.project_id);
+  const html = await showSchema(req, pt);
   return { json: { html } };
 };
 

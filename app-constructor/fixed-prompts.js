@@ -224,6 +224,12 @@ const task_planning_rules = [
   from at least one dashboard or page — embedded directly or linked via a navigation section.
   Check each list view and confirm it appears in at least one page or dashboard task's
   description.
+* For every entity that has CRUD views (List, Show, Edit), there MUST be at least one
+  page or dashboard section that makes the List view reachable. If the entity is managed
+  by staff/admin (e.g. clients, projects, records that staff maintain), it must appear on
+  an admin or staff dashboard — embedded as a List view or linked via a clearly labelled
+  navigation button. A List view that exists but is not embedded in or linked from any
+  page is always a planning error — it is completely unreachable by users.
 * No detail page may be left unreachable. Whenever a page is planned that requires an
   ?id= query parameter (a detail page, a record page), the plan MUST also include a task
   that adds a link or viewlink button to the relevant list view pointing to that page with
@@ -781,6 +787,12 @@ get_relation_paths first to obtain the relation string before generating the lay
 
   `Important: Every List view must include a delete action column unless the table is
 explicitly read-only. Use the built-in "Delete" action type for this column.`,
+
+  `Important: Never include the \`id\` field in the layout of any Show or List view.
+The \`id\` column is the primary key used for database lookups — it is an internal
+implementation detail and must never be displayed to end users. Remove it from the
+columns array and the layout's besides/above arrays. This applies to every Show view
+and every List view without exception.`,
 
   `Important: Before creating or updating any view or page that embeds, links to, or
 opens another view (including viewlinks, action buttons, and ajax_modal calls), call

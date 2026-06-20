@@ -19,7 +19,9 @@ const {
   span,
 } = require("@saltcorn/markup/tags");
 const { getState, features } = require("@saltcorn/data/db/state");
-const { viewname } = require("./common");
+const { viewname, projectType } = require("./common");
+const getPt = (body, req) =>
+  projectType(body?.project_id ?? req?.query?.project_id);
 const { questions_tool } = require("./research");
 const { PromptGenerator } = require("./prompt-generator");
 
@@ -55,16 +57,16 @@ const scopeLabel = (scope, phases) => {
 };
 
 /** Inner content of #feedback-views-area — data only, no JS. Swapped in on ajax refresh. */
-const feedbackViewsContent = async () => {
+const feedbackViewsContent = async (pt, projectId) => {
   const safeViewName = JSON.stringify(viewname);
   const phasesMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phases",
   });
   const phases = phasesMd?.body?.phases || [];
 
   const pendingMds = await MetaData.find(
-    { type: "CopilotConstructMgr", name: "feedback_pending" },
+    { type: pt, name: "feedback_pending" },
     { orderBy: "id" }
   );
 
@@ -73,7 +75,7 @@ const feedbackViewsContent = async () => {
       await Promise.all(
         pendingMds.map(async (r) => {
           const md = await MetaData.findOne({
-            type: "CopilotConstructMgr",
+            type: pt,
             name: `approving_feedback_${r.id}`,
           });
           return md ? r.id : null;
@@ -89,7 +91,7 @@ const feedbackViewsContent = async () => {
           title: "Submit feedback",
           onclick: `ajax_modal('/view/${encodeURIComponent(
             viewname
-          )}/get_feedback_form', {method:'POST'})`,
+          )}/get_feedback_form?project_id=${projectId}', {method:'POST'})`,
         },
         i({ class: "fas fa-plus me-1" }),
         "Add feedback"
@@ -157,12 +159,12 @@ const feedbackViewsContent = async () => {
   }
 
   const processed = await MetaData.find(
-    { type: "CopilotConstructMgr", name: "feedback" },
+    { type: pt, name: "feedback" },
     { orderBy: "written_at" }
   );
 
   const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "task",
   });
   const feedbackTasks = allTasks.filter((t) => t.body?.source === "feedback");
@@ -393,9 +395,9 @@ const feedbackFormInner = (phases, preselectedScope = "") => {
 };
 
 /** Outer shell of the feedback tab — renders once, includes modals, JS, and #feedback-views-area. */
-const feedbackList = async () => {
+const feedbackList = async (pt, projectId) => {
   const phasesMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phases",
   });
   const phases = phasesMd?.body?.phases || [];
@@ -403,7 +405,7 @@ const feedbackList = async () => {
 
   const topSection = div(
     { id: "feedback-views-area" },
-    await feedbackViewsContent()
+    await feedbackViewsContent(pt, projectId)
   );
 
   const clientScript = script(
@@ -645,7 +647,9 @@ const feedback_views_html = async (
   body,
   { req, res }
 ) => {
-  const html = await feedbackViewsContent();
+  const pt = getPt(body, req);
+  const projectId = body.project_id ?? req.query?.project_id;
+  const html = await feedbackViewsContent(pt, projectId);
   return { json: { html } };
 };
 
@@ -660,10 +664,11 @@ const start_approve_feedback = async (
   body,
   { req, res }
 ) => {
+  const pt = getPt(body, req);
   const id = parseInt(body.id);
   const mdRow = await MetaData.findOne({
     id,
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "feedback_pending",
   });
   if (!mdRow) return { json: { error: "Not found" } };
@@ -671,13 +676,13 @@ const start_approve_feedback = async (
 
   const mdName = `approving_feedback_${id}`;
   await MetaData.create({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: mdName,
     body: { id },
   });
 
   const researchMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: `feedback_research_${id}`,
   });
   let research_context = null;
@@ -695,13 +700,13 @@ const start_approve_feedback = async (
     {
       const phIdx = row.phase_idx;
       const phasesMd = await MetaData.findOne({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "phases",
       });
       const ph = phasesMd?.body?.phases?.[phIdx];
       if (ph) {
         const allPhaseRecords = await MetaData.find({
-          type: "CopilotConstructMgr",
+          type: pt,
         });
         const forPhase = (name) =>
           allPhaseRecords.filter(
@@ -745,7 +750,7 @@ const start_approve_feedback = async (
   }
 
   const existingTaskIds = new Set(
-    (await MetaData.find({ type: "CopilotConstructMgr", name: "task" })).map(
+    (await MetaData.find({ type: pt, name: "task" })).map(
       (t) => t.id
     )
   );
@@ -767,12 +772,12 @@ const start_approve_feedback = async (
       if (row.phase_idx != null) {
         const phIdx = row.phase_idx;
         const phasesMd = await MetaData.findOne({
-          type: "CopilotConstructMgr",
+          type: pt,
           name: "phases",
         });
         const phaseName = phasesMd?.body?.phases?.[phIdx]?.name;
         const allTasks = await MetaData.find({
-          type: "CopilotConstructMgr",
+          type: pt,
           name: "task",
         });
         for (const t of allTasks.filter((t) => !existingTaskIds.has(t.id)))
@@ -781,13 +786,13 @@ const start_approve_feedback = async (
           });
       }
       const md = await MetaData.findOne({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: mdName,
       });
       if (md) await md.delete();
       await mdRow.delete();
       const rmd = await MetaData.findOne({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: `feedback_research_${id}`,
       });
       if (rmd) await rmd.delete();
@@ -795,7 +800,7 @@ const start_approve_feedback = async (
     .catch(async (e) => {
       console.error("approve_feedback error", e);
       const md = await MetaData.findOne({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: mdName,
       });
       if (md) await md.delete();
@@ -808,9 +813,10 @@ const start_approve_feedback = async (
  * Route: polls whether a given feedback row is still being approved.
  */
 const approval_status = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const id = parseInt(body.id);
   const md = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: `approving_feedback_${id}`,
   });
   return { json: { approving: !!md } };
@@ -826,15 +832,16 @@ const delete_feedback_row = async (
   body,
   { req, res }
 ) => {
+  const pt = getPt(body, req);
   const id = parseInt(body.id);
   const mdRow = await MetaData.findOne({
     id,
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "feedback_pending",
   });
   if (mdRow) await mdRow.delete();
   const rmd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: `feedback_research_${id}`,
   });
   if (rmd) await rmd.delete();
@@ -849,6 +856,7 @@ const show_processed_feedback = async (
   body,
   { req, res }
 ) => {
+  const pt = getPt(body, req);
   const id = parseInt(body.id);
   const md = await MetaData.findOne({ id });
   if (!md) return { json: { error: "Not found" } };
@@ -904,17 +912,18 @@ const get_feedback_edit_html = async (
   body,
   { req, res }
 ) => {
+  const pt = getPt(body, req);
   const id = parseInt(body.id);
   const mdRow = await MetaData.findOne({
     id,
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "feedback_pending",
   });
   if (!mdRow) return { json: { error: "Not found" } };
   const row = mdRow.body;
 
   const rmd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: `feedback_research_${id}`,
   });
   const rmdValid = parseInt(rmd?.body?.feedback_id) === id;
@@ -983,11 +992,12 @@ const get_feedback_edit_html = async (
  * Route: saves edits to a pending feedback MetaData record and updates its Q&A answers metadata.
  */
 const save_feedback_edit = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const { _csrf, id: rawId, title, description, url, ...rest } = body;
   const id = parseInt(rawId);
   const mdRow = await MetaData.findOne({
     id,
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "feedback_pending",
   });
   if (mdRow) {
@@ -995,7 +1005,7 @@ const save_feedback_edit = async (table_id, vn, config, body, { req, res }) => {
   }
 
   const rmd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: `feedback_research_${id}`,
   });
   if (rmd) {
@@ -1013,8 +1023,9 @@ const save_feedback_edit = async (table_id, vn, config, body, { req, res }) => {
  * Route: adds a Feedback link to the navigation menu if not already present.
  */
 const get_feedback_form = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const phasesMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phases",
   });
   const phases = phasesMd?.body?.phases || [];
@@ -1129,6 +1140,7 @@ const add_feedback_to_menu = async (
   body,
   { req, res }
 ) => {
+  const pt = getPt(body, req);
   if (!features.view_route_modal) {
     return {
       json: {
@@ -1166,6 +1178,7 @@ const add_feedback_to_menu = async (
  * Route: deletes a single processed feedback metadata entry.
  */
 const del_feedback = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const r = await MetaData.findOne({ id: body.id });
   if (!r) throw new Error("Feedback not found");
   await r.delete();
@@ -1173,7 +1186,7 @@ const del_feedback = async (table_id, vn, config, body, { req, res }) => {
   // just to be sure
   // feedback_research_${body.id} should already be cleaned up
   const stale = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: `feedback_research_${body.id}`,
   });
   if (stale) {
@@ -1190,14 +1203,15 @@ const del_feedback = async (table_id, vn, config, body, { req, res }) => {
  * Route: deletes all processed feedback metadata entries.
  */
 const del_all_feedback = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const rs = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "feedback",
   });
   for (const r of rs) {
     await r.delete();
     const stale = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: `feedback_research_${r.id}`,
     });
     if (stale) {
@@ -1242,7 +1256,7 @@ const analyse_feedback = async (table_id, vn, config, body, { req, res }) => {
     }
   }
 
-  const generator = await PromptGenerator.createInstance();
+  const generator = await PromptGenerator.createInstance({ pt });
 
   const answer = await getState().functions.llm_generate.run(
     generator.feedbackAnalysePrompt({ title, description, knownContext }),
@@ -1273,13 +1287,14 @@ const submit_feedback_with_answers = async (
   body,
   { req, res }
 ) => {
+  const pt = getPt(body, req);
   const { _csrf, title, description, url, scope, ...rest } = body;
 
   const phaseMatch = (scope || "").match(/^phase_(\d+)$/);
   const phase_idx = phaseMatch ? parseInt(phaseMatch[1]) : null;
 
   const newMd = await MetaData.create({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "feedback_pending",
     body: {
       title,
@@ -1304,7 +1319,7 @@ const submit_feedback_with_answers = async (
 
   if (questions.length) {
     await MetaData.create({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: `feedback_research_${rowId}`,
       body: {
         feedback_id: rowId,
