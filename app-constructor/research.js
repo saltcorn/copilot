@@ -254,6 +254,40 @@ const sectionSpinnerHtml =
   i({ class: "fas fa-spinner fa-spin me-2" }) +
   "Please wait…</div>";
 
+const renderWebResearchNotConfigured = () => {
+  const sectionId = "research-web-section-collapse";
+  return div(
+    { class: "mb-4 border rounded", id: "web-research-section" },
+    div(
+      { class: "d-flex align-items-center justify-content-between p-3 pb-0" },
+      button(
+        {
+          type: "button",
+          class:
+            "btn btn-sm btn-link text-start p-0 fw-semibold text-body " +
+            "d-flex align-items-center",
+          "data-bs-toggle": "collapse",
+          "data-bs-target": `#${sectionId}`,
+          "aria-expanded": "false",
+          "aria-controls": sectionId,
+        },
+        i({ class: "fas fa-chevron-down me-2 sc-collapse-chevron" }),
+        "Web Research",
+        span({ class: "ms-2 text-muted fw-normal small" }, "— not configured")
+      )
+    ),
+    div(
+      { class: "collapse", id: sectionId },
+      div(
+        { class: "text-muted p-3 pt-2" },
+        "Web research is not configured. To enable it, go to ",
+        "Admin → Plugins → @saltcorn/copilot → Configure ",
+        "and select an Agent trigger with a Tavily or Firecrawl web search skill."
+      )
+    )
+  );
+};
+
 const renderWebResearchSection = (findings) => {
   const sectionId = "research-web-section-collapse";
   return div(
@@ -352,9 +386,12 @@ const researchPanelHtml = async (req, pt) => {
       })
       .join("");
 
+    const webSearchConfigured = !!(await getWebSkillCfg());
     const findingsHtml = findings_md
       ? renderWebResearchSection(findings_md.body?.findings || [])
-      : "";
+      : webSearchConfigured
+      ? ""
+      : renderWebResearchNotConfigured();
 
     const questionsSectionId = "research-questions-section-collapse";
     return (
