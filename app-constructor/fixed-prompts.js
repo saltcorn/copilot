@@ -966,7 +966,9 @@ const research_questions_rules =
   "- Do not ask about things already clear from the specification or answered by web research.\n" +
   "- Plain language: no abbreviations or technical terms without explanation.\n" +
   "- One idea per question. Short, direct, and easy to understand.\n" +
-  "- Stop when the unclear parts are covered — 2 or 3 questions is fine. 10 is a hard maximum, not a target.";
+  "- Stop when the unclear parts are covered — 2 or 3 questions is fine. 10 is a hard maximum, not a target.\n" +
+  "- Do NOT ask about platform support (web, mobile, iOS, Android), offline access, or data\n" +
+  "  synchronization across devices. The application runs as a web application only.";
 
 const feedback_analyse_decision =
   "Do you have important questions about this feedback,\n" +

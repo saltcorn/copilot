@@ -15,6 +15,7 @@ const {
   form,
   h5,
   small,
+  text_attr,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
@@ -180,7 +181,7 @@ const doWebSearch = async (query, cfg) => {
 const renderWebFindings = (findings) => {
   const findingCards =
     findings.length === 0
-      ? div({ class: "text-muted small mb-2" }, "All findings dismissed.")
+      ? div({ class: "text-muted small mb-2" }, "No findings yet.")
       : findings.map(({ query, snippet }) =>
           div(
             { class: "card mb-4" },
@@ -390,7 +391,7 @@ const researchPanelHtml = async (req, pt) => {
     const findingsHtml = findings_md
       ? renderWebResearchSection(findings_md.body?.findings || [])
       : webSearchConfigured
-      ? ""
+      ? renderWebResearchSection([])
       : renderWebResearchNotConfigured();
 
     const questionsSectionId = "research-questions-section-collapse";
@@ -476,14 +477,21 @@ const researchPanel = async (req, pt) => {
       domReady(`
 const _vn = ${JSON.stringify(viewname)};
 const _webRegenToastMsg = "Web research updated — consider regenerating the specification questions to reflect the new findings.";
+function researchOpenSection(id) {
+  const el = document.getElementById(id);
+  if (el) new bootstrap.Collapse(el, { toggle: false }).show();
+}
 function researchStartPoll() {
   const poll = () => {
     view_post(_vn, 'research_status', {}, (resp) => {
       if (resp && !resp.generating) {
         const showWebToast = !!window._copilotWebRegenPending;
+        const openId = window._copilotOpenSection;
         window._copilotWebRegenPending = false;
+        window._copilotOpenSection = null;
         view_post(_vn, 'research_html', {}, (r) => {
           if (r && r.html) document.getElementById('research-panel').innerHTML = r.html;
+          if (openId) researchOpenSection(openId);
           if (showWebToast) notifyAlert({ type: 'info', text: _webRegenToastMsg });
         });
       } else setTimeout(poll, 3000);
@@ -502,6 +510,7 @@ window.copilotWebRegenDone = () => {
     const a = document.getElementById('research-panel');
     if (r && r.html && a) {
       a.innerHTML = r.html;
+      researchOpenSection('research-web-section-collapse');
       notifyAlert({ type: 'info', text: _webRegenToastMsg });
     }
   });
@@ -517,12 +526,14 @@ window.copilotRegenWebOnly = () => {
   const el = document.getElementById('web-research-section');
   if (el) el.innerHTML = ${JSON.stringify(sectionSpinnerHtml)};
   window._copilotWebRegenPending = true;
+  window._copilotOpenSection = 'research-web-section-collapse';
   view_post(_vn, 'gen_web_only', {}, () => {});
   if (!window.dynamic_updates_cfg?.enabled) researchStartPoll();
 };
 window.copilotGenQuestionsOnly = () => {
   const el = document.getElementById('questions-section');
   if (el) el.innerHTML = ${JSON.stringify(sectionSpinnerHtml)};
+  window._copilotOpenSection = 'research-questions-section-collapse';
   view_post(_vn, 'gen_questions_only', {}, () => {});
   if (!window.dynamic_updates_cfg?.enabled) researchStartPoll();
 };
