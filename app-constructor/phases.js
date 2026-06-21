@@ -534,6 +534,12 @@ const phasesHtml = async (req, pt, projectId) => {
   });
   const pluginMarkerIdxs = new Set(pluginMarkers.map((m) => m.body?.phase_idx));
 
+  const dmMarkers = await MetaData.find({
+    type: pt,
+    name: "phase_data_model_generated",
+  });
+  const dmMarkerIdxs = new Set(dmMarkers.map((m) => m.body?.phase_idx));
+
   const phaseAllDone = phases.map((_, idx) => {
     const phaseTasks = allTasks.filter((t) => t.body?.phase_idx === idx);
     const byType = (type) =>
@@ -543,9 +549,10 @@ const phasesHtml = async (req, pt, projectId) => {
     const plTasks = byType("plugin");
     const allDone = (tasks) =>
       tasks.length > 0 && tasks.every((t) => t.body?.status === "Done");
-    // plugin: ok if marker says 0 were needed, or if tasks exist and all done
+    // ok if marker says 0 were needed, or if tasks exist and all done
     const pluginOk = pluginMarkerIdxs.has(idx) || allDone(plTasks);
-    return allDone(dmTasks) && allDone(ftTasks) && pluginOk;
+    const dmOk = dmMarkerIdxs.has(idx) || allDone(dmTasks);
+    return dmOk && allDone(ftTasks) && pluginOk;
   });
 
   const phasesWithFeedback = new Set();
