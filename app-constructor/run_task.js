@@ -96,6 +96,10 @@ const runTask = async (md_id, req) => {
     taskType === TaskType.FEATURE && md.body.phase_idx !== undefined
       ? new Set((await Page.find({})).map((p) => p.name))
       : null;
+  const triggerNamesBefore =
+    taskType === TaskType.FEATURE && md.body.phase_idx !== undefined
+      ? new Set((await Trigger.find({})).map((t) => t.name))
+      : null;
   const pluginNamesBefore =
     taskType === TaskType.PLUGIN && md.body.phase_idx !== undefined
       ? new Set((await Plugin.find({})).map((p) => p.name))
@@ -184,6 +188,17 @@ const runTask = async (md_id, req) => {
           user_id: req?.user?.id,
         });
       }
+      if (newTables.length) {
+        try {
+          const tag = await getOrCreatePhaseTag(
+            md.body.phase_idx,
+            md.body.phase_name || `Phase ${md.body.phase_idx + 1}`
+          );
+          for (const t of newTables) await tag.addEntry({ table_id: t.id });
+        } catch (e) {
+          console.warn("phase tag update failed:", e.message);
+        }
+      }
     }
     if (
       taskType === TaskType.PLUGIN &&
@@ -241,7 +256,11 @@ const runTask = async (md_id, req) => {
           user_id: req?.user?.id,
         });
       }
-      if (newViews.length || newPages.length) {
+      const triggersAfter = await Trigger.find({});
+      const newTriggers = triggersAfter.filter(
+        (t) => !triggerNamesBefore.has(t.name)
+      );
+      if (newViews.length || newPages.length || newTriggers.length) {
         try {
           const tag = await getOrCreatePhaseTag(
             md.body.phase_idx,
@@ -249,6 +268,7 @@ const runTask = async (md_id, req) => {
           );
           for (const v of newViews) await tag.addEntry({ view_id: v.id });
           for (const p of newPages) await tag.addEntry({ page_id: p.id });
+          for (const t of newTriggers) await tag.addEntry({ trigger_id: t.id });
         } catch (e) {
           console.warn("phase tag update failed:", e.message);
         }
@@ -288,13 +308,20 @@ const runNextTask = async (once = false) => {
       if (!settings?.body?.running) continue;
     }
 
-    const tasks = await MetaData.find({ type: pt, name: "task" }, { orderBy: "id" });
+    const tasks = await MetaData.find(
+      { type: pt, name: "task" },
+      { orderBy: "id" }
+    );
     if (tasks.some((t) => t.body.status === "Running")) continue;
 
-    const todos = tasks.filter((t) => !t.body.status || t.body.status === "To do");
+    const todos = tasks.filter(
+      (t) => !t.body.status || t.body.status === "To do"
+    );
     const done = tasks.filter((t) => t.body.status === "Done");
     const done_names = new Set(done.map((t) => t.body.name));
-    const all_task_names = new Set(tasks.map((t) => t.body.name).filter(Boolean));
+    const all_task_names = new Set(
+      tasks.map((t) => t.body.name).filter(Boolean)
+    );
 
     const startable = todos.filter((t) =>
       (t.body.depends_on || []).every(

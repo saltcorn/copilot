@@ -245,7 +245,9 @@ const task_planning_rules = [
 * Landing/marketing page (public-facing intro): min_role must be 100 (public). It MUST include
   visible links to /auth/login (Log in) and /auth/signup (Create an account). Set as home for
   role 100 (public).
-* If there is an admin dashboard page, set it as home for role 1 (admin).
+* If there is an admin dashboard page, set it as home for role 1 (admin). If there is no
+  admin dashboard, do NOT include admin (1) in the mapping at all — leave it unset. Never use
+  the landing page or any public page as a fallback home for admin.
 * If there is a dashboard or main page for regular users or staff, set it as home for role 80
   (user) and/or role 40 (staff) as appropriate.
 * The "Set home pages by role" task description must list every role→page mapping explicitly
@@ -581,7 +583,10 @@ const phase_gen_rules = [
   important but not blocking, 1–2 to minor enhancements. Do not assign 5 to everything.
 * Each phase's requirements must be self-contained: a later phase may depend on earlier
   phases having been built, but should not require anything from future phases.
-* Place foundational data and authentication requirements in the earliest phase.`,
+* Place foundational data and authentication requirements in the earliest phase.
+* Do NOT include requirements or phases for testing, QA, test plans, UI flows, or usability
+  testing. The platform cannot execute tests — every requirement must result in something
+  that can be built and deployed, not verified manually or by a test suite.`,
 ];
 
 const phase_scope_rule =

@@ -112,8 +112,7 @@ window.copilotProgressGoPage = function(idx, pg) {
   });
 };
 
-window.openPhaseDetail = function(idx) {
-  _setPhaseParam(idx);
+function _loadPhaseDetail(idx) {
   view_post(_phasesVn, 'phase_detail_html', { idx }, (r) => {
     if (r && r.html) {
       const panel = document.getElementById('phases-panel');
@@ -132,6 +131,10 @@ window.openPhaseDetail = function(idx) {
       }
     }
   });
+}
+window.openPhaseDetail = function(idx) {
+  _setPhaseParam(idx);
+  _loadPhaseDetail(idx);
 };
 
 window.startPhaseTasks = function(btn, idx, taskType) {
@@ -257,7 +260,21 @@ function copilotInitPhasesState() {
     if (!window.dynamic_updates_cfg?.enabled) phasesStartPoll();
   }
   const phaseParam = new URLSearchParams(location.search).get('phase');
-  if (phaseParam !== null) openPhaseDetail(parseInt(phaseParam));
+  if (phaseParam !== null) {
+    const idx = parseInt(phaseParam);
+    const panel = document.getElementById('phases-panel');
+    if (panel) panel.dataset.phaseIdx = idx;
+    for (const tt of ['plugin', 'data_model', 'feature']) {
+      view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: tt }, (resp) => {
+        if (resp && resp.generating && !window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, tt);
+      });
+      if (!window.dynamic_updates_cfg?.enabled) {
+        view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
+          if (resp && (resp.isRunning || resp.anyRunning)) phasePollRunning(idx, tt);
+        });
+      }
+    }
+  }
 }
 (function() {
   if (document.readyState !== 'loading') copilotInitPhasesState();
@@ -554,7 +571,14 @@ const phasesHtml = async (req, pt, projectId) => {
     ) +
     phases
       .map((ph, idx) =>
-        phaseCard(ph, idx, req, phaseAllDone[idx], phasesWithFeedback.has(idx), projectId)
+        phaseCard(
+          ph,
+          idx,
+          req,
+          phaseAllDone[idx],
+          phasesWithFeedback.has(idx),
+          projectId
+        )
       )
       .join("") +
     div(
@@ -822,7 +846,9 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
               title: "Edit task",
               onclick: `ajax_modal('/view/${encodeURIComponent(
                 viewname
-              )}/get_task_form?id=${t.id}&project_id=${projectId}', {method:'POST'})`,
+              )}/get_task_form?id=${
+                t.id
+              }&project_id=${projectId}', {method:'POST'})`,
             },
             i({ class: "fas fa-edit" })
           )
@@ -1124,7 +1150,18 @@ const phaseDetailHtml = async (phase, idx, pt, projectId) => {
 // ── Panel wrapper (rendered on page load) ─────────────────────────────────────
 
 const phasesPanel = async (req, pt, projectId) => {
-  const innerHtml = await phasesHtml(req, pt, projectId);
+  const phaseParam = req.query?.phase;
+  let innerHtml;
+  if (phaseParam !== undefined) {
+    const idx = parseInt(phaseParam);
+    const phasesMd = await MetaData.findOne({ type: pt, name: "phases" });
+    const phase = phasesMd?.body?.phases?.[idx];
+    innerHtml = phase
+      ? await phaseDetailHtml(phase, idx, pt, projectId)
+      : await phasesHtml(req, pt, projectId);
+  } else {
+    innerHtml = await phasesHtml(req, pt, projectId);
+  }
   return div({ class: "mt-2" }, div({ id: "phases-panel" }, innerHtml));
 };
 
@@ -1262,7 +1299,12 @@ const doGenPhaseTasks = async (phase, userId, taskType, pt) => {
       await MetaData.create({
         type: pt,
         name: "task",
-        body: { ...task, phase_idx: phase.idx, phase_name: phase.name, project_id: projectId },
+        body: {
+          ...task,
+          phase_idx: phase.idx,
+          phase_name: phase.name,
+          project_id: projectId,
+        },
         user_id: userId,
       });
 
@@ -1463,11 +1505,16 @@ const run_phase_tasks = async (table_id, vn, config, body, { req, res }) => {
       body: { started: Date.now() },
       user_id: req.user?.id,
     });
-  doRunPhaseTasks(idx, taskType, {
-    user: req.user,
-    __: req.__ || ((s) => s),
-    getLocale: req.getLocale || (() => "en"),
-  }, pt).catch((e) => console.error("run_phase_tasks error", e));
+  doRunPhaseTasks(
+    idx,
+    taskType,
+    {
+      user: req.user,
+      __: req.__ || ((s) => s),
+      getLocale: req.getLocale || (() => "en"),
+    },
+    pt
+  ).catch((e) => console.error("run_phase_tasks error", e));
   return { json: { success: true } };
 };
 
@@ -1785,9 +1832,9 @@ const save_requirement = async (table_id, vn, config, body, { req, res }) => {
   phases[phaseIdx].requirements = reqs;
   await phasesMd.update({ body: { ...phasesMd.body, phases } });
 
-  const hasTasks = (
-    await MetaData.find({ type: pt, name: "task" })
-  ).some((t) => t.body?.phase_idx === phaseIdx);
+  const hasTasks = (await MetaData.find({ type: pt, name: "task" })).some(
+    (t) => t.body?.phase_idx === phaseIdx
+  );
   if (hasTasks) await markPhaseTasksStale(phaseIdx, req.user?.id, pt);
 
   return { json: { success: true } };
@@ -1812,9 +1859,9 @@ const delete_requirement = async (table_id, vn, config, body, { req, res }) => {
   phases[phaseIdx].requirements = reqs;
   await phasesMd.update({ body: { ...phasesMd.body, phases } });
 
-  const hasTasks = (
-    await MetaData.find({ type: pt, name: "task" })
-  ).some((t) => t.body?.phase_idx === phaseIdx);
+  const hasTasks = (await MetaData.find({ type: pt, name: "task" })).some(
+    (t) => t.body?.phase_idx === phaseIdx
+  );
   if (hasTasks) await markPhaseTasksStale(phaseIdx, req.user?.id, pt);
 
   return { json: { success: true } };

@@ -171,7 +171,9 @@ const projectListHtml = async (req) => {
         label: "Name",
         key: (p) =>
           a(
-            { href: `/view/${encodeURIComponent(viewname)}?project_id=${p.id}` },
+            {
+              href: `/view/${encodeURIComponent(viewname)}?project_id=${p.id}`,
+            },
             text_attr(p.body.name || "Unnamed")
           ),
       },
@@ -186,7 +188,9 @@ const projectListHtml = async (req) => {
           `<button class="btn btn-sm btn-outline-secondary" data-boundary="viewport" type="button" id="projDrop${p.id}" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">` +
           `<i class="fas fa-ellipsis-h"></i></button>` +
           `<div class="dropdown-menu dropdown-menu-end" aria-labelledby="projDrop${p.id}">` +
-          `<a class="dropdown-item" onclick="ajax_modal('/view/${encodeURIComponent(viewname)}/get_edit_project_form?id=${p.id}',{method:'POST'})">` +
+          `<a class="dropdown-item" onclick="ajax_modal('/view/${encodeURIComponent(
+            viewname
+          )}/get_edit_project_form?id=${p.id}',{method:'POST'})">` +
           `<i class="fas fa-edit"></i>&nbsp;Edit</a>` +
           `<a class="dropdown-item" onclick="view_post(${attrVn},'duplicate_project',{id:${p.id}},function(){location.reload()})">` +
           `<i class="far fa-copy"></i>&nbsp;Duplicate</a>` +
@@ -207,20 +211,26 @@ const projectListHtml = async (req) => {
   return div(
     { class: "card shadow mt-0 card-max-full-screen" },
     `<span class="card-header"><h5 class="card-title">Your projects</h5></span>` +
-    div(
-      { class: "card-body", tabindex: "-1", style: "max-height:336px;overflow-y:auto;" },
-      div({ id: "project-list-area" }, body)
-    ) +
-    div(
-      { class: "card-footer" },
-      button(
+      div(
         {
-          class: "btn btn-primary",
-          onclick: `ajax_modal('/view/${encodeURIComponent(viewname)}/get_create_project_form', {method:'POST'})`,
+          class: "card-body",
+          tabindex: "-1",
+          style: "max-height:336px;overflow-y:auto;",
         },
-        "Create project"
+        div({ id: "project-list-area" }, body)
+      ) +
+      div(
+        { class: "card-footer" },
+        button(
+          {
+            class: "btn btn-primary",
+            onclick: `ajax_modal('/view/${encodeURIComponent(
+              viewname
+            )}/get_create_project_form', {method:'POST'})`,
+          },
+          "Create project"
+        )
       )
-    )
   );
 };
 
@@ -270,18 +280,37 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
   const schema = await showSchema(req, pt);
 
   const tabDefs = [
-    { id: "spec",     label: "Specification", content: div({ class: "mt-2" }, renderForm(specForm, req.csrfToken()), specDepsModal, specDepsScript(viewname)) },
-    { id: "research", label: "Research",      content: research },
-    { id: "phases",   label: "Phases",        content: div(phasesStaticScript, phases) },
-    { id: "schema",   label: "Schema",        content: div(schemaStaticScript, div({ id: "schema-list-area" }, schema)) },
-    { id: "feedback", label: "Feedback",      content: feedbacks },
-    { id: "errors",   label: "Errors",        content: div(errTableStaticHtml, div({ id: "err-list-area" }, errList)) },
+    {
+      id: "spec",
+      label: "Specification",
+      content: div(
+        { class: "mt-2" },
+        renderForm(specForm, req.csrfToken()),
+        specDepsModal,
+        specDepsScript(viewname)
+      ),
+    },
+    { id: "research", label: "Research", content: research },
+    { id: "phases", label: "Phases", content: div(phasesStaticScript, phases) },
+    {
+      id: "schema",
+      label: "Schema",
+      content: div(schemaStaticScript, div({ id: "schema-list-area" }, schema)),
+    },
+    { id: "feedback", label: "Feedback", content: feedbacks },
+    {
+      id: "errors",
+      label: "Errors",
+      content: div(errTableStaticHtml, div({ id: "err-list-area" }, errList)),
+    },
   ];
 
   const projectDropdownItems = projects
     .map((p) => {
       const cur = p.id === projectId;
-      return `<li><a class="dropdown-item d-flex align-items-center justify-content-between${cur ? " active" : ""}"
+      return `<li><a class="dropdown-item d-flex align-items-center justify-content-between${
+        cur ? " active" : ""
+      }"
         href="/view/${encodeURIComponent(viewname)}?project_id=${p.id}">
         <span>${text_attr(p.body?.name || "Unnamed")}</span>
         ${cur ? '<i class="fas fa-check" style="font-size:0.75rem"></i>' : ""}
@@ -295,10 +324,14 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
 
   const tabsHtml = `
 <ul class="nav nav-tabs" role="tablist">
-  ${tabDefs.map((t, idx) => `<li class="nav-item" role="presentation">
+  ${tabDefs
+    .map(
+      (t, idx) => `<li class="nav-item" role="presentation">
     <a class="nav-link${idx === 0 ? " active" : ""}" data-bs-toggle="tab"
        href="#copilot-tab-${t.id}" role="tab">${t.label}</a>
-  </li>`).join("")}
+  </li>`
+    )
+    .join("")}
   <li class="nav-item ms-auto d-flex align-items-center pe-2" aria-hidden="true">
     <div style="width:1px;height:1.25rem;background:var(--bs-border-color,#dee2e6)"></div>
   </li>
@@ -320,22 +353,36 @@ const run = async (table_id, viewname, cfg, state, { req, res }) => {
   </li>
 </ul>
 <div class="tab-content mt-3">
-  ${tabDefs.map((t, idx) => `<div class="tab-pane fade${idx === 0 ? " show active" : ""}"
-    id="copilot-tab-${t.id}" role="tabpanel">${t.content}</div>`).join("")}
+  ${tabDefs
+    .map(
+      (t, idx) => `<div class="tab-pane fade${idx === 0 ? " show active" : ""}"
+    id="copilot-tab-${t.id}" role="tabpanel">${t.content}</div>`
+    )
+    .join("")}
 </div>
 <script>
-(function(){
+document.addEventListener('DOMContentLoaded', function() {
   var hash = location.hash;
   if (hash) {
     var el = document.querySelector('.nav-tabs a[href="' + hash + '"]');
     if (el) bootstrap.Tab.getOrCreateInstance(el).show();
   }
-  document.querySelectorAll('.nav-tabs a[data-bs-toggle="tab"]').forEach(function(el){
-    el.addEventListener('shown.bs.tab', function(e){
-      history.replaceState(null, null, e.target.getAttribute('href'));
-    });
+  document.addEventListener('shown.bs.tab', function(e) {
+    var href = e.target && e.target.getAttribute && e.target.getAttribute('href');
+    if (href && href.startsWith('#copilot-tab-')) {
+      var url = new URL(location.href);
+      url.hash = href;
+      if (href !== '#copilot-tab-phases') {
+        url.searchParams.delete('phase');
+        var prev = e.relatedTarget && e.relatedTarget.getAttribute('href');
+        if (prev === '#copilot-tab-phases' && typeof copilotRefreshPhases === 'function') {
+          copilotRefreshPhases();
+        }
+      }
+      history.replaceState(null, '', url.toString());
+    }
   });
-})();
+});
 </script>`;
 
   return projectIdWrapperScript(projectId) + tabsHtml;
@@ -357,8 +404,7 @@ const check_spec_dependencies = async (
   const hasSchema = !!(await MetaData.findOne({ type: pt, name: "schema" }));
   const hasPhases =
     (await MetaData.find({ type: pt, name: "phase" })).length > 0;
-  const hasTasks =
-    (await MetaData.find({ type: pt, name: "task" })).length > 0;
+  const hasTasks = (await MetaData.find({ type: pt, name: "task" })).length > 0;
   return {
     json: { hasResearch, hasRequirements, hasPhases, hasSchema, hasTasks },
   };
@@ -532,13 +578,13 @@ const get_create_project_form = (table_id, vn) => {
     div(
       { class: "mb-3" },
       `<label class="form-label">Name</label>` +
-      `<input type="text" class="form-control" id="cpf-name" placeholder="My project">`
+        `<input type="text" class="form-control" id="cpf-name" placeholder="My project">`
     ) +
     div(
       { class: "mb-3" },
       `<label class="form-label">Description</label>` +
-      `<input type="text" class="form-control" id="cpf-desc" placeholder="Short description">` +
-      `<div class="form-text">A brief summary of what this project is — not the full specification (that goes in the Specification tab).</div>`
+        `<input type="text" class="form-control" id="cpf-desc" placeholder="Short description">` +
+        `<div class="form-text">A brief summary of what this project is — not the full specification (that goes in the Specification tab).</div>`
     ) +
     div(
       { class: "d-flex gap-2" },
@@ -551,7 +597,11 @@ const get_create_project_form = (table_id, vn) => {
         "Create project"
       ),
       button(
-        { type: "button", class: "btn btn-secondary", "data-bs-dismiss": "modal" },
+        {
+          type: "button",
+          class: "btn btn-secondary",
+          "data-bs-dismiss": "modal",
+        },
         "Cancel"
       )
     );
@@ -560,7 +610,11 @@ const get_create_project_form = (table_id, vn) => {
 
 const get_edit_project_form = async (table_id, vn, config, body, { req }) => {
   const id = Number(body.id ?? req.query?.id);
-  const project = await MetaData.findOne({ id, type: BASE_TYPE, name: "project" });
+  const project = await MetaData.findOne({
+    id,
+    type: BASE_TYPE,
+    name: "project",
+  });
   if (!project) return { json: { error: "Project not found" } };
   const safeVn = JSON.stringify(vn);
   const safeName = JSON.stringify(project.body.name || "");
@@ -569,13 +623,13 @@ const get_edit_project_form = async (table_id, vn, config, body, { req }) => {
     div(
       { class: "mb-3" },
       `<label class="form-label">Name</label>` +
-      `<input type="text" class="form-control" id="epf-name" value=${safeName}>`
+        `<input type="text" class="form-control" id="epf-name" value=${safeName}>`
     ) +
     div(
       { class: "mb-3" },
       `<label class="form-label">Description</label>` +
-      `<input type="text" class="form-control" id="epf-desc" value=${safeDesc}>` +
-      `<div class="form-text">A brief summary of what this project is — not the full specification (that goes in the Specification tab).</div>`
+        `<input type="text" class="form-control" id="epf-desc" value=${safeDesc}>` +
+        `<div class="form-text">A brief summary of what this project is — not the full specification (that goes in the Specification tab).</div>`
     ) +
     div(
       { class: "d-flex gap-2" },
@@ -588,7 +642,11 @@ const get_edit_project_form = async (table_id, vn, config, body, { req }) => {
         "Save"
       ),
       button(
-        { type: "button", class: "btn btn-secondary", "data-bs-dismiss": "modal" },
+        {
+          type: "button",
+          class: "btn btn-secondary",
+          "data-bs-dismiss": "modal",
+        },
         "Cancel"
       )
     );
@@ -597,17 +655,29 @@ const get_edit_project_form = async (table_id, vn, config, body, { req }) => {
 
 const update_project = async (table_id, vn, config, body, { req, res }) => {
   const id = Number(body.id);
-  const project = await MetaData.findOne({ id, type: BASE_TYPE, name: "project" });
+  const project = await MetaData.findOne({
+    id,
+    type: BASE_TYPE,
+    name: "project",
+  });
   if (!project) return { json: { error: "Project not found" } };
   const name = (body.name || "").trim() || project.body.name || "New project";
   const description = (body.description || "").trim();
-  await db.update("_sc_metadata", { body: { ...project.body, name, description: description || undefined } }, id);
+  await db.update(
+    "_sc_metadata",
+    { body: { ...project.body, name, description: description || undefined } },
+    id
+  );
   return { json: { success: true } };
 };
 
 const duplicate_project = async (table_id, vn, config, body, { req, res }) => {
   const id = Number(body.id);
-  const source = await MetaData.findOne({ id, type: BASE_TYPE, name: "project" });
+  const source = await MetaData.findOne({
+    id,
+    type: BASE_TYPE,
+    name: "project",
+  });
   if (!source) return { json: { error: "Project not found" } };
 
   const copy = await MetaData.create({
@@ -621,7 +691,12 @@ const duplicate_project = async (table_id, vn, config, body, { req, res }) => {
   const dstType = projectType(copy.id);
   const records = await MetaData.find({ type: srcType });
   for (const r of records) {
-    await MetaData.create({ type: dstType, name: r.name, body: r.body, user_id: r.user_id });
+    await MetaData.create({
+      type: dstType,
+      name: r.name,
+      body: r.body,
+      user_id: r.user_id,
+    });
   }
 
   return { json: { success: true } };
@@ -638,14 +713,20 @@ const add_project = async (table_id, vn, config, body, { req, res }) => {
   });
   return {
     json: {
-      redirect: `/view/${encodeURIComponent(viewname)}?project_id=${project.id}`,
+      redirect: `/view/${encodeURIComponent(viewname)}?project_id=${
+        project.id
+      }`,
     },
   };
 };
 
 const delete_project = async (table_id, vn, config, body, { req, res }) => {
   const id = Number(body.id);
-  const project = await MetaData.findOne({ id, type: BASE_TYPE, name: "project" });
+  const project = await MetaData.findOne({
+    id,
+    type: BASE_TYPE,
+    name: "project",
+  });
   if (!project) return { json: { error: "Project not found" } };
 
   const pt = projectType(id);
