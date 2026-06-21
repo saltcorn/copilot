@@ -24,7 +24,7 @@ const {
 const { mkTable } = require("@saltcorn/markup");
 const { getState, features } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
-const { viewname, tool_choice } = require("./common");
+const { viewname, tool_choice, projectType } = require("./common");
 const { task_tool } = require("./tools");
 const { runTask } = require("./run_task");
 const { PromptGenerator } = require("./prompt-generator");
@@ -112,8 +112,7 @@ window.copilotProgressGoPage = function(idx, pg) {
   });
 };
 
-window.openPhaseDetail = function(idx) {
-  _setPhaseParam(idx);
+function _loadPhaseDetail(idx) {
   view_post(_phasesVn, 'phase_detail_html', { idx }, (r) => {
     if (r && r.html) {
       const panel = document.getElementById('phases-panel');
@@ -132,6 +131,10 @@ window.openPhaseDetail = function(idx) {
       }
     }
   });
+}
+window.openPhaseDetail = function(idx) {
+  _setPhaseParam(idx);
+  _loadPhaseDetail(idx);
 };
 
 window.startPhaseTasks = function(btn, idx, taskType) {
@@ -257,7 +260,21 @@ function copilotInitPhasesState() {
     if (!window.dynamic_updates_cfg?.enabled) phasesStartPoll();
   }
   const phaseParam = new URLSearchParams(location.search).get('phase');
-  if (phaseParam !== null) openPhaseDetail(parseInt(phaseParam));
+  if (phaseParam !== null) {
+    const idx = parseInt(phaseParam);
+    const panel = document.getElementById('phases-panel');
+    if (panel) panel.dataset.phaseIdx = idx;
+    for (const tt of ['plugin', 'data_model', 'feature']) {
+      view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: tt }, (resp) => {
+        if (resp && resp.generating && !window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, tt);
+      });
+      if (!window.dynamic_updates_cfg?.enabled) {
+        view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
+          if (resp && (resp.isRunning || resp.anyRunning)) phasePollRunning(idx, tt);
+        });
+      }
+    }
+  }
 }
 (function() {
   if (document.readyState !== 'loading') copilotInitPhasesState();
@@ -338,7 +355,7 @@ const tasksSpinner =
 
 // ── Phase list view ───────────────────────────────────────────────────────────
 
-const phaseCard = (phase, idx, req, allDone, hasFeedback) => {
+const phaseCard = (phase, idx, req, allDone, hasFeedback, projectId) => {
   const starFieldview = getState().types.Integer.fieldviews.show_star_rating;
   const reqs = phase.requirements || [];
   const canEdit = features.view_route_modal && !allDone;
@@ -364,7 +381,7 @@ const phaseCard = (phase, idx, req, allDone, hasFeedback) => {
                       title: "Edit requirement",
                       onclick: `ajax_modal('/view/${encodeURIComponent(
                         viewname
-                      )}/get_requirement_form?phaseIdx=${idx}&reqIdx=${rIdx}', {method:'POST'})`,
+                      )}/get_requirement_form?phaseIdx=${idx}&reqIdx=${rIdx}&project_id=${projectId}', {method:'POST'})`,
                     },
                     i({ class: "fas fa-edit" })
                   ),
@@ -461,7 +478,7 @@ const phaseCard = (phase, idx, req, allDone, hasFeedback) => {
                   title: "Add requirement",
                   onclick: `ajax_modal('/view/${encodeURIComponent(
                     viewname
-                  )}/get_requirement_form?phaseIdx=${idx}', {method:'POST'})`,
+                  )}/get_requirement_form?phaseIdx=${idx}&project_id=${projectId}', {method:'POST'})`,
                 },
                 i({ class: "fas fa-plus me-1" }),
                 "Add requirement"
@@ -473,15 +490,15 @@ const phaseCard = (phase, idx, req, allDone, hasFeedback) => {
   );
 };
 
-const phasesHtml = async (req) => {
+const phasesHtml = async (req, pt, projectId) => {
   const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_phases",
   });
   if (generating) return phasesSpinner;
 
   const phasesMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phases",
   });
 
@@ -508,14 +525,20 @@ const phasesHtml = async (req) => {
   );
 
   const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "task",
   });
   const pluginMarkers = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phase_plugin_generated",
   });
   const pluginMarkerIdxs = new Set(pluginMarkers.map((m) => m.body?.phase_idx));
+
+  const dmMarkers = await MetaData.find({
+    type: pt,
+    name: "phase_data_model_generated",
+  });
+  const dmMarkerIdxs = new Set(dmMarkers.map((m) => m.body?.phase_idx));
 
   const phaseAllDone = phases.map((_, idx) => {
     const phaseTasks = allTasks.filter((t) => t.body?.phase_idx === idx);
@@ -526,15 +549,16 @@ const phasesHtml = async (req) => {
     const plTasks = byType("plugin");
     const allDone = (tasks) =>
       tasks.length > 0 && tasks.every((t) => t.body?.status === "Done");
-    // plugin: ok if marker says 0 were needed, or if tasks exist and all done
+    // ok if marker says 0 were needed, or if tasks exist and all done
     const pluginOk = pluginMarkerIdxs.has(idx) || allDone(plTasks);
-    return allDone(dmTasks) && allDone(ftTasks) && pluginOk;
+    const dmOk = dmMarkerIdxs.has(idx) || allDone(dmTasks);
+    return dmOk && allDone(ftTasks) && pluginOk;
   });
 
   const phasesWithFeedback = new Set();
   try {
     const fbMds = await MetaData.find({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "feedback_pending",
     });
     for (const r of fbMds)
@@ -554,7 +578,14 @@ const phasesHtml = async (req) => {
     ) +
     phases
       .map((ph, idx) =>
-        phaseCard(ph, idx, req, phaseAllDone[idx], phasesWithFeedback.has(idx))
+        phaseCard(
+          ph,
+          idx,
+          req,
+          phaseAllDone[idx],
+          phasesWithFeedback.has(idx),
+          projectId
+        )
       )
       .join("") +
     div(
@@ -583,9 +614,9 @@ const taskStatusBadge = (status) => {
   return span({ class: `badge ${cls}` }, status || "To do");
 };
 
-const phaseTasksHtml = async (phaseIdx, taskType) => {
+const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
   const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_phase_tasks",
   });
   const isGenerating = !!(
@@ -596,7 +627,7 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
   if (isGenerating) return tasksSpinner;
 
   const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "task",
   });
   const phaseTasks = allTasks.filter((t) => t.body?.phase_idx === phaseIdx);
@@ -608,7 +639,7 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
   );
 
   const phaseRunning = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: `phase_running_${phaseIdx}_${taskType}`,
   });
   const isRunning = !!phaseRunning;
@@ -621,7 +652,7 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
   const allDone = tasks.length > 0 && !hasTodo && !isRunning && !runningTask;
 
   const staleMarkers = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phase_reqs_changed",
   });
   const isStale = staleMarkers.some((m) => m.body?.phase_idx === phaseIdx);
@@ -722,7 +753,7 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
           title: "Add task",
           onclick: `ajax_modal('/view/${encodeURIComponent(
             viewname
-          )}/get_new_task_form?phaseIdx=${phaseIdx}&taskType=${taskType}', {method:'POST'})`,
+          )}/get_new_task_form?phaseIdx=${phaseIdx}&taskType=${taskType}&project_id=${projectId}', {method:'POST'})`,
         },
         i({ class: "fas fa-plus me-1" }),
         "Add task"
@@ -822,7 +853,9 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
               title: "Edit task",
               onclick: `ajax_modal('/view/${encodeURIComponent(
                 viewname
-              )}/get_task_form?id=${t.id}', {method:'POST'})`,
+              )}/get_task_form?id=${
+                t.id
+              }&project_id=${projectId}', {method:'POST'})`,
             },
             i({ class: "fas fa-edit" })
           )
@@ -888,14 +921,14 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
     let emptyMsg = "No tasks yet.";
     if (taskType === "plugin") {
       const markers = await MetaData.find({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "phase_plugin_generated",
       });
       if (markers.some((m) => m.body?.phase_idx === phaseIdx))
         emptyMsg = "No plugin installations needed for this phase.";
     } else if (taskType === "data_model") {
       const markers = await MetaData.find({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "phase_data_model_generated",
       });
       if (markers.some((m) => m.body?.phase_idx === phaseIdx))
@@ -938,9 +971,9 @@ const phaseTasksHtml = async (phaseIdx, taskType) => {
 
 const PROGRESS_PAGE_SIZE = 20;
 
-const phaseProgressHtml = async (idx, page = 1) => {
+const phaseProgressHtml = async (idx, page = 1, pt) => {
   const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "task",
   });
   const taskNameById = Object.fromEntries(
@@ -948,7 +981,7 @@ const phaseProgressHtml = async (idx, page = 1) => {
   );
 
   const allProgress = await MetaData.find(
-    { type: "CopilotConstructMgr", name: "progress" },
+    { type: pt, name: "progress" },
     { orderBy: "written_at", orderDesc: true }
   );
   const entries = allProgress.filter((p) => p.body?.phase_idx === idx);
@@ -1038,13 +1071,13 @@ const phaseProgressHtml = async (idx, page = 1) => {
   );
 };
 
-const phaseDetailHtml = async (phase, idx) => {
+const phaseDetailHtml = async (phase, idx, pt, projectId) => {
   const tabId = `phase-detail-tabs-${idx}`;
   const [plContent, dmContent, ftContent, pgContent] = await Promise.all([
-    phaseTasksHtml(idx, "plugin"),
-    phaseTasksHtml(idx, "data_model"),
-    phaseTasksHtml(idx, "feature"),
-    phaseProgressHtml(idx),
+    phaseTasksHtml(idx, "plugin", pt, projectId),
+    phaseTasksHtml(idx, "data_model", pt, projectId),
+    phaseTasksHtml(idx, "feature", pt, projectId),
+    phaseProgressHtml(idx, 1, pt),
   ]);
 
   const backBtn = button(
@@ -1062,7 +1095,7 @@ const phaseDetailHtml = async (phase, idx) => {
           class: "btn btn-outline-secondary btn-sm flex-shrink-0 ms-4",
           onclick: `ajax_modal('/view/${encodeURIComponent(
             viewname
-          )}/get_feedback_form?scope=phase_${idx}', {method:'POST'})`,
+          )}/get_feedback_form?scope=phase_${idx}&project_id=${projectId}', {method:'POST'})`,
           title: "Add feedback for this phase",
         },
         i({ class: "fas fa-comment-alt me-1" }),
@@ -1123,19 +1156,30 @@ const phaseDetailHtml = async (phase, idx) => {
 
 // ── Panel wrapper (rendered on page load) ─────────────────────────────────────
 
-const phasesPanel = async (req) => {
-  const innerHtml = await phasesHtml(req);
+const phasesPanel = async (req, pt, projectId) => {
+  const phaseParam = req.query?.phase;
+  let innerHtml;
+  if (phaseParam !== undefined) {
+    const idx = parseInt(phaseParam);
+    const phasesMd = await MetaData.findOne({ type: pt, name: "phases" });
+    const phase = phasesMd?.body?.phases?.[idx];
+    innerHtml = phase
+      ? await phaseDetailHtml(phase, idx, pt, projectId)
+      : await phasesHtml(req, pt, projectId);
+  } else {
+    innerHtml = await phasesHtml(req, pt, projectId);
+  }
   return div({ class: "mt-2" }, div({ id: "phases-panel" }, innerHtml));
 };
 
 // ── Phase generation ──────────────────────────────────────────────────────────
 
-const deletePhaseScopedFeedback = async () => {
+const deletePhaseScopedFeedback = async (pt) => {
   for (const name of ["feedback_pending", "feedback"]) {
-    const records = await MetaData.find({ type: "CopilotConstructMgr", name });
+    const records = await MetaData.find({ type: pt, name });
     for (const r of records.filter((r) => r.body?.phase_idx != null)) {
       const research = await MetaData.findOne({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: `feedback_research_${r.id}`,
       });
       if (research) await research.delete();
@@ -1144,15 +1188,15 @@ const deletePhaseScopedFeedback = async () => {
   }
 };
 
-const doGenPhases = async (userId) => {
+const doGenPhases = async (userId, pt) => {
   const generatingMd = await MetaData.create({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_phases",
     body: {},
     user_id: userId,
   });
   try {
-    const generator = await PromptGenerator.createInstance();
+    const generator = await PromptGenerator.createInstance({ pt });
     if (!generator.spec) throw new Error("Specification not found");
     const answer = await getState().functions.llm_generate.run(
       generator.phasesPlanPrompt(),
@@ -1171,22 +1215,22 @@ const doGenPhases = async (userId) => {
     // Delete all phase tasks and phase-scoped feedback before replacing phases
     // (phase indices will shift, making both stale)
     const allTasks = await MetaData.find({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "task",
     });
     for (const t of allTasks.filter((t) => t.body?.phase_idx !== undefined))
       await t.delete();
-    await deletePhaseScopedFeedback();
+    await deletePhaseScopedFeedback(pt);
 
     const existing = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "phases",
     });
     if (existing) {
       await existing.update({ body: { phases: tc.input.phases } });
     } else {
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "phases",
         body: { phases: tc.input.phases },
         user_id: userId,
@@ -1206,15 +1250,15 @@ const doGenPhases = async (userId) => {
 // ── Task generation for a phase ───────────────────────────────────────────────
 
 // taskType: "data_model" | "feature" | null (null = generate both)
-const doGenPhaseTasks = async (phase, userId, taskType) => {
+const doGenPhaseTasks = async (phase, userId, taskType, pt) => {
   const generatingMd = await MetaData.create({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_phase_tasks",
     body: { phase_idx: phase.idx, task_type: taskType },
     user_id: userId,
   });
   try {
-    const generator = await PromptGenerator.createInstance({ phase });
+    const generator = await PromptGenerator.createInstance({ phase, pt });
     const answer = await getState().functions.llm_generate.run(
       generator.taskPlanPrompt(taskType),
       {
@@ -1231,7 +1275,7 @@ const doGenPhaseTasks = async (phase, userId, taskType) => {
 
     // Remove existing tasks of the relevant type(s) before storing new ones
     const existing = await MetaData.find({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "task",
     });
     const phaseTasks = existing.filter((t) => t.body?.phase_idx === phase.idx);
@@ -1243,29 +1287,35 @@ const doGenPhaseTasks = async (phase, userId, taskType) => {
     // Clear any existing "no tasks needed" markers for this phase
     if (taskType === "plugin") {
       const oldMarkers = await MetaData.find({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "phase_plugin_generated",
       });
       for (const m of oldMarkers.filter((m) => m.body?.phase_idx === phase.idx))
         await m.delete();
     } else if (taskType === "data_model") {
       const oldMarkers = await MetaData.find({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "phase_data_model_generated",
       });
       for (const m of oldMarkers.filter((m) => m.body?.phase_idx === phase.idx))
         await m.delete();
     }
 
+    const projectId = Number(pt.split(":")[1]);
     for (const task of tc.input.tasks)
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "task",
-        body: { ...task, phase_idx: phase.idx, phase_name: phase.name },
+        body: {
+          ...task,
+          phase_idx: phase.idx,
+          phase_name: phase.name,
+          project_id: projectId,
+        },
         user_id: userId,
       });
 
-    await clearPhaseStaleMarker(phase.idx);
+    await clearPhaseStaleMarker(phase.idx, pt);
 
     // If generation produced 0 tasks, record that it was considered
     if (
@@ -1273,7 +1323,7 @@ const doGenPhaseTasks = async (phase, userId, taskType) => {
       tc.input.tasks.filter((t) => t.task_type === "plugin").length === 0
     ) {
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "phase_plugin_generated",
         body: { phase_idx: phase.idx },
         user_id: userId,
@@ -1284,7 +1334,7 @@ const doGenPhaseTasks = async (phase, userId, taskType) => {
       tc.input.tasks.filter((t) => t.task_type === "data_model").length === 0
     ) {
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "phase_data_model_generated",
         body: { phase_idx: phase.idx },
         user_id: userId,
@@ -1302,16 +1352,16 @@ const doGenPhaseTasks = async (phase, userId, taskType) => {
 
 // ── Phase task chain runner ───────────────────────────────────────────────────
 
-const doRunPhaseTasks = async (phaseIdx, taskType, req) => {
+const doRunPhaseTasks = async (phaseIdx, taskType, req, pt) => {
   const flagName = `phase_running_${phaseIdx}_${taskType}`;
   const running = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: flagName,
   });
   if (!running) return;
 
   const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "task",
   });
   const phaseTasks = allTasks.filter((t) => t.body?.phase_idx === phaseIdx);
@@ -1339,10 +1389,10 @@ const doRunPhaseTasks = async (phaseIdx, taskType, req) => {
 
   if (startable[0]) {
     await runTask(startable[0].id, req);
-    await doRunPhaseTasks(phaseIdx, taskType, req);
+    await doRunPhaseTasks(phaseIdx, taskType, req, pt);
   } else {
     const runningMd = await MetaData.findOne({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: flagName,
     });
     if (runningMd) await runningMd.delete();
@@ -1356,33 +1406,44 @@ const doRunPhaseTasks = async (phaseIdx, taskType, req) => {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
+const getPt = (body, req) =>
+  projectType(body.project_id ?? req.query?.project_id);
+
 const gen_phases = async (table_id, vn, config, body, { req, res }) => {
-  doGenPhases(req.user?.id).catch((e) => console.error("gen_phases error", e));
+  const pt = getPt(body, req);
+  doGenPhases(req.user?.id, pt).catch((e) =>
+    console.error("gen_phases error", e)
+  );
   return { json: { success: true } };
 };
 
 const phases_status = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_phases",
   });
   return { json: { generating: !!generating } };
 };
 
 const phases_html = async (table_id, vn, config, body, { req, res }) => {
-  const html = await phasesHtml(req);
+  const pt = getPt(body, req);
+  const projectId = body.project_id ?? req.query?.project_id;
+  const html = await phasesHtml(req, pt, projectId);
   return { json: { html } };
 };
 
 const phase_detail_html = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  const projectId = body.project_id ?? req.query?.project_id;
   const idx = parseInt(body.idx);
   const phasesMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phases",
   });
   const phase = phasesMd?.body?.phases?.[idx];
   if (!phase) return { json: { error: "Phase not found" } };
-  return { json: { html: await phaseDetailHtml(phase, idx) } };
+  return { json: { html: await phaseDetailHtml(phase, idx, pt, projectId) } };
 };
 
 const generate_phase_tasks = async (
@@ -1392,26 +1453,28 @@ const generate_phase_tasks = async (
   body,
   { req, res }
 ) => {
+  const pt = getPt(body, req);
   const idx = parseInt(body.idx);
   const taskType = body.task_type || null;
   const phasesMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phases",
   });
   const phase = phasesMd?.body?.phases?.[idx];
   if (!phase) return { json: { error: "Phase not found" } };
   phase.idx = idx;
-  doGenPhaseTasks(phase, req.user?.id, taskType).catch((e) =>
+  doGenPhaseTasks(phase, req.user?.id, taskType, pt).catch((e) =>
     console.error("generate_phase_tasks error", e)
   );
   return { json: { success: true } };
 };
 
 const phase_tasks_status = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const idx = parseInt(body.idx);
   const taskType = body.task_type || null;
   const generating = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "generating_phase_tasks",
   });
   const isGenerating = !!(
@@ -1425,45 +1488,54 @@ const phase_tasks_status = async (table_id, vn, config, body, { req, res }) => {
 };
 
 const phase_tasks_html = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  const projectId = body.project_id ?? req.query?.project_id;
   const idx = parseInt(body.idx);
   const taskType = body.task_type || "feature";
-  const html = await phaseTasksHtml(idx, taskType);
+  const html = await phaseTasksHtml(idx, taskType, pt, projectId);
   return { json: { html } };
 };
 
 const run_phase_tasks = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const idx = parseInt(body.idx);
   const taskType = body.task_type || "feature";
   const flagName = `phase_running_${idx}_${taskType}`;
   const existing = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: flagName,
   });
   if (!existing)
     await MetaData.create({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: flagName,
       body: { started: Date.now() },
       user_id: req.user?.id,
     });
-  doRunPhaseTasks(idx, taskType, {
-    user: req.user,
-    __: req.__ || ((s) => s),
-    getLocale: req.getLocale || (() => "en"),
-  }).catch((e) => console.error("run_phase_tasks error", e));
+  doRunPhaseTasks(
+    idx,
+    taskType,
+    {
+      user: req.user,
+      __: req.__ || ((s) => s),
+      getLocale: req.getLocale || (() => "en"),
+    },
+    pt
+  ).catch((e) => console.error("run_phase_tasks error", e));
   return { json: { success: true } };
 };
 
 const stop_phase_tasks = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const idx = parseInt(body.idx);
   const taskType = body.task_type || "feature";
   const running = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: `phase_running_${idx}_${taskType}`,
   });
   if (running) await running.delete();
   const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "task",
   });
   const taskStillRunning = allTasks.some(
@@ -1482,10 +1554,11 @@ const del_phase_type_tasks = async (
   body,
   { req, res }
 ) => {
+  const pt = getPt(body, req);
   const idx = parseInt(body.idx);
   const taskType = body.task_type || "feature";
   const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "task",
   });
   for (const t of allTasks) {
@@ -1497,13 +1570,13 @@ const del_phase_type_tasks = async (
   }
   if (taskType === "plugin") {
     const markers = await MetaData.find({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "phase_plugin_generated",
     });
     for (const m of markers.filter((m) => m.body?.phase_idx === idx))
       await m.delete();
     const pluginPhase = await MetaData.find({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "plugin_phase",
     });
     for (const m of pluginPhase.filter((m) => m.body?.phase_idx === idx))
@@ -1511,13 +1584,13 @@ const del_phase_type_tasks = async (
   }
   if (taskType === "data_model") {
     const tablePhase = await MetaData.find({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "table_phase",
     });
     for (const m of tablePhase.filter((m) => m.body?.phase_idx === idx))
       await m.delete();
     const dmMarkers = await MetaData.find({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "phase_data_model_generated",
     });
     for (const m of dmMarkers.filter((m) => m.body?.phase_idx === idx))
@@ -1525,7 +1598,7 @@ const del_phase_type_tasks = async (
   }
   if (taskType === "feature") {
     const viewPhase = await MetaData.find({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "view_phase",
     });
     for (const m of viewPhase.filter((m) => m.body?.phase_idx === idx))
@@ -1535,15 +1608,16 @@ const del_phase_type_tasks = async (
 };
 
 const phase_run_status = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const idx = parseInt(body.idx);
   const taskType = body.task_type || "feature";
   const runningMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: `phase_running_${idx}_${taskType}`,
   });
   const isRunning = !!runningMd;
   const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "task",
   });
   const runningTask = allTasks.find(
@@ -1563,35 +1637,36 @@ const phase_run_status = async (table_id, vn, config, body, { req, res }) => {
 };
 
 const del_all_phases = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "task",
   });
   for (const t of allTasks.filter((t) => t.body?.phase_idx !== undefined))
     await t.delete();
-  await deletePhaseScopedFeedback();
+  await deletePhaseScopedFeedback(pt);
   const markers = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phase_plugin_generated",
   });
   for (const m of markers) await m.delete();
   const tablePhase = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "table_phase",
   });
   for (const m of tablePhase) await m.delete();
   const viewPhase = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "view_phase",
   });
   for (const m of viewPhase) await m.delete();
   const pluginPhaseAll = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "plugin_phase",
   });
   for (const m of pluginPhaseAll) await m.delete();
   const phasesMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phases",
   });
   if (phasesMd) await phasesMd.delete();
@@ -1605,16 +1680,18 @@ const phase_progress_html = async (
   body,
   { req, res }
 ) => {
+  const pt = getPt(body, req);
   const idx = parseInt(body.idx);
   const page = body.page ? parseInt(body.page) : 1;
-  const html = await phaseProgressHtml(idx, page);
+  const html = await phaseProgressHtml(idx, page, pt);
   return { json: { html } };
 };
 
 const del_phase_progress = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const idx = parseInt(body.idx);
   const all = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "progress",
   });
   for (const r of all.filter((p) => p.body?.phase_idx === idx))
@@ -1629,6 +1706,7 @@ const get_requirement_form = async (
   body,
   { req, res }
 ) => {
+  const pt = getPt(body, req);
   const phaseIdx = parseInt(body.phaseIdx ?? req.query?.phaseIdx);
   const reqIdx =
     body.reqIdx !== undefined
@@ -1638,7 +1716,7 @@ const get_requirement_form = async (
       : -1;
 
   const phasesMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phases",
   });
   const phase = phasesMd?.body?.phases?.[phaseIdx];
@@ -1713,14 +1791,14 @@ const get_requirement_form = async (
   return { html, title };
 };
 
-const markPhaseTasksStale = async (phaseIdx, userId) => {
+const markPhaseTasksStale = async (phaseIdx, userId, pt) => {
   const all = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phase_reqs_changed",
   });
   if (!all.some((m) => m.body?.phase_idx === phaseIdx)) {
     await MetaData.create({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "phase_reqs_changed",
       body: { phase_idx: phaseIdx },
       user_id: userId,
@@ -1728,9 +1806,9 @@ const markPhaseTasksStale = async (phaseIdx, userId) => {
   }
 };
 
-const clearPhaseStaleMarker = async (phaseIdx) => {
+const clearPhaseStaleMarker = async (phaseIdx, pt) => {
   const all = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phase_reqs_changed",
   });
   for (const m of all.filter((m) => m.body?.phase_idx === phaseIdx))
@@ -1738,12 +1816,13 @@ const clearPhaseStaleMarker = async (phaseIdx) => {
 };
 
 const save_requirement = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const phaseIdx = parseInt(body.phaseIdx);
   const reqIdx = parseInt(body.reqIdx);
   const { requirement, priority } = body;
 
   const phasesMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phases",
   });
   if (!phasesMd) return { json: { error: "Phases not found" } };
@@ -1760,20 +1839,21 @@ const save_requirement = async (table_id, vn, config, body, { req, res }) => {
   phases[phaseIdx].requirements = reqs;
   await phasesMd.update({ body: { ...phasesMd.body, phases } });
 
-  const hasTasks = (
-    await MetaData.find({ type: "CopilotConstructMgr", name: "task" })
-  ).some((t) => t.body?.phase_idx === phaseIdx);
-  if (hasTasks) await markPhaseTasksStale(phaseIdx, req.user?.id);
+  const hasTasks = (await MetaData.find({ type: pt, name: "task" })).some(
+    (t) => t.body?.phase_idx === phaseIdx
+  );
+  if (hasTasks) await markPhaseTasksStale(phaseIdx, req.user?.id, pt);
 
   return { json: { success: true } };
 };
 
 const delete_requirement = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const phaseIdx = parseInt(body.phaseIdx);
   const reqIdx = parseInt(body.reqIdx);
 
   const phasesMd = await MetaData.findOne({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "phases",
   });
   if (!phasesMd) return { json: { error: "Phases not found" } };
@@ -1786,10 +1866,10 @@ const delete_requirement = async (table_id, vn, config, body, { req, res }) => {
   phases[phaseIdx].requirements = reqs;
   await phasesMd.update({ body: { ...phasesMd.body, phases } });
 
-  const hasTasks = (
-    await MetaData.find({ type: "CopilotConstructMgr", name: "task" })
-  ).some((t) => t.body?.phase_idx === phaseIdx);
-  if (hasTasks) await markPhaseTasksStale(phaseIdx, req.user?.id);
+  const hasTasks = (await MetaData.find({ type: pt, name: "task" })).some(
+    (t) => t.body?.phase_idx === phaseIdx
+  );
+  if (hasTasks) await markPhaseTasksStale(phaseIdx, req.user?.id, pt);
 
   return { json: { success: true } };
 };
@@ -1801,7 +1881,8 @@ const dismiss_stale_notice = async (
   body,
   { req, res }
 ) => {
-  await clearPhaseStaleMarker(parseInt(body.phaseIdx));
+  const pt = getPt(body, req);
+  await clearPhaseStaleMarker(parseInt(body.phaseIdx), pt);
   return { json: { success: true } };
 };
 

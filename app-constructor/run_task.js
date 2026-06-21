@@ -9,11 +9,11 @@ const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
 const User = require("@saltcorn/data/models/user");
 const { getState } = require("@saltcorn/data/db/state");
-const { viewname, TaskType } = require("./common");
+const { viewname, TaskType, projectType, BASE_TYPE } = require("./common");
 const { PromptGenerator } = require("./prompt-generator");
 
-const getOrCreatePhaseTag = async (phaseIdx, phaseName) => {
-  const tagName = `Phase ${phaseIdx + 1}: ${phaseName}`;
+const getOrCreatePhaseTag = async (phaseIdx, projectName) => {
+  const tagName = `${projectName} Phase ${phaseIdx + 1}`;
   const existing = await Tag.findOne({ name: tagName });
   if (existing) return existing;
   return await Tag.create({ name: tagName });
@@ -31,6 +31,12 @@ const runTask = async (md_id, req) => {
   if (!md) return { error: "Task not found" };
 
   const taskType = md.body.task_type || TaskType.FEATURE;
+  const projectMd = await MetaData.findOne({
+    type: BASE_TYPE,
+    name: "project",
+    id: md.body.project_id,
+  });
+  const projectName = projectMd?.body?.name || "Project";
 
   const agent_action = new Trigger({
     action: "Agent",
@@ -69,7 +75,8 @@ const runTask = async (md_id, req) => {
     },
   });
 
-  const generator = await PromptGenerator.createInstance();
+  const pt = projectType(md.body.project_id);
+  const generator = await PromptGenerator.createInstance({ pt });
   if (!generator.spec) return { error: "Specification not found" };
   const prompt = generator.taskExecPrompt(taskType, md.body.description);
 
@@ -94,6 +101,10 @@ const runTask = async (md_id, req) => {
   const pageNamesBefore =
     taskType === TaskType.FEATURE && md.body.phase_idx !== undefined
       ? new Set((await Page.find({})).map((p) => p.name))
+      : null;
+  const triggerNamesBefore =
+    taskType === TaskType.FEATURE && md.body.phase_idx !== undefined
+      ? new Set((await Trigger.find({})).map((t) => t.name))
       : null;
   const pluginNamesBefore =
     taskType === TaskType.PLUGIN && md.body.phase_idx !== undefined
@@ -151,7 +162,7 @@ const runTask = async (md_id, req) => {
     }
     if (!lastText) lastText = md.body.description || md.body.name || "";
     await MetaData.create({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "progress",
       body: {
         text: lastText,
@@ -173,7 +184,7 @@ const runTask = async (md_id, req) => {
       );
       for (const table of newTables) {
         await MetaData.create({
-          type: "CopilotConstructMgr",
+          type: pt,
           name: "table_phase",
           body: {
             table_name: table.name,
@@ -182,6 +193,14 @@ const runTask = async (md_id, req) => {
           },
           user_id: req?.user?.id,
         });
+      }
+      if (newTables.length) {
+        try {
+          const tag = await getOrCreatePhaseTag(md.body.phase_idx, projectName);
+          for (const t of newTables) await tag.addEntry({ table_id: t.id });
+        } catch (e) {
+          console.warn("phase tag update failed:", e.message);
+        }
       }
     }
     if (
@@ -194,7 +213,7 @@ const runTask = async (md_id, req) => {
         (p) => !pluginNamesBefore.has(p.name)
       )) {
         await MetaData.create({
-          type: "CopilotConstructMgr",
+          type: pt,
           name: "plugin_phase",
           body: {
             plugin_name: p.name,
@@ -214,7 +233,7 @@ const runTask = async (md_id, req) => {
       const newViews = viewsAfter.filter((v) => !viewNamesBefore.has(v.name));
       for (const v of newViews) {
         await MetaData.create({
-          type: "CopilotConstructMgr",
+          type: pt,
           name: "view_phase",
           body: {
             view_name: v.name,
@@ -229,7 +248,7 @@ const runTask = async (md_id, req) => {
       const newPages = pagesAfter.filter((p) => !pageNamesBefore.has(p.name));
       for (const p of newPages) {
         await MetaData.create({
-          type: "CopilotConstructMgr",
+          type: pt,
           name: "view_phase",
           body: {
             view_name: p.name,
@@ -240,14 +259,16 @@ const runTask = async (md_id, req) => {
           user_id: req?.user?.id,
         });
       }
-      if (newViews.length || newPages.length) {
+      const triggersAfter = await Trigger.find({});
+      const newTriggers = triggersAfter.filter(
+        (t) => !triggerNamesBefore.has(t.name)
+      );
+      if (newViews.length || newPages.length || newTriggers.length) {
         try {
-          const tag = await getOrCreatePhaseTag(
-            md.body.phase_idx,
-            md.body.phase_name || `Phase ${md.body.phase_idx + 1}`
-          );
+          const tag = await getOrCreatePhaseTag(md.body.phase_idx, projectName);
           for (const v of newViews) await tag.addEntry({ view_id: v.id });
           for (const p of newPages) await tag.addEntry({ page_id: p.id });
+          for (const t of newTriggers) await tag.addEntry({ trigger_id: t.id });
         } catch (e) {
           console.warn("phase tag update failed:", e.message);
         }
@@ -277,52 +298,54 @@ const runTask = async (md_id, req) => {
  * @param {boolean} [once=false] - true: run one task and stop, false: iterate all tasks
  */
 const runNextTask = async (once = false) => {
-  if (!once) {
-    const settings = await MetaData.findOne({
-      type: "CopilotConstructMgr",
-      name: "settings",
-    });
-    if (!settings?.body?.running) return;
-  }
-  const tasks = await MetaData.find(
-    {
-      type: "CopilotConstructMgr",
-      name: "task",
-    },
-    { orderBy: "id" }
-  );
-  if (tasks.some((t) => t.body.status === "Running")) return;
-  const todos = tasks.filter(
-    (t) => !t.body.status || t.body.status === "To do"
-  );
-  const done = tasks.filter((t) => t.body.status === "Done");
-  const done_names = new Set(done.map((t) => t.body.name));
-  const all_task_names = new Set(tasks.map((t) => t.body.name).filter(Boolean));
+  const projects = await MetaData.find({ type: BASE_TYPE, name: "project" });
 
-  const startable = todos.filter((t) =>
-    (t.body.depends_on || []).every(
-      (nm) => done_names.has(nm) || !all_task_names.has(nm)
-    )
-  );
+  for (const project of projects) {
+    const pt = projectType(project.id);
 
-  if (startable[0]) {
-    console.log("running task", startable[0]);
-    const taskUser = startable[0].user_id
-      ? await User.findOne({ id: startable[0].user_id })
-      : null;
-    await runTask(startable[0].id, {
-      user: taskUser,
-      __: (s) => s,
-      getLocale: () => "en",
-    });
-    if (!once) await runNextTask();
-  } else if (!once) {
-    const settings = await MetaData.findOne({
-      type: "CopilotConstructMgr",
-      name: "settings",
-    });
-    if (settings?.body?.running)
-      await settings.update({ body: { ...settings.body, running: false } });
+    if (!once) {
+      const settings = await MetaData.findOne({ type: pt, name: "settings" });
+      if (!settings?.body?.running) continue;
+    }
+
+    const tasks = await MetaData.find(
+      { type: pt, name: "task" },
+      { orderBy: "id" }
+    );
+    if (tasks.some((t) => t.body.status === "Running")) continue;
+
+    const todos = tasks.filter(
+      (t) => !t.body.status || t.body.status === "To do"
+    );
+    const done = tasks.filter((t) => t.body.status === "Done");
+    const done_names = new Set(done.map((t) => t.body.name));
+    const all_task_names = new Set(
+      tasks.map((t) => t.body.name).filter(Boolean)
+    );
+
+    const startable = todos.filter((t) =>
+      (t.body.depends_on || []).every(
+        (nm) => done_names.has(nm) || !all_task_names.has(nm)
+      )
+    );
+
+    if (startable[0]) {
+      console.log("running task", startable[0]);
+      const taskUser = startable[0].user_id
+        ? await User.findOne({ id: startable[0].user_id })
+        : null;
+      await runTask(startable[0].id, {
+        user: taskUser,
+        __: (s) => s,
+        getLocale: () => "en",
+      });
+      if (!once) await runNextTask();
+      return;
+    } else if (!once) {
+      const settings = await MetaData.findOne({ type: pt, name: "settings" });
+      if (settings?.body?.running)
+        await settings.update({ body: { ...settings.body, running: false } });
+    }
   }
 };
 

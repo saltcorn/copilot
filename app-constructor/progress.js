@@ -35,12 +35,12 @@ const {
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const renderLayout = require("@saltcorn/markup/layout");
-const { viewname } = require("./common");
+const { viewname, projectType } = require("./common");
 
-const progressList = async (req) => {
+const progressList = async (req, pt) => {
   const errs = await MetaData.find(
     {
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "progress",
     },
     { orderBy: "written_at" },
@@ -103,8 +103,9 @@ const del_all_progress = async (
   body,
   { req, res },
 ) => {
+  const pt = projectType(body.project_id ?? req.query?.project_id);
   const rs = await MetaData.find({
-    type: "CopilotConstructMgr",
+    type: pt,
     name: "progress",
   });
   for (const r of rs) await r.delete();

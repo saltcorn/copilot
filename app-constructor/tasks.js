@@ -11,14 +11,10 @@ const {
   small,
 } = require("@saltcorn/markup/tags");
 const { runTask, runNextTask } = require("./run_task");
+const { projectType } = require("./common");
 
 const del_task = async (table_id, viewname, config, body, { req, res }) => {
-  const r = await MetaData.findOne({
-    id: body.id,
-    type: "CopilotConstructMgr",
-    name: "task",
-  });
-
+  const r = await MetaData.findOne({ id: body.id, name: "task" });
   if (!r) throw new Error("Task not found");
   await r.delete();
   return {
@@ -28,6 +24,7 @@ const del_task = async (table_id, viewname, config, body, { req, res }) => {
     },
   };
 };
+
 const run_task = async (table_id, viewname, config, body, { req, res }) => {
   const reqUser = req?.user;
   if (body.id) {
@@ -35,10 +32,8 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
       const task = await MetaData.findOne({ id: Number(body.id) });
       const deps = task?.body?.depends_on || [];
       if (deps.length > 0) {
-        const allTasks = await MetaData.find({
-          type: "CopilotConstructMgr",
-          name: "task",
-        });
+        const pt = projectType(task.body.project_id);
+        const allTasks = await MetaData.find({ type: pt, name: "task" });
         const doneNames = new Set(
           allTasks
             .filter((t) => t.body.status === "Done")
@@ -61,11 +56,7 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
 };
 
 const reset_task = async (table_id, viewname, config, body, { req, res }) => {
-  const r = await MetaData.findOne({
-    id: body.id,
-    type: "CopilotConstructMgr",
-    name: "task",
-  });
+  const r = await MetaData.findOne({ id: body.id, name: "task" });
   if (!r) throw new Error("Task not found");
   const { status, run_id, ...rest } = r.body;
   await r.update({ body: { ...rest, status: "To do" } });
@@ -73,11 +64,9 @@ const reset_task = async (table_id, viewname, config, body, { req, res }) => {
 };
 
 const task_status = async (table_id, viewname, config, body, { req, res }) => {
+  const pt = projectType(body.project_id);
   const ids = body.ids || [];
-  const tasks = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "task",
-  });
+  const tasks = await MetaData.find({ type: pt, name: "task" });
   const relevant = tasks.filter((t) => ids.includes(String(t.id)));
   const any_done = relevant.some((t) => t.body.status !== "Running");
   return { json: { any_done } };
@@ -213,20 +202,14 @@ const taskFormHtml = (
 /** Modal form for editing an existing task (name, description, priority, deps). */
 const get_task_form = async (table_id, vname, config, body, { req, res }) => {
   const id = body.id || req.query?.id;
-  const r = await MetaData.findOne({
-    id: Number(id),
-    type: "CopilotConstructMgr",
-    name: "task",
-  });
+  const r = await MetaData.findOne({ id: Number(id), name: "task" });
   if (!r) return { json: { error: "Task not found" } };
 
   const phaseIdx = r.body.phase_idx;
   const taskType = r.body.task_type || "feature";
+  const pt = projectType(r.body.project_id);
 
-  const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "task",
-  });
+  const allTasks = await MetaData.find({ type: pt, name: "task" });
   const peerTasks = allTasks.filter(
     (t) =>
       t.id !== r.id &&
@@ -248,11 +231,9 @@ const get_new_task_form = async (
 ) => {
   const phaseIdx = parseInt(body.phaseIdx ?? req.query?.phaseIdx);
   const taskType = body.taskType ?? req.query?.taskType ?? "feature";
+  const pt = projectType(body.project_id ?? req.query?.project_id);
 
-  const allTasks = await MetaData.find({
-    type: "CopilotConstructMgr",
-    name: "task",
-  });
+  const allTasks = await MetaData.find({ type: pt, name: "task" });
   const peerTasks = allTasks.filter(
     (t) =>
       t.body?.phase_idx === phaseIdx &&
@@ -271,8 +252,9 @@ const get_new_task_form = async (
 
 /** Save handler for both edit (id >= 0) and create (id === -1). */
 const save_task = async (table_id, vname, config, body, { req, res }) => {
-  const { id, phaseIdx, taskType, name, description, priority, depends_on } =
+  const { id, phaseIdx, taskType, name, description, priority, depends_on, project_id } =
     body;
+  const pt = projectType(project_id);
 
   const deps = Array.isArray(depends_on)
     ? depends_on
@@ -281,11 +263,7 @@ const save_task = async (table_id, vname, config, body, { req, res }) => {
     : [];
 
   if (Number(id) >= 0) {
-    const r = await MetaData.findOne({
-      id: Number(id),
-      type: "CopilotConstructMgr",
-      name: "task",
-    });
+    const r = await MetaData.findOne({ id: Number(id), name: "task" });
     if (!r) return { json: { error: "Task not found" } };
     await r.update({
       body: {
@@ -298,7 +276,7 @@ const save_task = async (table_id, vname, config, body, { req, res }) => {
     });
   } else {
     await MetaData.create({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "task",
       body: {
         name,
@@ -308,6 +286,7 @@ const save_task = async (table_id, vname, config, body, { req, res }) => {
         status: "To do",
         phase_idx: parseInt(phaseIdx),
         task_type: taskType || "feature",
+        project_id: Number(project_id),
       },
       user_id: req.user?.id,
     });

@@ -94,6 +94,16 @@ const task_planning_rules = [
   under a different name, use the existing page's actual name — do not plan a second page for
   the same purpose.`,
 
+  `Important update task rules:
+* Any task description that updates an existing page or view (e.g. "Update …", "Apply …
+  layout to …", "Set min_role on …", "Add … to existing …") must include this reminder in
+  its description: "Preserve all existing embedded view configurations — do not drop
+  extra_state_fml, state, relation, or any other per-segment field that is not explicitly
+  changed by this task."
+* This reminder is mandatory because the executor must read the current entity with
+  get_entity before writing it back, and must not silently discard fields that were set by
+  earlier tasks (such as filtering formulas, row-scoping, or access-control expressions).`,
+
   `Important view planning rules:
 * Each task must create exactly one view. Never put two or more views in the same task. Edit,
   Show, and List for the same table are always three separate tasks with three separate names,
@@ -224,6 +234,12 @@ const task_planning_rules = [
   from at least one dashboard or page — embedded directly or linked via a navigation section.
   Check each list view and confirm it appears in at least one page or dashboard task's
   description.
+* For every entity that has CRUD views (List, Show, Edit), there MUST be at least one
+  page or dashboard section that makes the List view reachable. If the entity is managed
+  by staff/admin (e.g. clients, projects, records that staff maintain), it must appear on
+  an admin or staff dashboard — embedded as a List view or linked via a clearly labelled
+  navigation button. A List view that exists but is not embedded in or linked from any
+  page is always a planning error — it is completely unreachable by users.
 * No detail page may be left unreachable. Whenever a page is planned that requires an
   ?id= query parameter (a detail page, a record page), the plan MUST also include a task
   that adds a link or viewlink button to the relevant list view pointing to that page with
@@ -239,7 +255,9 @@ const task_planning_rules = [
 * Landing/marketing page (public-facing intro): min_role must be 100 (public). It MUST include
   visible links to /auth/login (Log in) and /auth/signup (Create an account). Set as home for
   role 100 (public).
-* If there is an admin dashboard page, set it as home for role 1 (admin).
+* If there is an admin dashboard page, set it as home for role 1 (admin). If there is no
+  admin dashboard, do NOT include admin (1) in the mapping at all — leave it unset. Never use
+  the landing page or any public page as a fallback home for admin.
 * If there is a dashboard or main page for regular users or staff, set it as home for role 80
   (user) and/or role 40 (staff) as appropriate.
 * The "Set home pages by role" task description must list every role→page mapping explicitly
@@ -575,7 +593,10 @@ const phase_gen_rules = [
   important but not blocking, 1–2 to minor enhancements. Do not assign 5 to everything.
 * Each phase's requirements must be self-contained: a later phase may depend on earlier
   phases having been built, but should not require anything from future phases.
-* Place foundational data and authentication requirements in the earliest phase.`,
+* Place foundational data and authentication requirements in the earliest phase.
+* Do NOT include requirements or phases for testing, QA, test plans, UI flows, or usability
+  testing. The platform cannot execute tests — every requirement must result in something
+  that can be built and deployed, not verified manually or by a test suite.`,
 ];
 
 const phase_scope_rule =
@@ -663,9 +684,12 @@ phase — do not implement it here.`,
 mention constraints on the 'id' field — it is the primary key and is always unique and
 not-null by definition.`,
 
-  "Important: Ownership (auto-populating a FK-to-users field from the logged-in user) is a view-level concern — task descriptions must not mention it. Just describe the FK field normally.",
+  `Important: Ownership (auto-populating a FK-to-users field from the logged-in user) is a
+view-level concern — task descriptions must not mention it. Just describe the FK field
+normally.`,
 
-  "Important: Do NOT plan any task that creates a table for SMTP, email configuration, or mail server credentials — email config is managed by the platform administrator.",
+  `Important: Do NOT plan any task that creates a table for SMTP, email configuration, or
+mail server credentials — email config is managed by the platform administrator.`,
 ];
 
 const feature_type_instruction = [
@@ -782,6 +806,12 @@ get_relation_paths first to obtain the relation string before generating the lay
   `Important: Every List view must include a delete action column unless the table is
 explicitly read-only. Use the built-in "Delete" action type for this column.`,
 
+  `Important: Never include the \`id\` field in the layout of any Show or List view.
+The \`id\` column is the primary key used for database lookups — it is an internal
+implementation detail and must never be displayed to end users. Remove it from the
+columns array and the layout's besides/above arrays. This applies to every Show view
+and every List view without exception.`,
+
   `Important: Before creating or updating any view or page that embeds, links to, or
 opens another view (including viewlinks, action buttons, and ajax_modal calls), call
 list_entities (entity_type "view") to get all existing view names. Only reference
@@ -883,11 +913,15 @@ variables passed through.
      ?id= value from the URL query string. Use this whenever you need to pass a URL query
      parameter into an embedded view's state formula.
   The \`user\` variable (no prefix) gives the logged-in user object.
-  Examples:
+  Examples (individual patterns only — extra_state_fml in practice may combine these and
+  include additional keys not shown in any example here):
     URL query param:   extra_state_fml: "{order_id: $id}"   (passes ?id=45 as order_id)
     Logged-in user:    extra_state_fml: "{user_id: user.id}"
+    Combined:          extra_state_fml: "{user_id: user.id, order_id: $id}"
     HTML href:         href="/page/order_detail?id={{id}}"   (in a raw HTML block inside a List)
   Full segment example: {"type":"view","view":"my_view","state":"shared","extra_state_fml":"{order_id: $id}"}
+  When extra_state_fml already exists on a segment (e.g. from an earlier task), it may
+  contain more keys than any single example above — preserve the entire value as-is.
   Never write {order_id: id} — \`id\` without $ is undefined in extra_state_fml on a page.
   Never write extra_state_fml: "{order_id: {{id}}}" — \`{{id}}\` is HTML template syntax, not JS.
   Show views embedded on a page also need extra_state_fml to receive their row id —
@@ -903,6 +937,28 @@ variables passed through.
   crashing on an undefined value.
   Use this pattern for EVERY view embedded on a page that depends on a URL query param —
   both Show views (using {id: $id}) and filtered lists (using {fk_field: $id}).`,
+
+  `CRITICAL — Modifying an existing page (Layout page, not HTML):
+Do NOT call generate_page to update an existing Layout page. generate_page only works for
+HTML pages and will fail silently for Layout pages, discarding all existing configuration.
+Use this sequence instead:
+(1) Call get_entity with entity_type "page" and entity_name to read the current definition.
+(2) Merge your changes into the layout returned — only change what the task explicitly
+    requests (e.g. container styling, min_role, header text). Never reconstruct the layout
+    from scratch.
+(3) For every embedded view segment in the layout, copy every field verbatim from the
+    get_entity output — do NOT reconstruct or rewrite any field value. In particular,
+    copy extra_state_fml as an exact string: whatever get_entity returned — whether it
+    is a single expression like "{ user_id: user.id }" or a compound expression with
+    multiple keys — must appear in set_entity unchanged, every key-value pair intact.
+    Never drop part of the value because it was not mentioned in the task or in an
+    example.
+(4) Before calling set_entity, pause and ask yourself: "For every field that get_entity
+    returned on every embedded view segment — is that field still present, with its value
+    unchanged, in what I am about to write?" If any field is missing or its value differs
+    from what get_entity returned (without the task explicitly requesting that change),
+    restore it from the get_entity output before proceeding.
+(5) Call set_entity with entity_type "page", entity_name, and the fully merged definition.`,
 ];
 
 const data_model_exec_rules = [
@@ -954,7 +1010,9 @@ const research_questions_rules =
   "- Do not ask about things already clear from the specification or answered by web research.\n" +
   "- Plain language: no abbreviations or technical terms without explanation.\n" +
   "- One idea per question. Short, direct, and easy to understand.\n" +
-  "- Stop when the unclear parts are covered — 2 or 3 questions is fine. 10 is a hard maximum, not a target.";
+  "- Stop when the unclear parts are covered — 2 or 3 questions is fine. 10 is a hard maximum, not a target.\n" +
+  "- Do NOT ask about platform support (web, mobile, iOS, Android), offline access, or data\n" +
+  "  synchronization across devices. The application runs as a web application only.";
 
 const feedback_analyse_decision =
   "Do you have important questions about this feedback,\n" +

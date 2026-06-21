@@ -15,4 +15,11 @@ const tool_choice = (tool_name) => ({
   },
 });
 
-module.exports = { viewname, tool_choice, TaskType };
+// Namespaced MetaData type for a specific project.
+// All per-project records use this type so projects are fully isolated.
+const projectType = (projectId) => `CopilotConstructMgr:${projectId}`;
+
+// Top-level type used only for project list records themselves.
+const BASE_TYPE = "CopilotConstructMgr";
+
+module.exports = { viewname, tool_choice, TaskType, projectType, BASE_TYPE };
