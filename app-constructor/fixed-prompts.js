@@ -94,6 +94,16 @@ const task_planning_rules = [
   under a different name, use the existing page's actual name — do not plan a second page for
   the same purpose.`,
 
+  `Important update task rules:
+* Any task description that updates an existing page or view (e.g. "Update …", "Apply …
+  layout to …", "Set min_role on …", "Add … to existing …") must include this reminder in
+  its description: "Preserve all existing embedded view configurations — do not drop
+  extra_state_fml, state, relation, or any other per-segment field that is not explicitly
+  changed by this task."
+* This reminder is mandatory because the executor must read the current entity with
+  get_entity before writing it back, and must not silently discard fields that were set by
+  earlier tasks (such as filtering formulas, row-scoping, or access-control expressions).`,
+
   `Important view planning rules:
 * Each task must create exactly one view. Never put two or more views in the same task. Edit,
   Show, and List for the same table are always three separate tasks with three separate names,
@@ -674,9 +684,12 @@ phase — do not implement it here.`,
 mention constraints on the 'id' field — it is the primary key and is always unique and
 not-null by definition.`,
 
-  "Important: Ownership (auto-populating a FK-to-users field from the logged-in user) is a view-level concern — task descriptions must not mention it. Just describe the FK field normally.",
+  `Important: Ownership (auto-populating a FK-to-users field from the logged-in user) is a
+view-level concern — task descriptions must not mention it. Just describe the FK field
+normally.`,
 
-  "Important: Do NOT plan any task that creates a table for SMTP, email configuration, or mail server credentials — email config is managed by the platform administrator.",
+  `Important: Do NOT plan any task that creates a table for SMTP, email configuration, or
+mail server credentials — email config is managed by the platform administrator.`,
 ];
 
 const feature_type_instruction = [
@@ -900,11 +913,15 @@ variables passed through.
      ?id= value from the URL query string. Use this whenever you need to pass a URL query
      parameter into an embedded view's state formula.
   The \`user\` variable (no prefix) gives the logged-in user object.
-  Examples:
+  Examples (individual patterns only — extra_state_fml in practice may combine these and
+  include additional keys not shown in any example here):
     URL query param:   extra_state_fml: "{order_id: $id}"   (passes ?id=45 as order_id)
     Logged-in user:    extra_state_fml: "{user_id: user.id}"
+    Combined:          extra_state_fml: "{user_id: user.id, order_id: $id}"
     HTML href:         href="/page/order_detail?id={{id}}"   (in a raw HTML block inside a List)
   Full segment example: {"type":"view","view":"my_view","state":"shared","extra_state_fml":"{order_id: $id}"}
+  When extra_state_fml already exists on a segment (e.g. from an earlier task), it may
+  contain more keys than any single example above — preserve the entire value as-is.
   Never write {order_id: id} — \`id\` without $ is undefined in extra_state_fml on a page.
   Never write extra_state_fml: "{order_id: {{id}}}" — \`{{id}}\` is HTML template syntax, not JS.
   Show views embedded on a page also need extra_state_fml to receive their row id —
@@ -920,6 +937,28 @@ variables passed through.
   crashing on an undefined value.
   Use this pattern for EVERY view embedded on a page that depends on a URL query param —
   both Show views (using {id: $id}) and filtered lists (using {fk_field: $id}).`,
+
+  `CRITICAL — Modifying an existing page (Layout page, not HTML):
+Do NOT call generate_page to update an existing Layout page. generate_page only works for
+HTML pages and will fail silently for Layout pages, discarding all existing configuration.
+Use this sequence instead:
+(1) Call get_entity with entity_type "page" and entity_name to read the current definition.
+(2) Merge your changes into the layout returned — only change what the task explicitly
+    requests (e.g. container styling, min_role, header text). Never reconstruct the layout
+    from scratch.
+(3) For every embedded view segment in the layout, copy every field verbatim from the
+    get_entity output — do NOT reconstruct or rewrite any field value. In particular,
+    copy extra_state_fml as an exact string: whatever get_entity returned — whether it
+    is a single expression like "{ user_id: user.id }" or a compound expression with
+    multiple keys — must appear in set_entity unchanged, every key-value pair intact.
+    Never drop part of the value because it was not mentioned in the task or in an
+    example.
+(4) Before calling set_entity, pause and ask yourself: "For every field that get_entity
+    returned on every embedded view segment — is that field still present, with its value
+    unchanged, in what I am about to write?" If any field is missing or its value differs
+    from what get_entity returned (without the task explicitly requesting that change),
+    restore it from the get_entity output before proceeding.
+(5) Call set_entity with entity_type "page", entity_name, and the fully merged definition.`,
 ];
 
 const data_model_exec_rules = [

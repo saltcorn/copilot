@@ -12,8 +12,8 @@ const { getState } = require("@saltcorn/data/db/state");
 const { viewname, TaskType, projectType, BASE_TYPE } = require("./common");
 const { PromptGenerator } = require("./prompt-generator");
 
-const getOrCreatePhaseTag = async (phaseIdx, phaseName) => {
-  const tagName = `Phase ${phaseIdx + 1}: ${phaseName}`;
+const getOrCreatePhaseTag = async (phaseIdx, projectName) => {
+  const tagName = `${projectName} Phase ${phaseIdx + 1}`;
   const existing = await Tag.findOne({ name: tagName });
   if (existing) return existing;
   return await Tag.create({ name: tagName });
@@ -31,6 +31,12 @@ const runTask = async (md_id, req) => {
   if (!md) return { error: "Task not found" };
 
   const taskType = md.body.task_type || TaskType.FEATURE;
+  const projectMd = await MetaData.findOne({
+    type: BASE_TYPE,
+    name: "project",
+    id: md.body.project_id,
+  });
+  const projectName = projectMd?.body?.name || "Project";
 
   const agent_action = new Trigger({
     action: "Agent",
@@ -190,10 +196,7 @@ const runTask = async (md_id, req) => {
       }
       if (newTables.length) {
         try {
-          const tag = await getOrCreatePhaseTag(
-            md.body.phase_idx,
-            md.body.phase_name || `Phase ${md.body.phase_idx + 1}`
-          );
+          const tag = await getOrCreatePhaseTag(md.body.phase_idx, projectName);
           for (const t of newTables) await tag.addEntry({ table_id: t.id });
         } catch (e) {
           console.warn("phase tag update failed:", e.message);
@@ -262,10 +265,7 @@ const runTask = async (md_id, req) => {
       );
       if (newViews.length || newPages.length || newTriggers.length) {
         try {
-          const tag = await getOrCreatePhaseTag(
-            md.body.phase_idx,
-            md.body.phase_name || `Phase ${md.body.phase_idx + 1}`
-          );
+          const tag = await getOrCreatePhaseTag(md.body.phase_idx, projectName);
           for (const v of newViews) await tag.addEntry({ view_id: v.id });
           for (const p of newPages) await tag.addEntry({ page_id: p.id });
           for (const t of newTriggers) await tag.addEntry({ trigger_id: t.id });
