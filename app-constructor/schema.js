@@ -44,7 +44,7 @@ const showSchema = async (req, pt) => {
 
   // Group table names by phase for the legend
   const phaseTableNames = new Map();
-  const unassignedNames = [];
+  const allUnassignedNames = [];
   for (const t of userTables) {
     const entry = tablePhaseMap[t.name];
     if (entry) {
@@ -52,9 +52,42 @@ const showSchema = async (req, pt) => {
         phaseTableNames.set(entry.phase_idx, []);
       phaseTableNames.get(entry.phase_idx).push(t.name);
     } else {
-      unassignedNames.push(t.name);
+      allUnassignedNames.push(t.name);
     }
   }
+
+  // Filter pre-existing (unassigned) tables: only show those with at least one
+  // FK edge to or from a phase-assigned table. If no phase tables exist yet,
+  // show everything.
+  const assignedNameSet = new Set(
+    userTables.filter((t) => tablePhaseMap[t.name]).map((t) => t.name)
+  );
+  const connectedUnassigned = new Set();
+  if (assignedNameSet.size > 0) {
+    for (const t of userTables) {
+      const fkTargets = (t.fields || [])
+        .filter((f) => f.reftable_name && !f.reftable_name.startsWith("_sc_"))
+        .map((f) => f.reftable_name);
+      for (const tgt of fkTargets) {
+        if (assignedNameSet.has(t.name) && !assignedNameSet.has(tgt))
+          connectedUnassigned.add(tgt);
+        if (assignedNameSet.has(tgt) && !assignedNameSet.has(t.name))
+          connectedUnassigned.add(t.name);
+      }
+    }
+  }
+  const unassignedNames =
+    assignedNameSet.size === 0
+      ? allUnassignedNames
+      : allUnassignedNames.filter((n) => connectedUnassigned.has(n));
+
+  // Only include unassigned tables that survived the filter in the diagram
+  const diagramTables =
+    assignedNameSet.size === 0
+      ? userTables
+      : userTables.filter(
+          (t) => assignedNameSet.has(t.name) || connectedUnassigned.has(t.name)
+        );
 
   // Pre-compute fill color per table name for the client script
   const colorMap = {};
@@ -65,7 +98,7 @@ const showSchema = async (req, pt) => {
       : NO_PHASE_COLOR;
   }
 
-  const mmdia = buildMermaidMarkup(userTables);
+  const mmdia = buildMermaidMarkup(diagramTables);
 
   const tableBadge = (color, name) =>
     span(
@@ -137,6 +170,13 @@ const showSchema = async (req, pt) => {
 
   return div(
     { class: "mt-2" },
+    `<style>
+      #schema-list-area .label.name .nodeLabel p,
+      #schema-list-area .label.name .nodeLabel {
+        font-weight: 700 !important;
+        color: #000 !important;
+      }
+    </style>`,
     small(
       { class: "text-muted d-block mb-2" },
       `${userTables.length} table${
@@ -148,7 +188,7 @@ const showSchema = async (req, pt) => {
       {
         id: "schema-diagram-wrapper",
         style:
-          "overflow:hidden;cursor:grab;border:1px solid #dee2e6;border-radius:4px;background:#fff",
+          "overflow:hidden;cursor:grab;border:1px solid #dee2e6;border-radius:4px;background:#fff;height:600px;color-scheme:light",
       },
       pre(
         {
@@ -241,6 +281,10 @@ const schemaStaticScript = `<script>
         path.style.fill = colors.fill;
         path.style.stroke = colors.stroke;
       }
+    }
+    for (const node of el.querySelectorAll('g.label.name .nodeLabel, g.label.name .nodeLabel p')) {
+      node.style.color = '#000';
+      node.style.fontWeight = '700';
     }
   }
 
