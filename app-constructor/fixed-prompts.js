@@ -668,6 +668,17 @@ running workflow steps, and computing aggregates are all covered by built-in wor
 — only install a plugin when no built-in equivalent exists. For example, do NOT install the
 'sql' plugin to insert rows or compute totals — use built-in workflow steps instead.`,
 
+  `CRITICAL — do NOT install a plugin if an already-installed one covers the need:
+Before planning ANY plugin install task, you MUST read every entry in the
+"already installed" plugin list above, including its view templates, field types, and
+app-constructor notes. If ANY installed plugin already provides the required capability
+— even partially, even under a different name — you MUST use that plugin instead and
+MUST NOT plan an install task for a different one.
+This check is MANDATORY and must happen before you consider any store plugin.
+Violating this rule wastes a task slot and risks installing a redundant plugin.
+Only plan an install task when you have explicitly verified that no installed plugin
+can satisfy the requirement.`,
+
   "Each task installs exactly one plugin. If no plugins are needed, call plan_tasks with an empty tasks array.",
 ];
 
