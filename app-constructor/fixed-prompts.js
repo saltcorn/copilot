@@ -594,6 +594,11 @@ const phase_gen_rules = [
 * Each phase's requirements must be self-contained: a later phase may depend on earlier
   phases having been built, but should not require anything from future phases.
 * Place foundational data and authentication requirements in the earliest phase.
+* The phase that establishes the core data model (almost always Phase 1) MUST include an
+  admin dashboard requirement. The dashboard page must be named <app_name>_admin_dashboard
+  (e.g. school_portal_admin_dashboard), give role 1 (admin) access to create and manage all
+  core entities introduced in that phase, and be set as the admin home page. Without this,
+  there is no way to seed initial data and every role-specific dashboard will be empty.
 * Do NOT include requirements or phases for testing, QA, test plans, UI flows, or usability
   testing. The platform cannot execute tests — every requirement must result in something
   that can be built and deployed, not verified manually or by a test suite.`,
