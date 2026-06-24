@@ -917,6 +917,15 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
   const plannedTasks = tasks.filter((t) => t.body.source !== "feedback");
   const feedbackTasks = tasks.filter((t) => t.body.source === "feedback");
 
+  const newSchemaTasks =
+    taskType === "data_model"
+      ? plannedTasks.filter((t) => !t.body.modifies_existing_table)
+      : plannedTasks;
+  const existingTableTasks =
+    taskType === "data_model"
+      ? plannedTasks.filter((t) => t.body.modifies_existing_table)
+      : [];
+
   if (!tasks.length) {
     let emptyMsg = "No tasks yet.";
     if (taskType === "plugin") {
@@ -958,10 +967,30 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
       )
     : "";
 
+  const sectionHeader = (icon, label) =>
+    div(
+      { class: "d-flex align-items-center gap-2 mb-2 mt-3" },
+      small(
+        {
+          class: "text-uppercase fw-semibold text-muted text-nowrap",
+          style: "font-size:0.7rem;letter-spacing:.05em;",
+        },
+        i({ class: `fas ${icon} me-1` }),
+        label
+      ),
+      div({ class: "flex-grow-1 border-top" })
+    );
+
+  const existingTableSection = existingTableTasks.length
+    ? sectionHeader("fa-pencil-alt", "Modifies pre-existing tables") +
+      existingTableTasks.map(renderTask).join("")
+    : "";
+
   return (
     staleNotice +
     statusBar +
-    plannedTasks.map(renderTask).join("") +
+    newSchemaTasks.map(renderTask).join("") +
+    existingTableSection +
     feedbackSection +
     div({ class: "mt-3" }, delAllBtn)
   );

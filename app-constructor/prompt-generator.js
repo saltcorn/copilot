@@ -217,7 +217,11 @@ const buildGroupedTablesSection = async (allTables, currentPhaseIdx, pt) => {
     "The database already contains the following tables, grouped by the phase that created them:\n\n" +
     sections.join("\n\n") +
     "\n\nAll tables listed above already exist — do NOT create or recreate any of them." +
-    " Only plan tasks for tables or fields genuinely missing from the requirements of this phase."
+    " Only plan tasks for tables or fields genuinely missing from the requirements of this phase." +
+    " Tables listed under 'Tables with no phase association' are pre-existing tables outside" +
+    " this project. You may add fields to them when necessary, but avoid modifying or removing" +
+    " existing fields unless unavoidable. Any task that touches a pre-existing table must set" +
+    " modifies_existing_table: true."
   );
 };
 
@@ -233,7 +237,10 @@ class PromptGenerator {
    * @param {{ phase?: object|null }} [opts]
    * @returns {Promise<PromptGenerator>}
    */
-  static async createInstance({ phase = null, pt = "CopilotConstructMgr" } = {}) {
+  static async createInstance({
+    phase = null,
+    pt = "CopilotConstructMgr",
+  } = {}) {
     const instance = new PromptGenerator();
 
     instance.pt = pt;

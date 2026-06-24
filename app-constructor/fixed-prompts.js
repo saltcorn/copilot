@@ -706,6 +706,15 @@ normally.`,
 
   `Important: Do NOT plan any task that creates a table for SMTP, email configuration, or
 mail server credentials — email config is managed by the platform administrator.`,
+
+  `Important: Pre-existing tables (those listed under "Tables with no phase association")
+are tables that existed before this project started. You MAY reference them as FK targets
+and you MAY add new fields to them when the requirements genuinely demand it — but do so
+with care: only add a field when there is no other way to satisfy the requirement. Changing
+or removing an existing field on a pre-existing table requires even greater caution — only
+do this when it is unavoidable and describe exactly why the change is necessary.
+For any task that adds to or modifies a pre-existing table, set modifies_existing_table: true
+so it can be shown separately in the UI.`,
 ];
 
 const feature_type_instruction = [
