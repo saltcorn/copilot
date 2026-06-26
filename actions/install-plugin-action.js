@@ -68,8 +68,16 @@ class InstallPluginAction {
       return { postExec: "Please provide a plugin name or npm package." };
     }
 
-    // Check already installed
-    const existing = await Plugin.findOne({ name: plugin.name });
+    // Check already installed — match by name OR by npm location (e.g. store name
+    // "charts" vs locally installed "@saltcorn/charts")
+    const existing =
+      (await Plugin.findOne({ name: plugin.name })) ||
+      (plugin.location && plugin.location !== plugin.name
+        ? await Plugin.findOne({ name: plugin.location })
+        : null) ||
+      (plugin.location && plugin.location !== plugin.name
+        ? await Plugin.findOne({ location: plugin.location })
+        : null);
     if (existing) {
       return {
         postExec:

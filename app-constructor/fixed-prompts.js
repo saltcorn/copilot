@@ -594,6 +594,11 @@ const phase_gen_rules = [
 * Each phase's requirements must be self-contained: a later phase may depend on earlier
   phases having been built, but should not require anything from future phases.
 * Place foundational data and authentication requirements in the earliest phase.
+* The phase that establishes the core data model (almost always Phase 1) MUST include an
+  admin dashboard requirement. The dashboard page must be named <app_name>_admin_dashboard
+  (e.g. school_portal_admin_dashboard), give role 1 (admin) access to create and manage all
+  core entities introduced in that phase, and be set as the admin home page. Without this,
+  there is no way to seed initial data and every role-specific dashboard will be empty.
 * Do NOT include requirements or phases for testing, QA, test plans, UI flows, or usability
   testing. The platform cannot execute tests — every requirement must result in something
   that can be built and deployed, not verified manually or by a test suite.`,
@@ -663,6 +668,17 @@ running workflow steps, and computing aggregates are all covered by built-in wor
 — only install a plugin when no built-in equivalent exists. For example, do NOT install the
 'sql' plugin to insert rows or compute totals — use built-in workflow steps instead.`,
 
+  `CRITICAL — do NOT install a plugin if an already-installed one covers the need:
+Before planning ANY plugin install task, you MUST read every entry in the
+"already installed" plugin list above, including its view templates, field types, and
+app-constructor notes. If ANY installed plugin already provides the required capability
+— even partially, even under a different name — you MUST use that plugin instead and
+MUST NOT plan an install task for a different one.
+This check is MANDATORY and must happen before you consider any store plugin.
+Violating this rule wastes a task slot and risks installing a redundant plugin.
+Only plan an install task when you have explicitly verified that no installed plugin
+can satisfy the requirement.`,
+
   "Each task installs exactly one plugin. If no plugins are needed, call plan_tasks with an empty tasks array.",
 ];
 
@@ -690,6 +706,15 @@ normally.`,
 
   `Important: Do NOT plan any task that creates a table for SMTP, email configuration, or
 mail server credentials — email config is managed by the platform administrator.`,
+
+  `Important: Pre-existing tables (those listed under "Tables with no phase association")
+are tables that existed before this project started. You MAY reference them as FK targets
+and you MAY add new fields to them when the requirements genuinely demand it — but do so
+with care: only add a field when there is no other way to satisfy the requirement. Changing
+or removing an existing field on a pre-existing table requires even greater caution — only
+do this when it is unavoidable and describe exactly why the change is necessary.
+For any task that adds to or modifies a pre-existing table, set modifies_existing_table: true
+so it can be shown separately in the UI.`,
 ];
 
 const feature_type_instruction = [

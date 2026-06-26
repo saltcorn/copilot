@@ -76,7 +76,13 @@ const web_findings_text = (findings) => {
 };
 
 const available_plugins_list = (storePlugins, installedNames) => {
-  const uninstalled = storePlugins.filter((p) => !installedNames.has(p.name));
+  // Also check getState().plugins (keyed by plugin_name, e.g. "charts") so that a
+  // plugin installed under a different DB name (e.g. "@saltcorn/charts") is not
+  // listed as available/uninstalled.
+  const loadedPluginNames = new Set(Object.keys(getState().plugins || {}));
+  const uninstalled = storePlugins.filter(
+    (p) => !installedNames.has(p.name) && !loadedPluginNames.has(p.name)
+  );
   if (!uninstalled.length) return "";
   const lines = uninstalled.map((p) => {
     let line = `### ${p.name}`;
@@ -211,7 +217,11 @@ const buildGroupedTablesSection = async (allTables, currentPhaseIdx, pt) => {
     "The database already contains the following tables, grouped by the phase that created them:\n\n" +
     sections.join("\n\n") +
     "\n\nAll tables listed above already exist — do NOT create or recreate any of them." +
-    " Only plan tasks for tables or fields genuinely missing from the requirements of this phase."
+    " Only plan tasks for tables or fields genuinely missing from the requirements of this phase." +
+    " Tables listed under 'Tables with no phase association' are pre-existing tables outside" +
+    " this project. You may add fields to them when necessary, but avoid modifying or removing" +
+    " existing fields unless unavoidable. Any task that touches a pre-existing table must set" +
+    " modifies_existing_table: true."
   );
 };
 
@@ -227,7 +237,10 @@ class PromptGenerator {
    * @param {{ phase?: object|null }} [opts]
    * @returns {Promise<PromptGenerator>}
    */
-  static async createInstance({ phase = null, pt = "CopilotConstructMgr" } = {}) {
+  static async createInstance({
+    phase = null,
+    pt = "CopilotConstructMgr",
+  } = {}) {
     const instance = new PromptGenerator();
 
     instance.pt = pt;
@@ -301,11 +314,17 @@ class PromptGenerator {
       );
       if (availableSection)
         instance.pluginAvailabilitySections.push(availableSection);
-      if (instance.installedNames.size)
+      if (instance.installedNames.size) {
+        // Merge DB names with resolved plugin_names so the planner recognises both
+        // forms (e.g. "@saltcorn/charts" and "charts").
+        const installedDisplay = new Set(instance.installedNames);
+        for (const n of Object.keys(getState().plugins || {}))
+          installedDisplay.add(n);
         instance.pluginAvailabilitySections.push(
           "The following plugins are already installed — do NOT install them again:\n" +
-            [...instance.installedNames].map((n) => `- ${n}`).join("\n")
+            [...installedDisplay].map((n) => `- ${n}`).join("\n")
         );
+      }
     } catch (_) {}
 
     const { getResearchAnswersText } = require("./research");
@@ -389,6 +408,8 @@ class PromptGenerator {
     switch (taskType) {
       case "plugin":
         parts.push(plugin_type_instruction.join("\n"));
+        if (this.installedPluginsSection)
+          parts.push(this.installedPluginsSection);
         parts.push(...this.pluginAvailabilitySections);
         break;
       case "data_model":

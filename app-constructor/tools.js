@@ -83,6 +83,11 @@ const task_tool = {
                 description:
                   "plugin: specialized — installs a plugin from the Saltcorn plugin store. data_model: specialized — creates or modifies database tables/fields only. feature: broad catch-all — creates views, pages, triggers, workflows, or anything else not covered by the specialized types. Order: plugin tasks first, then data_model, then feature.",
               },
+              modifies_existing_table: {
+                type: "boolean",
+                description:
+                  "Set to true when this task adds fields to or modifies an existing table that has no phase association (listed under 'Tables with no phase association'). Omit or set to false for tasks that only create brand-new tables.",
+              },
             },
           },
         },
