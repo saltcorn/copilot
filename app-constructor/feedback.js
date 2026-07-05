@@ -1230,6 +1230,7 @@ const del_all_feedback = async (table_id, vn, config, body, { req, res }) => {
  * Returns an array of questions, or an empty array if the feedback is clear.
  */
 const analyse_feedback = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
   const { title, description, url = "" } = body;
 
   let knownContext = null;
