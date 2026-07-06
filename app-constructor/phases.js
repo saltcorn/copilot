@@ -24,7 +24,7 @@ const {
 const { mkTable } = require("@saltcorn/markup");
 const { getState, features } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
-const { viewname, tool_choice, projectType } = require("./common");
+const { viewname, tool_choice, projectType, BASE_TYPE } = require("./common");
 const { task_tool } = require("./tools");
 const { runTask } = require("./run_task");
 const { PromptGenerator } = require("./prompt-generator");
@@ -112,6 +112,15 @@ window.copilotProgressGoPage = function(idx, pg) {
   });
 };
 
+function _recoverRunState(idx, taskType, isStopping) {
+  if (_runAllState[idx]) return;
+  _runAllState[idx] = { currentType: taskType, stopped: true, mode: 'running' };
+  const { status, runBtn, stopBtn, genRunBtn } = _runAllTopBar(idx);
+  if (status) status.textContent = isStopping ? 'Stopping…' : 'Running…';
+  if (runBtn) runBtn.disabled = true;
+  if (genRunBtn) { genRunBtn.disabled = true; genRunBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…'; }
+  if (stopBtn) { stopBtn.disabled = true; stopBtn.classList.remove('d-none'); }
+}
 function _loadPhaseDetail(idx) {
   view_post(_phasesVn, 'phase_detail_html', { idx }, (r) => {
     if (r && r.html) {
@@ -121,13 +130,15 @@ function _loadPhaseDetail(idx) {
 
       for (const tt of ['plugin', 'data_model', 'feature']) {
         view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: tt }, (resp) => {
-          if (resp && resp.generating && !window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, tt);
+          if (!resp) return;
+          if (resp.generating && !window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, tt);
+          if (resp.generating) _recoverRunState(idx, tt, false);
         });
-        if (!window.dynamic_updates_cfg?.enabled) {
-          view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
-            if (resp && (resp.isRunning || resp.anyRunning)) phasePollRunning(idx, tt);
-          });
-        }
+        view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
+          if (!resp) return;
+          if (!window.dynamic_updates_cfg?.enabled && (resp.isRunning || resp.anyRunning)) phasePollRunning(idx, tt);
+          if (resp.isRunning || resp.anyRunning) _recoverRunState(idx, tt, !resp.isRunning && resp.anyRunning);
+        });
       }
     }
   });
@@ -188,11 +199,15 @@ window.runPhaseTask = function(btn, id, phaseIdx, taskType, force) {
     }
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     btn.disabled = true;
+    const taskName = btn.closest('.card')?.querySelector('.fw-semibold')?.textContent?.trim() || '';
+    const statusEl = document.getElementById('phase-all-run-status-' + phaseIdx);
+    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1 text-success"></i>Running: ' + taskName;
     const poll = () => {
       view_post(_phasesVn, 'task_status', { ids: [String(id)] }, (statusResp) => {
         if (statusResp && statusResp.any_done) {
           _refreshPhaseArea(phaseIdx, taskType);
           if (typeof copilotRefreshSchema === 'function') copilotRefreshSchema();
+          if (statusEl) statusEl.textContent = 'Not running';
         } else setTimeout(poll, 3000);
       });
     };
@@ -215,7 +230,7 @@ window.resetPhaseTask = function(id, phaseIdx, taskType) {
 };
 
 window.delAllPhaseTasks = function(idx, taskType) {
-  if (!confirm('Delete all tasks in this tab?')) return;
+  if (!confirm('Delete all tasks in this section?')) return;
   view_post(_phasesVn, 'del_phase_type_tasks', { idx, task_type: taskType }, () => {
     _refreshPhaseArea(idx, taskType);
   });
@@ -237,15 +252,290 @@ window.generatePhaseTasks = function(idx, taskType) {
                : taskType === 'data_model' ? 'phase-data-model-area'
                : 'phase-features-area';
   const el = document.getElementById(areaId);
-  const hasTasks = el && el.querySelector('[data-task-id]');
-  if (hasTasks && !confirm('Regenerate tasks? This will delete all existing tasks in this tab.')) return;
-  if (el) el.innerHTML = '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating tasks, please wait...</p>';
-  view_post(_phasesVn, 'generate_phase_tasks', { idx, task_type: taskType }, () => {});
-  if (!window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, taskType);
+  const hasTasks = el && el.querySelector('[data-task-card]');
+  if (hasTasks && !confirm('Regenerate tasks? This will replace the existing tasks in this section.')) return;
+
+  function doGenerate() {
+    if (el) el.innerHTML = _tasksGeneratingHtml(idx, taskType);
+    view_post(_phasesVn, 'generate_phase_tasks', { idx, task_type: taskType }, () => {});
+    if (!window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, taskType);
+  }
+
+  if (taskType === 'data_model' || taskType === 'feature') {
+    const thisLabel = taskType === 'data_model' ? 'Data model' : 'Feature';
+    view_post(_phasesVn, 'prev_section_status', { idx, task_type: taskType }, (resp) => {
+      if (resp && resp.hasIncompleteTasks) {
+        const labels = (resp.incompleteSections || []).map(function(s) {
+          return s === 'plugin' ? 'Plugin' : 'Data model';
+        });
+        const sectionList = labels.join(' and ');
+        const msg = sectionList + ' tasks are not fully completed yet.\\n\\n' +
+          thisLabel + ' tasks depend on them - ' +
+          'generating now may produce incorrect or incomplete results.\\n\\nGenerate anyway?';
+        if (!confirm(msg)) return;
+      }
+      doGenerate();
+    });
+  } else {
+    doGenerate();
+  }
+};
+
+function _tasksGeneratingHtml(idx, taskType) {
+  return '<div class="d-flex align-items-center gap-2 text-muted small">' +
+    '<i class="fas fa-spinner fa-spin"></i> Generating tasks, please wait... ' +
+    '<button class="btn btn-sm text-muted ms-2" ' +
+    'style="font-size:0.75rem;padding:1px 6px;border:1px solid #ced4da;" ' +
+    'title="Cancel generation" ' +
+    'data-cancel-idx="' + idx + '" data-cancel-type="' + taskType + '" ' +
+    'onclick="cancelGeneratingPhaseTasks(+this.dataset.cancelIdx,this.dataset.cancelType)">' +
+    '<i class="fas fa-times me-1"></i>cancel</button></div>';
+}
+
+const _runAllState = {}; // idx -> { currentType, stopped }
+
+function _runAllTopBar(idx) {
+  return {
+    status: document.getElementById('phase-all-run-status-' + idx),
+    runBtn: document.getElementById('phase-all-run-btn-' + idx),
+    stopBtn: document.getElementById('phase-all-stop-btn-' + idx),
+    genRunBtn: document.getElementById('phase-all-gen-run-btn-' + idx),
+  };
+}
+function _runAllSetIdle(idx, msg) {
+  delete _runAllState[idx];
+  const { status, runBtn, stopBtn, genRunBtn } = _runAllTopBar(idx);
+  if (status) status.textContent = msg || 'Not running';
+  if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = '<i class="fas fa-play me-1"></i>Run all'; }
+  if (genRunBtn) { genRunBtn.disabled = false; genRunBtn.innerHTML = '<i class="fas fa-play me-1"></i>Generate & Run'; }
+  if (stopBtn) stopBtn.classList.add('d-none');
+}
+function _runAllSetRunning(idx, taskType) {
+  const label = taskType === 'plugin' ? 'Plugins' : taskType === 'data_model' ? 'Data model' : 'Features';
+  const prevStopped = _runAllState[idx]?.stopped || false;
+  _runAllState[idx] = { currentType: taskType, stopped: prevStopped, mode: 'running' };
+  const { status, runBtn, stopBtn, genRunBtn } = _runAllTopBar(idx);
+  if (status) status.innerHTML = '<i class="fas fa-spinner fa-spin me-1 text-success"></i>Running: ' + label;
+  if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…'; }
+  if (genRunBtn) genRunBtn.disabled = true;
+  if (stopBtn) { stopBtn.disabled = false; stopBtn.classList.remove('d-none'); }
+}
+function _runAllSetGenerating(idx, taskType) {
+  const label = taskType === 'plugin' ? 'Plugins' : taskType === 'data_model' ? 'Data model' : 'Features';
+  const prevStopped = _runAllState[idx]?.stopped || false;
+  _runAllState[idx] = { currentType: taskType, stopped: prevStopped, mode: 'generating' };
+  const { status, runBtn, stopBtn, genRunBtn } = _runAllTopBar(idx);
+  if (status) status.innerHTML = '<i class="fas fa-spinner fa-spin me-1 text-primary"></i>Generating: ' + label;
+  if (runBtn) runBtn.disabled = true;
+  if (genRunBtn) { genRunBtn.disabled = true; genRunBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…'; }
+  if (stopBtn) { stopBtn.disabled = false; stopBtn.classList.remove('d-none'); }
+}
+
+window.runAllPhaseTasks = function(idx) {
+  const types = ['plugin', 'data_model', 'feature'];
+  function runNext(i) {
+    if (i >= types.length) { _runAllSetIdle(idx, 'Not running'); return; }
+    const taskType = types[i];
+    const areaId = taskType === 'plugin' ? 'phase-plugins-area'
+                 : taskType === 'data_model' ? 'phase-data-model-area'
+                 : 'phase-features-area';
+    const el = document.getElementById(areaId);
+    const hasTodo = el && el.querySelector('[data-task-run]');
+    if (!hasTodo) { runNext(i + 1); return; }
+    _runAllSetRunning(idx, taskType);
+    view_post(_phasesVn, 'run_phase_tasks', { idx, task_type: taskType }, (resp) => {
+      if (!resp) { runNext(i + 1); return; }
+      if (window.dynamic_updates_cfg?.enabled) {
+        _runAllState[idx].onDone = () => {
+          if (_runAllState[idx]?.stopped) { _runAllSetIdle(idx, 'Not running'); return; }
+          runNext(i + 1);
+        };
+      } else {
+        const poll = () => {
+          view_post(_phasesVn, 'phase_run_status', { idx, task_type: taskType }, (r) => {
+            if (!r) { _refreshPhaseArea(idx, taskType); _runAllSetIdle(idx, 'Not running'); return; }
+            if (r.isRunning || r.anyRunning) {
+              _refreshPhaseArea(idx, taskType);
+              setTimeout(poll, 3000);
+            } else {
+              _refreshPhaseArea(idx, taskType);
+              if (typeof copilotRefreshSchema === 'function') copilotRefreshSchema();
+              if (_runAllState[idx]?.stopped) {
+                _runAllSetIdle(idx, 'Not running');
+              } else {
+                runNext(i + 1);
+              }
+            }
+          });
+        };
+        setTimeout(poll, 2000);
+      }
+    });
+  }
+  runNext(0);
+};
+
+window.stopAllPhaseTasks = function(idx) {
+  let state = _runAllState[idx];
+  if (!state) {
+    const stopBtn = document.getElementById('phase-all-stop-btn-' + idx);
+    const taskType = stopBtn?.dataset?.taskType;
+    const mode = stopBtn?.dataset?.mode || 'running';
+    if (!taskType) return;
+    state = { currentType: taskType, stopped: true, mode };
+    _runAllState[idx] = state;
+  }
+  state.stopped = true;
+  state.onDone = null;
+  const { status, stopBtn } = _runAllTopBar(idx);
+  if (status) status.textContent = 'Stopping…';
+  if (stopBtn) stopBtn.disabled = true;
+  if (state.mode === 'generating') {
+    view_post(_phasesVn, 'cancel_generating_phase_tasks', { idx, task_type: state.currentType }, () => {
+      _refreshPhaseArea(idx, state.currentType);
+      _runAllSetIdle(idx, 'Not running');
+    });
+  } else {
+    view_post(_phasesVn, 'stop_phase_tasks', { idx, task_type: state.currentType }, (resp) => {
+      if (!resp || !resp.taskStillRunning) _runAllSetIdle(idx, 'Not running');
+      // if a task is still running, doRunPhaseTasks will emit copilotPhaseTasksDone when it finishes
+    });
+  }
+};
+
+window.generateAndRunAllPhaseTasks = function(idx) {
+  const types = ['plugin', 'data_model', 'feature'];
+  _runAllState[idx] = { currentType: 'plugin', stopped: false };
+  const { runBtn, stopBtn } = _runAllTopBar(idx);
+  if (runBtn) runBtn.disabled = true;
+  _runAllSetGenerating(idx, 'plugin');
+
+  function processNext(i) {
+    if (i >= types.length) { _runAllSetIdle(idx, 'Not running'); return; }
+    if (_runAllState[idx]?.stopped) { _runAllSetIdle(idx, 'Not running'); return; }
+    const taskType = types[i];
+    const areaId = taskType === 'plugin' ? 'phase-plugins-area'
+                 : taskType === 'data_model' ? 'phase-data-model-area' : 'phase-features-area';
+    const el = document.getElementById(areaId);
+    const hasCards = el && el.querySelector('[data-phase-loaded]');
+    if (!hasCards) {
+      _runAllSetGenerating(idx, taskType);
+      if (el) el.innerHTML = _tasksGeneratingHtml(idx, taskType);
+      view_post(_phasesVn, 'generate_phase_tasks', { idx, task_type: taskType }, () => {});
+      if (window.dynamic_updates_cfg?.enabled) {
+        _runAllState[idx].onDone = () => {
+          if (!_runAllState[idx] || _runAllState[idx].stopped) return;
+          runTasksForType(i, taskType);
+        };
+      } else {
+        const genPoll = () => {
+          if (!_runAllState[idx] || _runAllState[idx].stopped) return;
+          view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: taskType }, (resp) => {
+            if (!_runAllState[idx] || _runAllState[idx].stopped) return;
+            if (resp && !resp.generating) {
+              _refreshPhaseArea(idx, taskType);
+              runTasksForType(i, taskType);
+            } else {
+              setTimeout(genPoll, 3000);
+            }
+          });
+        };
+        setTimeout(genPoll, 3000);
+      }
+    } else {
+      runTasksForType(i, taskType);
+    }
+  }
+
+  function runTasksForType(i, taskType) {
+    if (_runAllState[idx]?.stopped) { _runAllSetIdle(idx, 'Not running'); return; }
+    const areaId = taskType === 'plugin' ? 'phase-plugins-area'
+                 : taskType === 'data_model' ? 'phase-data-model-area' : 'phase-features-area';
+    const el = document.getElementById(areaId);
+    const hasTodo = el && el.querySelector('[data-task-run]');
+    if (!hasTodo) { processNext(i + 1); return; }
+    _runAllSetRunning(idx, taskType);
+    view_post(_phasesVn, 'run_phase_tasks', { idx, task_type: taskType }, (resp) => {
+      if (!resp) { processNext(i + 1); return; }
+      if (window.dynamic_updates_cfg?.enabled) {
+        _runAllState[idx].onDone = () => {
+          if (_runAllState[idx]?.stopped) { _runAllSetIdle(idx, 'Not running'); return; }
+          processNext(i + 1);
+        };
+      } else {
+        const poll = () => {
+          view_post(_phasesVn, 'phase_run_status', { idx, task_type: taskType }, (r) => {
+            if (!r) { _refreshPhaseArea(idx, taskType); _runAllSetIdle(idx, 'Not running'); return; }
+            if (r.isRunning || r.anyRunning) {
+              _refreshPhaseArea(idx, taskType);
+              setTimeout(poll, 3000);
+            } else {
+              _refreshPhaseArea(idx, taskType);
+              if (typeof copilotRefreshSchema === 'function') copilotRefreshSchema();
+              if (_runAllState[idx]?.stopped) {
+                _runAllSetIdle(idx, 'Not running');
+              } else {
+                processNext(i + 1);
+              }
+            }
+          });
+        };
+        setTimeout(poll, 2000);
+      }
+    });
+  }
+
+  processNext(0);
+};
+
+window.runGroupTasks = function(idx, taskType) {
+  if (_runAllState[idx]) return;
+  _runAllSetRunning(idx, taskType);
+  view_post(_phasesVn, 'run_phase_tasks', { idx, task_type: taskType }, (resp) => {
+    if (!resp) { _runAllSetIdle(idx, 'Not running'); return; }
+    if (window.dynamic_updates_cfg?.enabled) {
+      _runAllState[idx].onDone = () => _runAllSetIdle(idx, 'Not running');
+    } else {
+      const poll = () => {
+        view_post(_phasesVn, 'phase_run_status', { idx, task_type: taskType }, (r) => {
+          if (!r) { _refreshPhaseArea(idx, taskType); _runAllSetIdle(idx, 'Not running'); return; }
+          if (r.isRunning || r.anyRunning) {
+            _refreshPhaseArea(idx, taskType);
+            setTimeout(poll, 3000);
+          } else {
+            _refreshPhaseArea(idx, taskType);
+            if (typeof copilotRefreshSchema === 'function') copilotRefreshSchema();
+            _runAllSetIdle(idx, 'Not running');
+          }
+        });
+      };
+      setTimeout(poll, 2000);
+    }
+  });
+};
+
+window.cancelGeneratingPhaseTasks = function(idx, taskType) {
+  view_post(_phasesVn, 'cancel_generating_phase_tasks', { idx, task_type: taskType }, () => {
+    _refreshPhaseArea(idx, taskType);
+  });
 };
 
 window.copilotPhaseTasksDone = function(idx) {
   _refreshAllAreas(idx);
+  const state = _runAllState[idx];
+  if (!state) return;
+  if (state.stopped) {
+    _runAllSetIdle(idx, 'Not running');
+  } else if (state.onDone) {
+    const cb = state.onDone;
+    state.onDone = null;
+    cb();
+  }
+};
+
+window.copilotPhaseTasksFailed = function(idx) {
+  _refreshAllAreas(idx);
+  _runAllSetIdle(idx, 'Not running');
 };
 
 window.copilotRefreshTasks = function() {
@@ -264,15 +554,25 @@ function copilotInitPhasesState() {
     const idx = parseInt(phaseParam);
     const panel = document.getElementById('phases-panel');
     if (panel) panel.dataset.phaseIdx = idx;
+    // Synchronously recover state from server-rendered DOM so copilotPhaseTasksDone
+    // can call _runAllSetIdle even if it fires before the async XHR callbacks below land.
+    const _stopBtnInit = document.getElementById('phase-all-stop-btn-' + idx);
+    const _statusInit = document.getElementById('phase-all-run-status-' + idx);
+    if (_stopBtnInit && !_stopBtnInit.classList.contains('d-none') && !_runAllState[idx]) {
+      const _tt = _stopBtnInit.dataset.taskType;
+      const _mode = _stopBtnInit.dataset.mode || 'running';
+      const _isStopping = !!_statusInit && _statusInit.textContent.includes('Stopping');
+      if (_tt) _runAllState[idx] = { currentType: _tt, stopped: _isStopping, mode: _mode };
+    }
     for (const tt of ['plugin', 'data_model', 'feature']) {
       view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: tt }, (resp) => {
-        if (resp && resp.generating && !window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, tt);
+        if (!resp) return;
+        if (resp.generating && !window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, tt);
       });
-      if (!window.dynamic_updates_cfg?.enabled) {
-        view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
-          if (resp && (resp.isRunning || resp.anyRunning)) phasePollRunning(idx, tt);
-        });
-      }
+      view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
+        if (!resp) return;
+        if (!window.dynamic_updates_cfg?.enabled && (resp.isRunning || resp.anyRunning)) phasePollRunning(idx, tt);
+      });
     }
   }
 }
@@ -348,10 +648,22 @@ const phasesSpinner =
   i({ class: "fas fa-spinner fa-spin me-2" }) +
   "Generating phases, please wait...</p>";
 
-const tasksSpinner =
-  "<p>" +
-  i({ class: "fas fa-spinner fa-spin me-2" }) +
-  "Generating tasks, please wait...</p>";
+const tasksSpinner = (phaseIdx, taskType) =>
+  div(
+    { class: "d-flex align-items-center gap-2 text-muted small" },
+    i({ class: "fas fa-spinner fa-spin" }),
+    "Generating tasks, please wait...",
+    button(
+      {
+        class: "btn btn-sm text-muted ms-2",
+        style: "font-size:0.75rem;padding:1px 6px;border:1px solid #ced4da;",
+        title: "Cancel generation",
+        onclick: `cancelGeneratingPhaseTasks(${phaseIdx},'${taskType}')`,
+      },
+      i({ class: "fas fa-times me-1" }),
+      "cancel"
+    )
+  );
 
 // ── Phase list view ───────────────────────────────────────────────────────────
 
@@ -624,7 +936,7 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
     generating.body?.phase_idx === phaseIdx &&
     (!generating.body?.task_type || generating.body?.task_type === taskType)
   );
-  if (isGenerating) return tasksSpinner;
+  if (isGenerating) return tasksSpinner(phaseIdx, taskType);
 
   const allTasks = await MetaData.find({
     type: pt,
@@ -637,19 +949,6 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
   const doneNames = new Set(
     phaseTasks.filter((t) => t.body.status === "Done").map((t) => t.body.name)
   );
-
-  const phaseRunning = await MetaData.findOne({
-    type: pt,
-    name: `phase_running_${phaseIdx}_${taskType}`,
-  });
-  const isRunning = !!phaseRunning;
-  const runningTask = tasks.find((t) => t.body.status === "Running");
-  const isStopping = !isRunning && !!runningTask;
-  const hasTodo = tasks.some(
-    (t) => !t.body.status || t.body.status === "To do"
-  );
-
-  const allDone = tasks.length > 0 && !hasTodo && !isRunning && !runningTask;
 
   const staleMarkers = await MetaData.find({
     type: pt,
@@ -682,12 +981,10 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
     : "";
 
   const genLabel = tasks.length ? "Regenerate" : "Generate tasks";
-  const genOnclick = tasks.length
-    ? `if(confirm('Regenerate tasks? This will replace the existing tasks.')) generatePhaseTasks(${phaseIdx},'${taskType}')`
-    : `generatePhaseTasks(${phaseIdx},'${taskType}')`;
+  const genOnclick = `generatePhaseTasks(${phaseIdx},'${taskType}')`;
   const genBtn = button(
     {
-      class: `btn btn-primary btn-sm${tasks.length ? " ms-auto" : ""}`,
+      class: "btn btn-primary btn-sm",
       onclick: genOnclick,
     },
     i({ class: "fas fa-magic me-1" }),
@@ -706,46 +1003,6 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
       )
     : "";
 
-  const runBtn = isRunning
-    ? button(
-        { class: "btn btn-success btn-sm", disabled: true },
-        i({ class: "fas fa-spinner fa-spin me-1" }),
-        "Running…"
-      )
-    : isStopping
-    ? button(
-        { class: "btn btn-warning btn-sm", disabled: true },
-        i({ class: "fas fa-spinner fa-spin me-1" }),
-        "Stopping…"
-      )
-    : hasTodo
-    ? button(
-        {
-          class: "btn btn-success btn-sm",
-          onclick: `startPhaseTasks(this,${phaseIdx},'${taskType}')`,
-        },
-        i({ class: "fas fa-play me-1" }),
-        "Start running"
-      )
-    : tasks.length
-    ? button(
-        { class: "btn btn-success btn-sm", disabled: true },
-        i({ class: "fas fa-play me-1" }),
-        "Start running"
-      )
-    : "";
-
-  const stopBtn = isRunning
-    ? button(
-        {
-          class: "btn btn-danger btn-sm",
-          onclick: `stopPhaseTasks(${phaseIdx},'${taskType}')`,
-        },
-        i({ class: "fas fa-stop me-1" }),
-        "Stop"
-      )
-    : "";
-
   const addTaskBtn = features.view_route_modal
     ? button(
         {
@@ -760,29 +1017,39 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
       )
     : "";
 
-  const statusBar = div(
-    { class: "d-flex align-items-center gap-2 mb-3 flex-wrap" },
-    span(
-      {
-        id: `phase-run-status-${phaseIdx}-${taskType}`,
-        class: "small text-muted me-1",
-      },
-      isStopping
-        ? "Stopping after current task…"
-        : runningTask
-        ? span(
-            "Running: ",
-            span({ class: "fw-bold text-body" }, runningTask.body.name)
-          )
-        : tasks.length
-        ? "Not running"
-        : ""
-    ),
-    runBtn,
-    stopBtn,
-    genBtn,
-    addTaskBtn
-  );
+  const hasTodo = tasks.some((t) => (t.body.status || "To do") !== "Done");
+  const runGroupBtn = hasTodo
+    ? button(
+        {
+          class: "btn btn-success btn-sm",
+          onclick: `runGroupTasks(${phaseIdx},'${taskType}')`,
+        },
+        i({ class: "fas fa-play me-1" }),
+        "Run all"
+      )
+    : "";
+
+  const topBar = tasks.length
+    ? div(
+        {
+          class: "d-flex align-items-center gap-2 mb-3 flex-wrap",
+          "data-phase-loaded": "1",
+        },
+        runGroupBtn,
+        div({ class: "ms-auto" }, addTaskBtn)
+      )
+    : div(
+        {
+          class: "d-flex align-items-center gap-2 mb-3 flex-wrap",
+          "data-phase-loaded": "1",
+        },
+        genBtn,
+        addTaskBtn
+      );
+
+  const bottomBar = tasks.length
+    ? div({ class: "mt-3 d-flex gap-2" }, delAllBtn, genBtn)
+    : "";
 
   const renderTask = (t) => {
     const status = t.body.status || "To do";
@@ -883,7 +1150,7 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
     );
 
     return div(
-      { class: "card mb-2 shadow-sm" },
+      { class: "card mb-2 shadow-sm", "data-task-card": t.id },
       div(
         { class: "card-body py-2" },
         div(
@@ -944,7 +1211,7 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
         emptyMsg = "No schema changes needed for this phase.";
     }
     return (
-      staleNotice + statusBar + p({ class: "text-muted small mt-2" }, emptyMsg)
+      staleNotice + topBar + p({ class: "text-muted small mt-2" }, emptyMsg)
     );
   }
 
@@ -967,32 +1234,31 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
       )
     : "";
 
-  const sectionHeader = (icon, label) =>
-    div(
-      { class: "d-flex align-items-center gap-2 mb-2 mt-3" },
-      small(
-        {
-          class: "text-uppercase fw-semibold text-muted text-nowrap",
-          style: "font-size:0.7rem;letter-spacing:.05em;",
-        },
-        i({ class: `fas ${icon} me-1` }),
-        label
-      ),
-      div({ class: "flex-grow-1 border-top" })
-    );
-
   const existingTableSection = existingTableTasks.length
-    ? sectionHeader("fa-pencil-alt", "Modifies pre-existing tables") +
-      existingTableTasks.map(renderTask).join("")
+    ? div(
+        { class: "d-flex align-items-center gap-2 mb-2 mt-4" },
+        small(
+          {
+            class: "text-uppercase fw-semibold text-nowrap",
+            style: "font-size:0.7rem;letter-spacing:.06em;color:#7b5230;",
+          },
+          i({
+            class: "fas fa-exclamation-triangle me-1",
+            style: "color:#b08050;",
+          }),
+          "Modifies pre-existing tables"
+        ),
+        div({ class: "flex-grow-1", style: "border-top:2px solid #b08050;" })
+      ) + existingTableTasks.map(renderTask).join("")
     : "";
 
   return (
     staleNotice +
-    statusBar +
+    topBar +
     newSchemaTasks.map(renderTask).join("") +
     existingTableSection +
     feedbackSection +
-    div({ class: "mt-3" }, delAllBtn)
+    bottomBar
   );
 };
 
@@ -1102,12 +1368,50 @@ const phaseProgressHtml = async (idx, page = 1, pt) => {
 
 const phaseDetailHtml = async (phase, idx, pt, projectId) => {
   const tabId = `phase-detail-tabs-${idx}`;
-  const [plContent, dmContent, ftContent, pgContent] = await Promise.all([
+  const [
+    plContent,
+    dmContent,
+    ftContent,
+    pgContent,
+    genMd,
+    allTasksMd,
+    ...runFlags
+  ] = await Promise.all([
     phaseTasksHtml(idx, "plugin", pt, projectId),
     phaseTasksHtml(idx, "data_model", pt, projectId),
     phaseTasksHtml(idx, "feature", pt, projectId),
     phaseProgressHtml(idx, 1, pt),
+    MetaData.findOne({ type: pt, name: "generating_phase_tasks" }),
+    MetaData.find({ type: pt, name: "task" }),
+    MetaData.findOne({ type: pt, name: `phase_running_${idx}_plugin` }),
+    MetaData.findOne({ type: pt, name: `phase_running_${idx}_data_model` }),
+    MetaData.findOne({ type: pt, name: `phase_running_${idx}_feature` }),
   ]);
+
+  const isGenerating = genMd?.body?.phase_idx === idx;
+  const isRunning = runFlags.some(Boolean);
+  const anyRunning = allTasksMd.some(
+    (t) => t.body?.phase_idx === idx && t.body?.status === "Running"
+  );
+  const isBusy = isGenerating || isRunning || anyRunning;
+  const isStopping = !isRunning && !isGenerating && anyRunning;
+  const runStatus = isStopping
+    ? "Stopping…"
+    : isBusy
+    ? "Running…"
+    : "Not running";
+  const genRunBtnContent = isBusy
+    ? `<i class="fas fa-spinner fa-spin me-1"></i>Running…`
+    : `<i class="fas fa-play me-1"></i>Generate &amp; Run`;
+  const stopBtnExtra = isStopping ? " disabled" : "";
+  const currentMode = isGenerating ? "generating" : "running";
+  const currentTaskType = isGenerating
+    ? genMd.body?.task_type || ""
+    : isRunning
+    ? ["plugin", "data_model", "feature"][runFlags.findIndex(Boolean)] || ""
+    : allTasksMd.find(
+        (t) => t.body?.phase_idx === idx && t.body?.status === "Running"
+      )?.body?.task_type || "";
 
   const backBtn = button(
     {
@@ -1150,30 +1454,47 @@ const phaseDetailHtml = async (phase, idx, pt, projectId) => {
     feedbackBtn
   );
 
+  const taskGroup = (icon, label, areaId, content) => `
+<div class="mb-4">
+  <div class="d-flex align-items-center gap-2 mb-3" style="border-bottom:2px solid #dee2e6;padding-bottom:.35rem;">
+    <i class="fas ${icon} text-primary" style="font-size:.85rem;"></i>
+    <span class="fw-semibold">${label}</span>
+  </div>
+  <div id="${areaId}">${content}</div>
+</div>`;
+
   const tabs = `
 <ul class="nav nav-tabs" id="${tabId}" role="tablist">
   <li class="nav-item" role="presentation">
-    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#${tabId}-pl" type="button">Plugins</button>
-  </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#${tabId}-dm" type="button">Data model</button>
-  </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#${tabId}-ft" type="button">Features</button>
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#${tabId}-tasks" type="button">Tasks</button>
   </li>
   <li class="nav-item" role="presentation">
     <button class="nav-link" data-bs-toggle="tab" data-bs-target="#${tabId}-pg" type="button">Progress</button>
   </li>
 </ul>
 <div class="tab-content pt-3">
-  <div class="tab-pane fade show active" id="${tabId}-pl">
-    <div id="phase-plugins-area">${plContent}</div>
-  </div>
-  <div class="tab-pane fade" id="${tabId}-dm">
-    <div id="phase-data-model-area">${dmContent}</div>
-  </div>
-  <div class="tab-pane fade" id="${tabId}-ft">
-    <div id="phase-features-area">${ftContent}</div>
+  <div class="tab-pane fade show active" id="${tabId}-tasks">
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+      <span id="phase-all-run-status-${idx}" class="small text-muted">${runStatus}</span>
+      <button id="phase-all-gen-run-btn-${idx}" class="btn btn-success btn-sm" onclick="generateAndRunAllPhaseTasks(${idx})" title="Generate tasks for each section (if not yet generated), then run them all"${
+    isBusy ? " disabled" : ""
+  }>
+        ${genRunBtnContent}
+      </button>
+      <button id="phase-all-stop-btn-${idx}" class="btn btn-danger btn-sm${
+    isBusy ? "" : " d-none"
+  }"${stopBtnExtra} data-task-type="${currentTaskType}" data-mode="${currentMode}" onclick="stopAllPhaseTasks(${idx})">
+        <i class="fas fa-stop me-1"></i>Stop
+      </button>
+    </div>
+    ${taskGroup("fa-puzzle-piece", "Plugins", "phase-plugins-area", plContent)}
+    ${taskGroup(
+      "fa-database",
+      "Data model",
+      "phase-data-model-area",
+      dmContent
+    )}
+    ${taskGroup("fa-layer-group", "Features", "phase-features-area", ftContent)}
   </div>
   <div class="tab-pane fade" id="${tabId}-pg">
     <div id="phase-progress-area-${idx}">${pgContent}</div>
@@ -1286,6 +1607,10 @@ const doGenPhaseTasks = async (phase, userId, taskType, pt) => {
     body: { phase_idx: phase.idx, task_type: taskType },
     user_id: userId,
   });
+  let cancelled = false;
+  let failed = false;
+  let toastMsg = "";
+
   try {
     const generator = await PromptGenerator.createInstance({ phase, pt });
     const answer = await getState().functions.llm_generate.run(
@@ -1299,6 +1624,16 @@ const doGenPhaseTasks = async (phase, userId, taskType, pt) => {
           "Keep tasks small and focused.",
       }
     );
+
+    // If cancelled while the LLM was running, bail out without creating tasks
+    const stillActive = await MetaData.findOne({
+      type: pt,
+      name: "generating_phase_tasks",
+    });
+    if (!stillActive || stillActive.id !== generatingMd.id) {
+      cancelled = true;
+      return;
+    }
 
     const tc = answer.getToolCalls()[0];
 
@@ -1369,13 +1704,53 @@ const doGenPhaseTasks = async (phase, userId, taskType, pt) => {
         user_id: userId,
       });
     }
+  } catch (err) {
+    const activeOnErr = await MetaData.findOne({
+      type: pt,
+      name: "generating_phase_tasks",
+    }).catch(() => null);
+    if (!activeOnErr || activeOnErr.id !== generatingMd.id) {
+      cancelled = true;
+    }
+    if (!cancelled) {
+      const statusCode =
+        err?.statusCode ||
+        err?.lastError?.statusCode ||
+        (err?.errors || [])[0]?.statusCode;
+      toastMsg = statusCode
+        ? `Task generation failed: API error (HTTP ${statusCode})`
+        : `Task generation failed: ${String(err?.message || err)
+            .replace(/\s+/g, " ")
+            .slice(0, 120)}`;
+      try {
+        await MetaData.create({
+          type: BASE_TYPE,
+          name: "error",
+          body: {
+            source: "constructor",
+            error: { message: err?.message || String(err), stack: err?.stack },
+          },
+          user_id: userId,
+        });
+      } catch (_) {}
+      failed = true;
+    }
   } finally {
-    await generatingMd.delete();
     try {
-      getState().emitDynamicUpdate(db.getTenantSchema(), {
-        eval_js: `if(typeof copilotPhaseTasksDone==='function')copilotPhaseTasksDone(${phase.idx});`,
-      });
+      await generatingMd.delete();
     } catch (_) {}
+    if (!cancelled)
+      try {
+        getState().emitDynamicUpdate(db.getTenantSchema(), {
+          eval_js: failed
+            ? `notifyAlert({type:'danger',text:${JSON.stringify(
+                toastMsg
+              )}});if(typeof copilotPhaseTasksFailed==='function')copilotPhaseTasksFailed(${
+                phase.idx
+              });`
+            : `if(typeof copilotPhaseTasksDone==='function')copilotPhaseTasksDone(${phase.idx});`,
+        });
+      } catch (_) {}
   }
 };
 
@@ -1387,7 +1762,14 @@ const doRunPhaseTasks = async (phaseIdx, taskType, req, pt) => {
     type: pt,
     name: flagName,
   });
-  if (!running) return;
+  if (!running) {
+    try {
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js: `if(typeof copilotPhaseTasksDone==='function')copilotPhaseTasksDone(${phaseIdx});`,
+      });
+    } catch (_) {}
+    return;
+  }
 
   const allTasks = await MetaData.find({
     type: pt,
@@ -1417,7 +1799,40 @@ const doRunPhaseTasks = async (phaseIdx, taskType, req, pt) => {
   );
 
   if (startable[0]) {
-    await runTask(startable[0].id, req);
+    try {
+      await runTask(startable[0].id, req);
+    } catch (e) {
+      let toastMsg = "Task run failed";
+      try {
+        const statusCode =
+          e?.statusCode ||
+          e?.lastError?.statusCode ||
+          (e?.errors || [])[0]?.statusCode;
+        toastMsg = statusCode
+          ? `Task run failed: API error (HTTP ${statusCode})`
+          : `Task run failed: ${String(e?.message || e)
+              .replace(/\s+/g, " ")
+              .slice(0, 120)}`;
+        await MetaData.create({
+          type: BASE_TYPE,
+          name: "error",
+          body: {
+            source: "constructor",
+            error: { message: e?.message || String(e), stack: e?.stack },
+          },
+        });
+      } catch (_) {}
+      const runningMd = await MetaData.findOne({ type: pt, name: flagName });
+      if (runningMd) await runningMd.delete();
+      try {
+        getState().emitDynamicUpdate(db.getTenantSchema(), {
+          eval_js: `notifyAlert({type:'danger',text:${JSON.stringify(
+            toastMsg
+          )}});if(typeof copilotPhaseTasksFailed==='function')copilotPhaseTasksFailed(${phaseIdx});`,
+        });
+      } catch (_) {}
+      return;
+    }
     await doRunPhaseTasks(phaseIdx, taskType, req, pt);
   } else {
     const runningMd = await MetaData.findOne({
@@ -1915,6 +2330,53 @@ const dismiss_stale_notice = async (
   return { json: { success: true } };
 };
 
+const cancel_generating_phase_tasks = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req }
+) => {
+  const { task_type } = body;
+  const idx = parseInt(body.idx, 10);
+  const pt = getPt(body, req);
+  const generating = await MetaData.findOne({
+    type: pt,
+    name: "generating_phase_tasks",
+  });
+  if (
+    generating &&
+    generating.body?.phase_idx === idx &&
+    (!generating.body?.task_type || generating.body?.task_type === task_type)
+  ) {
+    await generating.delete();
+  }
+  return { json: { success: true } };
+};
+
+const prev_section_status = async (table_id, vn, config, body, { req }) => {
+  const { task_type } = body;
+  const idx = parseInt(body.idx, 10);
+  if (task_type !== "data_model" && task_type !== "feature")
+    return { json: { hasIncompleteTasks: false, incompleteSections: [] } };
+  const pt = getPt(body, req);
+  const prevTypes =
+    task_type === "data_model" ? ["plugin"] : ["plugin", "data_model"];
+  const allTasks = await MetaData.find({ type: pt, name: "task" });
+  const phaseTasks = allTasks.filter((t) => t.body?.phase_idx === idx);
+  const incompleteSections = prevTypes.filter((prevType) =>
+    phaseTasks
+      .filter((t) => (t.body.task_type || "feature") === prevType)
+      .some((t) => (t.body.status || "To do") !== "Done")
+  );
+  return {
+    json: {
+      hasIncompleteTasks: incompleteSections.length > 0,
+      incompleteSections,
+    },
+  };
+};
+
 const phase_routes = {
   gen_phases,
   phases_status,
@@ -1934,6 +2396,8 @@ const phase_routes = {
   save_requirement,
   delete_requirement,
   dismiss_stale_notice,
+  prev_section_status,
+  cancel_generating_phase_tasks,
 };
 
 module.exports = { phasesPanel, phasesStaticScript, phase_routes };
