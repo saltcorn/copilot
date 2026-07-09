@@ -81,13 +81,14 @@ window.copilotRefreshPhases = function() {
   });
 };
 
-function _refreshPhaseArea(idx, taskType) {
+function _refreshPhaseArea(idx, taskType, cb) {
   const areaId = taskType === 'plugin' ? 'phase-plugins-area'
                : taskType === 'data_model' ? 'phase-data-model-area'
                : 'phase-features-area';
   view_post(_phasesVn, 'phase_tasks_html', { idx, task_type: taskType }, (r) => {
     const el = document.getElementById(areaId);
     if (r && r.html && el) el.innerHTML = r.html;
+    if (cb) cb();
   });
 }
 
@@ -112,9 +113,9 @@ window.copilotProgressGoPage = function(idx, pg) {
   });
 };
 
-function _recoverRunState(idx, taskType, isStopping) {
+function _recoverRunState(idx, taskType, isStopping, mode = 'running') {
   if (_runAllState[idx]) return;
-  _runAllState[idx] = { currentType: taskType, stopped: true, mode: 'running' };
+  _runAllState[idx] = { currentType: taskType, stopped: true, mode };
   const { status, runBtn, stopBtn, genRunBtn } = _runAllTopBar(idx);
   if (status) status.textContent = isStopping ? 'Stopping…' : 'Running…';
   if (runBtn) runBtn.disabled = true;
@@ -132,7 +133,7 @@ function _loadPhaseDetail(idx) {
         view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: tt }, (resp) => {
           if (!resp) return;
           if (resp.generating && !window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, tt);
-          if (resp.generating) _recoverRunState(idx, tt, false);
+          if (resp.generating) _recoverRunState(idx, tt, false, 'generating');
         });
         view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
           if (!resp) return;
@@ -201,7 +202,10 @@ window.runPhaseTask = function(btn, id, phaseIdx, taskType, force) {
     btn.disabled = true;
     const taskName = btn.closest('.card')?.querySelector('.fw-semibold')?.textContent?.trim() || '';
     const statusEl = document.getElementById('phase-all-run-status-' + phaseIdx);
-    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1 text-success"></i>Running: ' + taskName;
+    if (statusEl) {
+      statusEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1 text-success"></i>Running: ';
+      statusEl.appendChild(document.createTextNode(taskName));
+    }
     const poll = () => {
       view_post(_phasesVn, 'task_status', { ids: [String(id)] }, (statusResp) => {
         if (statusResp && statusResp.any_done) {
@@ -241,6 +245,7 @@ function phaseTasksPoll(idx, taskType) {
     view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: taskType }, (resp) => {
       if (resp && !resp.generating) {
         _refreshPhaseArea(idx, taskType);
+        if (typeof copilotPhaseTasksDone === 'function') copilotPhaseTasksDone(idx);
       } else setTimeout(poll, 3000);
     });
   };
@@ -417,7 +422,7 @@ window.generateAndRunAllPhaseTasks = function(idx) {
     const areaId = taskType === 'plugin' ? 'phase-plugins-area'
                  : taskType === 'data_model' ? 'phase-data-model-area' : 'phase-features-area';
     const el = document.getElementById(areaId);
-    const hasCards = el && el.querySelector('[data-phase-loaded]');
+    const hasCards = el && el.querySelector('[data-task-card]');
     if (!hasCards) {
       _runAllSetGenerating(idx, taskType);
       if (el) el.innerHTML = _tasksGeneratingHtml(idx, taskType);
@@ -425,7 +430,10 @@ window.generateAndRunAllPhaseTasks = function(idx) {
       if (window.dynamic_updates_cfg?.enabled) {
         _runAllState[idx].onDone = () => {
           if (!_runAllState[idx] || _runAllState[idx].stopped) return;
-          runTasksForType(i, taskType);
+          _refreshPhaseArea(idx, taskType, () => {
+            if (!_runAllState[idx] || _runAllState[idx].stopped) return;
+            runTasksForType(i, taskType);
+          });
         };
       } else {
         const genPoll = () => {
@@ -433,8 +441,10 @@ window.generateAndRunAllPhaseTasks = function(idx) {
           view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: taskType }, (resp) => {
             if (!_runAllState[idx] || _runAllState[idx].stopped) return;
             if (resp && !resp.generating) {
-              _refreshPhaseArea(idx, taskType);
-              runTasksForType(i, taskType);
+              _refreshPhaseArea(idx, taskType, () => {
+                if (!_runAllState[idx] || _runAllState[idx].stopped) return;
+                runTasksForType(i, taskType);
+              });
             } else {
               setTimeout(genPoll, 3000);
             }
@@ -530,6 +540,9 @@ window.copilotPhaseTasksDone = function(idx) {
     const cb = state.onDone;
     state.onDone = null;
     cb();
+  } else {
+    // onDone is absent — chain state was lost (e.g. page reload); go idle
+    _runAllSetIdle(idx, 'Not running');
   }
 };
 
@@ -658,7 +671,9 @@ const tasksSpinner = (phaseIdx, taskType) =>
         class: "btn btn-sm text-muted ms-2",
         style: "font-size:0.75rem;padding:1px 6px;border:1px solid #ced4da;",
         title: "Cancel generation",
-        onclick: `cancelGeneratingPhaseTasks(${phaseIdx},'${taskType}')`,
+        onclick: `cancelGeneratingPhaseTasks(${phaseIdx},${JSON.stringify(
+          taskType
+        )})`,
       },
       i({ class: "fas fa-times me-1" }),
       "cancel"
@@ -1017,7 +1032,9 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
       )
     : "";
 
-  const hasTodo = tasks.some((t) => (t.body.status || "To do") !== "Done");
+  const hasTodo = tasks.some(
+    (t) => !t.body.status || t.body.status === "To do"
+  );
   const runGroupBtn = hasTodo
     ? button(
         {
@@ -1406,12 +1423,13 @@ const phaseDetailHtml = async (phase, idx, pt, projectId) => {
   const stopBtnExtra = isStopping ? " disabled" : "";
   const currentMode = isGenerating ? "generating" : "running";
   const currentTaskType = isGenerating
-    ? genMd.body?.task_type || ""
+    ? genMd.body?.task_type || "feature"
     : isRunning
-    ? ["plugin", "data_model", "feature"][runFlags.findIndex(Boolean)] || ""
+    ? ["plugin", "data_model", "feature"][runFlags.findIndex(Boolean)] ||
+      "feature"
     : allTasksMd.find(
         (t) => t.body?.phase_idx === idx && t.body?.status === "Running"
-      )?.body?.task_type || "";
+      )?.body?.task_type || "feature";
 
   const backBtn = button(
     {
