@@ -10,6 +10,8 @@ const {
   option,
   small,
 } = require("@saltcorn/markup/tags");
+const { getState } = require("@saltcorn/data/db/state");
+const db = require("@saltcorn/data/db");
 const { runTask, runNextTask } = require("./run_task");
 const { projectType } = require("./common");
 
@@ -46,9 +48,23 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
           };
       }
     }
-    runTask(body.id, { user: reqUser, __: req.__ }).catch((e) =>
-      console.error("run_task error", e)
-    );
+    runTask(body.id, { user: reqUser, __: req.__ }).catch((e) => {
+      console.error("run_task error", e);
+      try {
+        const statusCode =
+          e?.statusCode ||
+          e?.lastError?.statusCode ||
+          (e?.errors || [])[0]?.statusCode;
+        const msg = statusCode
+          ? `Task run failed: API error (HTTP ${statusCode})`
+          : `Task run failed: ${String(e?.message || e)
+              .replace(/\s+/g, " ")
+              .slice(0, 120)}`;
+        getState().emitDynamicUpdate(db.getTenantSchema(), {
+          eval_js: `notifyAlert({type:'danger',text:${JSON.stringify(msg)}});`,
+        });
+      } catch (_) {}
+    });
     return { json: { success: true } };
   }
   runNextTask(true).catch((e) => console.error("run_task error", e));
@@ -69,7 +85,10 @@ const task_status = async (table_id, viewname, config, body, { req, res }) => {
   const tasks = await MetaData.find({ type: pt, name: "task" });
   const relevant = tasks.filter((t) => ids.includes(String(t.id)));
   const any_done = relevant.some((t) => t.body.status !== "Running");
-  return { json: { any_done } };
+  const any_failed = relevant.some(
+    (t) => !t.body.status || t.body.status === "To do"
+  );
+  return { json: { any_done, any_failed } };
 };
 
 /** Build the modal form HTML for edit (when task is provided) or create. */
@@ -252,8 +271,16 @@ const get_new_task_form = async (
 
 /** Save handler for both edit (id >= 0) and create (id === -1). */
 const save_task = async (table_id, vname, config, body, { req, res }) => {
-  const { id, phaseIdx, taskType, name, description, priority, depends_on, project_id } =
-    body;
+  const {
+    id,
+    phaseIdx,
+    taskType,
+    name,
+    description,
+    priority,
+    depends_on,
+    project_id,
+  } = body;
   const pt = projectType(project_id);
 
   const deps = Array.isArray(depends_on)

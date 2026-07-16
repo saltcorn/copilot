@@ -72,6 +72,9 @@ module.exports = {
       description_field,
       url_field,
       research_context,
+      pt = "CopilotConstructMgr",
+      project_id,
+      feedback_id,
     },
   }) => {
     const use_title =
@@ -83,7 +86,7 @@ module.exports = {
     const use_url =
       mode === "workflow" ? interpolate(url, row, user) : row[url_field];
 
-    const generator = await PromptGenerator.createInstance();
+    const generator = await PromptGenerator.createInstance({ pt });
     if (!generator.spec) return;
 
     const feedbackResearchSection = research_context
@@ -117,8 +120,9 @@ module.exports = {
         tools: [requirements_tool],
         ...tool_choice("make_requirements"),
         systemPrompt:
-          "You are a project manager. The user wants to build an application, and you\n" +
-          "must analyse their application description and any feedback available.",
+          "You are a Saltcorn developer receiving user feedback on an application built in Saltcorn. " +
+          "Write short, direct requirements — one sentence each. No acceptance criteria lists, " +
+          "no accessibility bullet points, no implementation notes. Just state what needs to change.",
       }
     );
     const tc = reqAnswer.getToolCalls()[0];
@@ -126,7 +130,7 @@ module.exports = {
 
     for (const reqm of tc.input.requirements)
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "requirement",
         body: { ...reqm, source: "feedback", feedback_title: use_title },
         user_id: req.user?.id,
@@ -145,8 +149,10 @@ module.exports = {
         tools: [task_tool],
         ...tool_choice("plan_tasks"),
         systemPrompt:
-          "You are a project manager. The user wants to build an application, and you\n" +
-          "must analyse their application description and any feedback available.",
+          "You are a Saltcorn developer planning concrete implementation tasks. " +
+          "Each task description must be short and direct — state exactly what to modify in Saltcorn " +
+          "(which view, which column, which action) in 1–3 sentences. No acceptance criteria, " +
+          "no testing steps, no accessibility requirements unless explicitly requested.",
       }
     );
     const tcTasks = taskAnswer.getToolCalls()[0];
@@ -154,14 +160,14 @@ module.exports = {
 
     for (const task of tcTasks.input.tasks)
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "task",
-        body: { ...task, source: "feedback", feedback_title: use_title },
+        body: { ...task, source: "feedback", feedback_id, project_id },
         user_id: req.user?.id,
       });
 
     await MetaData.create({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "feedback",
       body: {
         title: use_title,
@@ -170,6 +176,7 @@ module.exports = {
         research_context,
         scope: row.scope || "overall",
         phase_idx: row.phase_idx ?? null,
+        feedback_id,
       },
       user_id: user?.id,
     });
