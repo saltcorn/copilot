@@ -499,8 +499,11 @@ window.copilotRunFeedbackTask = (taskId) => {
   view_post(safeViewName, 'run_task', { id: taskId }, () => {
     const poll = () => {
       view_post(safeViewName, 'task_status', { ids: [String(taskId)] }, (resp) => {
-        if (resp && resp.any_done) refreshFeedbackViews();
-        else setTimeout(poll, 3000);
+        if (resp && resp.any_done) {
+          if (resp.any_failed && typeof notifyAlert === 'function')
+            notifyAlert({ type: 'danger', text: 'Task run failed. Please try again.' });
+          refreshFeedbackViews();
+        } else setTimeout(poll, 3000);
       });
     };
     setTimeout(poll, 3000);
@@ -752,9 +755,7 @@ const start_approve_feedback = async (
   }
 
   const existingTaskIds = new Set(
-    (await MetaData.find({ type: pt, name: "task" })).map(
-      (t) => t.id
-    )
+    (await MetaData.find({ type: pt, name: "task" })).map((t) => t.id)
   );
 
   feedbackAction
