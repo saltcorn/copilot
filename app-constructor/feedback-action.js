@@ -72,6 +72,9 @@ module.exports = {
       description_field,
       url_field,
       research_context,
+      pt = "CopilotConstructMgr",
+      project_id,
+      feedback_id,
     },
   }) => {
     const use_title =
@@ -83,7 +86,7 @@ module.exports = {
     const use_url =
       mode === "workflow" ? interpolate(url, row, user) : row[url_field];
 
-    const generator = await PromptGenerator.createInstance();
+    const generator = await PromptGenerator.createInstance({ pt });
     if (!generator.spec) return;
 
     const feedbackResearchSection = research_context
@@ -126,7 +129,7 @@ module.exports = {
 
     for (const reqm of tc.input.requirements)
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "requirement",
         body: { ...reqm, source: "feedback", feedback_title: use_title },
         user_id: req.user?.id,
@@ -154,14 +157,14 @@ module.exports = {
 
     for (const task of tcTasks.input.tasks)
       await MetaData.create({
-        type: "CopilotConstructMgr",
+        type: pt,
         name: "task",
-        body: { ...task, source: "feedback", feedback_title: use_title },
+        body: { ...task, source: "feedback", feedback_id, project_id },
         user_id: req.user?.id,
       });
 
     await MetaData.create({
-      type: "CopilotConstructMgr",
+      type: pt,
       name: "feedback",
       body: {
         title: use_title,
@@ -170,6 +173,7 @@ module.exports = {
         research_context,
         scope: row.scope || "overall",
         phase_idx: row.phase_idx ?? null,
+        feedback_id,
       },
       user_id: user?.id,
     });

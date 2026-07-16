@@ -168,11 +168,12 @@ const feedbackViewsContent = async (pt, projectId) => {
     name: "task",
   });
   const feedbackTasks = allTasks.filter((t) => t.body?.source === "feedback");
-  const tasksByTitle = {};
+  const tasksByFeedbackId = {};
   for (const t of feedbackTasks) {
-    const key = t.body.feedback_title || "";
-    if (!tasksByTitle[key]) tasksByTitle[key] = [];
-    tasksByTitle[key].push(t);
+    const key = t.body.feedback_id;
+    if (key == null) continue;
+    if (!tasksByFeedbackId[key]) tasksByFeedbackId[key] = [];
+    tasksByFeedbackId[key].push(t);
   }
 
   const taskBadge = (t) => {
@@ -222,7 +223,7 @@ const feedbackViewsContent = async (pt, projectId) => {
               {
                 label: "Tasks",
                 key: (m) => {
-                  const tasks = tasksByTitle[m.body.title] || [];
+                  const tasks = tasksByFeedbackId[m.body.feedback_id] || [];
                   if (!tasks.length)
                     return span({ class: "text-muted small" }, "—");
                   return div(
@@ -665,6 +666,7 @@ const start_approve_feedback = async (
   { req, res }
 ) => {
   const pt = getPt(body, req);
+  const projectId = body.project_id ?? req.query?.project_id;
   const id = parseInt(body.id);
   const mdRow = await MetaData.findOne({
     id,
@@ -766,6 +768,9 @@ const start_approve_feedback = async (
         description_field: "description",
         url_field: "url",
         research_context,
+        pt,
+        project_id: projectId,
+        feedback_id: id,
       },
     })
     .then(async () => {
@@ -861,7 +866,7 @@ const show_processed_feedback = async (
   const md = await MetaData.findOne({ id });
   if (!md) return { json: { error: "Not found" } };
 
-  const { title, description, url, research_context } = md.body;
+  const { title, description, url, research_context, phase_idx } = md.body;
 
   const field = (lbl, val) =>
     val
@@ -872,21 +877,65 @@ const show_processed_feedback = async (
         )
       : "";
 
-  const qaHtml = research_context
-    ? hr() +
-      p({ class: "fw-semibold mb-3" }, "Clarifying questions") +
-      research_context
+  // Phase — compact label only
+  let phaseHtml = "";
+  if (phase_idx != null) {
+    const phasesMd = await MetaData.findOne({ type: pt, name: "phases" });
+    const ph = phasesMd?.body?.phases?.[phase_idx];
+    const phaseLabel = ph
+      ? `Phase ${phase_idx + 1}: ${ph.name}`
+      : `Phase ${phase_idx + 1}`;
+    phaseHtml = field("Phase", phaseLabel);
+  }
+
+  // Q&A: only pairs that actually have a Q: line (filters out the phase note)
+  const qaPairs = research_context
+    ? research_context
         .split("\n\n")
         .map((pair) => {
-          const [qLine, aLine] = pair.split("\n");
-          const q = qLine?.replace(/^Q:\s*/, "") || "";
-          const a = aLine?.replace(/^A:\s*/, "") || "";
-          return div(
-            { class: "mb-3" },
-            small({ class: "text-muted fw-semibold d-block" }, q),
-            p({ class: "mb-0" }, a || "—")
-          );
+          const lines = pair.split("\n");
+          const qLine = lines.find((l) => l.startsWith("Q:"));
+          const aLine = lines.find((l) => l.startsWith("A:"));
+          if (!qLine) return null;
+          return {
+            q: qLine.replace(/^Q:\s*/, ""),
+            a: aLine?.replace(/^A:\s*/, "") || "",
+          };
         })
+        .filter(Boolean)
+    : [];
+
+  const qaHtml =
+    hr() +
+    p({ class: "fw-semibold mb-2" }, "Clarifying questions") +
+    (qaPairs.length
+      ? qaPairs
+          .map(({ q, a }) =>
+            div(
+              { class: "mb-2" },
+              small({ class: "text-muted fw-semibold d-block" }, q),
+              p({ class: "mb-0" }, a || "—")
+            )
+          )
+          .join("")
+      : p({ class: "text-muted small mb-0" }, "None"));
+
+  // Generated tasks
+  const allTasks = await MetaData.find({ type: pt, name: "task" });
+  const feedbackTasks = allTasks.filter(
+    (t) => t.body?.feedback_id === md.body.feedback_id
+  );
+  const tasksHtml = feedbackTasks.length
+    ? hr() +
+      p({ class: "fw-semibold mb-2" }, "Generated tasks") +
+      feedbackTasks
+        .map((t) =>
+          div(
+            { class: "mb-3" },
+            small({ class: "text-muted fw-semibold d-block" }, t.body.name),
+            p({ class: "mb-0 small" }, t.body.description || "")
+          )
+        )
         .join("")
     : "";
 
@@ -896,7 +945,9 @@ const show_processed_feedback = async (
         field("Title", title) +
         field("Description", description) +
         field("URL", url) +
-        qaHtml,
+        phaseHtml +
+        qaHtml +
+        tasksHtml,
     },
   };
 };
@@ -1181,6 +1232,7 @@ const del_feedback = async (table_id, vn, config, body, { req, res }) => {
   const pt = getPt(body, req);
   const r = await MetaData.findOne({ id: body.id });
   if (!r) throw new Error("Feedback not found");
+  const feedbackId = r.body?.feedback_id;
   await r.delete();
 
   // just to be sure
@@ -1196,6 +1248,12 @@ const del_feedback = async (table_id, vn, config, body, { req, res }) => {
     );
     await stale.delete();
   }
+
+  // delete tasks generated from this feedback
+  const tasks = await MetaData.find({ type: pt, name: "task" });
+  for (const t of tasks.filter((t) => t.body?.feedback_id === feedbackId))
+    await t.delete();
+
   return { json: { success: true } };
 };
 
