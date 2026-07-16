@@ -120,8 +120,9 @@ module.exports = {
         tools: [requirements_tool],
         ...tool_choice("make_requirements"),
         systemPrompt:
-          "You are a project manager. The user wants to build an application, and you\n" +
-          "must analyse their application description and any feedback available.",
+          "You are a Saltcorn developer receiving user feedback on an application built in Saltcorn. " +
+          "Write short, direct requirements — one sentence each. No acceptance criteria lists, " +
+          "no accessibility bullet points, no implementation notes. Just state what needs to change.",
       }
     );
     const tc = reqAnswer.getToolCalls()[0];
@@ -148,8 +149,10 @@ module.exports = {
         tools: [task_tool],
         ...tool_choice("plan_tasks"),
         systemPrompt:
-          "You are a project manager. The user wants to build an application, and you\n" +
-          "must analyse their application description and any feedback available.",
+          "You are a Saltcorn developer planning concrete implementation tasks. " +
+          "Each task description must be short and direct — state exactly what to modify in Saltcorn " +
+          "(which view, which column, which action) in 1–3 sentences. No acceptance criteria, " +
+          "no testing steps, no accessibility requirements unless explicitly requested.",
       }
     );
     const tcTasks = taskAnswer.getToolCalls()[0];

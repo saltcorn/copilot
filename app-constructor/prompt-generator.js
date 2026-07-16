@@ -567,12 +567,9 @@ class PromptGenerator {
     if (urlSection) parts.push(urlSection);
     if (feedbackResearchSection) parts.push(feedbackResearchSection);
     parts.push(
-      `Now use the make_requirements tool to create a single or several (a single is\n` +
-        `preferred) new requirements that captures this new piece of feedback.\n\n` +
-        `* Priority reflects how central the feature is to the core purpose of the\n` +
-        `  application. Assign 5 to features without which the application cannot function\n` +
-        `  at all, 3–4 to features that are important but not blocking, 1–2 to minor\n` +
-        `  convenience features. Do not assign 5 to everything.`
+      `Now use the make_requirements tool to create a single requirement (or a few if truly distinct) that captures this feedback.\n\n` +
+        `* Write each requirement as one short, direct sentence stating what must change. No acceptance criteria, no bullet lists, no accessibility notes.\n` +
+        `* Priority: 5 = application cannot function without it, 3–4 = important but not blocking, 1–2 = minor convenience. Do not assign 5 to everything.`
     );
     return parts.filter(Boolean).join("\n\n");
   }
