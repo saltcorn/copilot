@@ -1,5 +1,7 @@
 const { RelationsFinder, RelationType } = require("@saltcorn/common-code");
 
+const MAX_PATHS_PER_PAIR = 40;
+
 /**
  * Relation path documentation included in LLM system prompts (viewgen, builder-gen).
  *
@@ -145,7 +147,7 @@ function getRelationPaths(
  * @param {{ tables, views }} schemaData
  * @returns {Array<string>}  one formatted result string per pair
  */
-function getRelationPathsForPairs(pairs, schemaData, maxDepth = 6) {
+function getRelationPathsForPairs(pairs, schemaData, maxDepth = 2) {
   if (!schemaData)
     return pairs.map(({ source_table, target_view }) =>
       formatRelationPathResult(source_table, target_view, {
@@ -173,12 +175,14 @@ function getRelationPathsForPairs(pairs, schemaData, maxDepth = 6) {
         error: `Failed to find relations: ${e.message}`,
       });
     }
+    const { selected, omitted } = selectRelationPaths(relations);
     return formatRelationPathResult(source_table, target_view, {
-      paths: relations.map((r) => ({
+      paths: selected.map((r) => ({
         relation_string: r.relationString,
         type: String(r.type),
         label: typeToLabel(r.type),
       })),
+      omitted,
     });
   });
 }
@@ -187,6 +191,42 @@ function getRelationPathsForPairs(pairs, schemaData, maxDepth = 6) {
  * Pick the most useful relation from a list: Own > Parent > Child > first.
  * Used as a fallback in builder-gen when the model doesn't specify a relation.
  */
+function selectRelationPaths(relations, limit = MAX_PATHS_PER_PAIR) {
+  const unique = [
+    ...new Map(relations.map((r) => [r.relationString, r])).values(),
+  ];
+  const depth = (relation) =>
+    relation.relationString.split(".").filter(Boolean).length;
+  const comparePaths = (a, b) => {
+    return (
+      depth(a) - depth(b) ||
+      a.relationString.length - b.relationString.length ||
+      a.relationString.localeCompare(b.relationString)
+    );
+  };
+  const byType = new Map();
+  for (const relation of unique.sort(comparePaths)) {
+    const type = String(relation.type);
+    if (!byType.has(type)) byType.set(type, []);
+    byType.get(type).push(relation);
+  }
+
+  const selected = [];
+  while (selected.length < limit) {
+    let found = false;
+    for (const group of byType.values()) {
+      const relation = group.shift();
+      if (!relation) continue;
+      selected.push(relation);
+      found = true;
+      if (selected.length === limit) break;
+    }
+    if (!found) break;
+  }
+  selected.sort(comparePaths);
+  return { selected, omitted: unique.length - selected.length };
+}
+
 function pickBestRelation(relations) {
   if (!relations.length) return null;
   let own = null,
@@ -215,7 +255,10 @@ function formatRelationPathResult(source_table, target_view, result) {
   const lines = result.paths
     .map((p) => `    "${p.relation_string}" — ${p.label}`)
     .join("\n");
-  return `${source_table} → ${target_view}:\n${lines}`;
+  const omitted = result.omitted
+    ? `\n    … ${result.omitted} additional paths omitted; use one of the shortest paths above when suitable.`
+    : "";
+  return `${source_table} → ${target_view}:\n${lines}${omitted}`;
 }
 
 const GET_RELATION_PATHS_FUNCTION = {
@@ -265,5 +308,6 @@ module.exports = {
   GET_RELATION_PATHS_FUNCTION,
   getRelationPaths,
   getRelationPathsForPairs,
+  selectRelationPaths,
   pickBestRelation,
 };
