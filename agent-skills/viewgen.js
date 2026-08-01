@@ -8,8 +8,6 @@ const {
 const { getState } = require("@saltcorn/data/db/state");
 const {
   div,
-  pre,
-  code,
   a,
   text,
   escape,
@@ -18,6 +16,9 @@ const {
 } = require("@saltcorn/markup/tags");
 const builderGen = require("../builder-gen");
 const { SHOW_LAYOUT_GUIDANCE } = require("../view-layout-guidance");
+const {
+  renderGeneratedViewConfiguration,
+} = require("./generated-view-preview");
 const {
   RELATION_PATH_DOC,
   GET_RELATION_PATHS_FUNCTION,
@@ -534,7 +535,7 @@ class GenerateViewSkill {
         return {
           stop: true,
           add_response:
-            pre(JSON.stringify(wfctx, null, 2)) +
+            renderGeneratedViewConfiguration(wfctx) +
             div(
               { style: { maxHeight: 800, maxWidth: 500, overflow: "scroll" } },
               runres
@@ -635,7 +636,7 @@ class GenerateViewSkill {
         }
         return {
           stop: true,
-          add_response: pre(JSON.stringify(cfg, null, 2)),
+          add_response: renderGeneratedViewConfiguration(cfg),
           add_user_action: {
             name: "build_copilot_view_update",
             type: "button",
