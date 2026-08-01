@@ -29,6 +29,7 @@ const {
   textarea,
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
+const { buildAgentRouteForwarders } = require("./agent-route-forwarding");
 
 const get_state_fields = () => [];
 
@@ -71,21 +72,7 @@ const run = async (table_id, viewname, cfg, state, reqres) => {
   return await get_agent_view().run(state, reqres);
 };
 
-const interact = async (table_id, viewname, config, body, reqres) => {
-  const view = get_agent_view();
-  return await view.runRoute("interact", body, reqres.res, reqres);
-};
-
-const execute_user_action = async (
-  table_id,
-  viewname,
-  config,
-  body,
-  reqres,
-) => {
-  const view = get_agent_view();
-  return await view.runRoute("execute_user_action", body, reqres.res, reqres);
-};
+const routes = buildAgentRouteForwarders(get_agent_view);
 
 module.exports = {
   name: viewname,
@@ -94,5 +81,5 @@ module.exports = {
   tableless: true,
   singleton: true,
   run,
-  routes: { interact, execute_user_action },
+  routes,
 };
