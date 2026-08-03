@@ -7,7 +7,14 @@ const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
 
 const { mockReqRes } = require("@saltcorn/data/tests/mocks");
-const { afterAll, beforeAll, describe, it, expect } = require("@jest/globals");
+const {
+  afterAll,
+  beforeAll,
+  describe,
+  it,
+  expect,
+  jest,
+} = require("@saltcorn/db-common/test_expect");
 
 afterAll(require("@saltcorn/data/db").close);
 beforeAll(async () => {
