@@ -44,9 +44,9 @@ const {
 } = require("./errors");
 const { feedbackList, feedback_routes } = require("./feedback");
 const { progress_routes } = require("./progress");
-const { runNextTask } = require("./run_task");
 const { researchPanel, research_routes } = require("./research");
 const { phasesPanel, phasesStaticScript, phase_routes } = require("./phases");
+const { PhaseHelper } = require("./phases/phase-helper");
 
 const get_state_fields = () => [{ name: "project_id", type: "Integer" }];
 
@@ -565,7 +565,7 @@ const virtual_triggers = () => {
     {
       when_trigger: "Often",
       run: async () => {
-        await runNextTask();
+        await PhaseHelper.resumeStuck();
         await healPendingErrors();
       },
     },

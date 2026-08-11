@@ -7,7 +7,6 @@ const Plugin = require("@saltcorn/data/models/plugin");
 const Tag = require("@saltcorn/data/models/tag");
 const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
-const User = require("@saltcorn/data/models/user");
 const { getState } = require("@saltcorn/data/db/state");
 const { viewname, TaskType, projectType, BASE_TYPE } = require("./common");
 const { PromptGenerator } = require("./prompt-generator");
@@ -111,7 +110,9 @@ const runTask = async (md_id, req) => {
       ? new Set((await Plugin.find({})).map((p) => p.name))
       : null;
 
-  await md.update({ body: { ...md.body, status: "Running" } });
+  await md.update({
+    body: { ...md.body, status: "Running", started_at: Date.now() },
+  });
   try {
     getState().emitDynamicUpdate(db.getTenantSchema(), {
       eval_js:
@@ -126,39 +127,53 @@ const runTask = async (md_id, req) => {
     });
     const run_id = actionres.json.run_id;
     const run = await WorkflowRun.findOne({ id: run_id });
-    await agent_action.runWithoutRow({
-      row: {
-        prompt:
-          "Write a description of what you did, for the purposes of a progress report. Write 1-4 sentences. Do not use any tools or write any code",
-      },
-      req: safeReq,
-      run,
-      user: safeReq.user,
-    });
-    const updatedRun = await WorkflowRun.findOne({ id: run_id });
-    const extractText = (content) => {
-      if (!content) return "";
-      if (typeof content === "string") return content;
-      if (
-        typeof content === "object" &&
-        !Array.isArray(content) &&
-        content.text
-      )
-        return content.text;
-      if (Array.isArray(content)) {
-        const tb = content.find((b) => b?.type === "text" && b?.text);
-        return tb?.text || "";
-      }
-      return "";
-    };
-    const interactions = updatedRun.context.interactions || [];
+
+    // The task's real work is already done at this point (actionres above) -
+    // this second call only writes a nicer human-readable summary for the
+    // progress log. A transient failure here (e.g. an LLM API hiccup)
+    // shouldn't undo a task that actually succeeded, so it's isolated in its
+    // own try/catch with a plain fallback instead of failing the whole task.
     let lastText = "";
-    for (let i = interactions.length - 1; i >= 0; i--) {
-      const t = extractText(interactions[i]?.content);
-      if (t) {
-        lastText = t;
-        break;
+    try {
+      await agent_action.runWithoutRow({
+        row: {
+          prompt:
+            "Write a description of what you did, for the purposes of a progress report. Write 1-4 sentences. Do not use any tools or write any code",
+        },
+        req: safeReq,
+        run,
+        user: safeReq.user,
+      });
+      const updatedRun = await WorkflowRun.findOne({ id: run_id });
+      const extractText = (content) => {
+        if (!content) return "";
+        if (typeof content === "string") return content;
+        if (
+          typeof content === "object" &&
+          !Array.isArray(content) &&
+          content.text
+        )
+          return content.text;
+        if (Array.isArray(content)) {
+          const tb = content.find((b) => b?.type === "text" && b?.text);
+          return tb?.text || "";
+        }
+        return "";
+      };
+      const interactions = updatedRun.context.interactions || [];
+      for (let i = interactions.length - 1; i >= 0; i--) {
+        const t = extractText(interactions[i]?.content);
+        if (t) {
+          lastText = t;
+          break;
+        }
       }
+    } catch (e) {
+      getState().log(
+        1,
+        "runTask: progress-description generation failed (non-fatal):",
+        e
+      );
     }
     if (!lastText) lastText = md.body.description || md.body.name || "";
     await MetaData.create({
@@ -293,60 +308,4 @@ const runTask = async (md_id, req) => {
   }
 };
 
-/**
- * Run the next startable task
- * @param {boolean} [once=false] - true: run one task and stop, false: iterate all tasks
- */
-const runNextTask = async (once = false) => {
-  const projects = await MetaData.find({ type: BASE_TYPE, name: "project" });
-
-  for (const project of projects) {
-    const pt = projectType(project.id);
-
-    if (!once) {
-      const settings = await MetaData.findOne({ type: pt, name: "settings" });
-      if (!settings?.body?.running) continue;
-    }
-
-    const tasks = await MetaData.find(
-      { type: pt, name: "task" },
-      { orderBy: "id" }
-    );
-    if (tasks.some((t) => t.body.status === "Running")) continue;
-
-    const todos = tasks.filter(
-      (t) => !t.body.status || t.body.status === "To do"
-    );
-    const done = tasks.filter((t) => t.body.status === "Done");
-    const done_names = new Set(done.map((t) => t.body.name));
-    const all_task_names = new Set(
-      tasks.map((t) => t.body.name).filter(Boolean)
-    );
-
-    const startable = todos.filter((t) =>
-      (t.body.depends_on || []).every(
-        (nm) => done_names.has(nm) || !all_task_names.has(nm)
-      )
-    );
-
-    if (startable[0]) {
-      console.log("running task", startable[0]);
-      const taskUser = startable[0].user_id
-        ? await User.findOne({ id: startable[0].user_id })
-        : null;
-      await runTask(startable[0].id, {
-        user: taskUser,
-        __: (s) => s,
-        getLocale: () => "en",
-      });
-      if (!once) await runNextTask();
-      return;
-    } else if (!once) {
-      const settings = await MetaData.findOne({ type: pt, name: "settings" });
-      if (settings?.body?.running)
-        await settings.update({ body: { ...settings.body, running: false } });
-    }
-  }
-};
-
-module.exports = { runTask, runNextTask };
+module.exports = { runTask };

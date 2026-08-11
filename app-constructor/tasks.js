@@ -12,8 +12,9 @@ const {
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
-const { runTask, runNextTask } = require("./run_task");
+const { runTask } = require("./run_task");
 const { projectType } = require("./common");
+const { PhaseHelper } = require("./phases/phase-helper");
 
 const del_task = async (table_id, viewname, config, body, { req, res }) => {
   const r = await MetaData.findOne({ id: body.id, name: "task" });
@@ -31,21 +32,12 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
   const reqUser = req?.user;
   if (body.id) {
     if (!body.force) {
-      const task = await MetaData.findOne({ id: Number(body.id) });
-      const deps = task?.body?.depends_on || [];
-      if (deps.length > 0) {
-        const pt = projectType(task.body.project_id);
-        const allTasks = await MetaData.find({ type: pt, name: "task" });
-        const doneNames = new Set(
-          allTasks
-            .filter((t) => t.body.status === "Done")
-            .map((t) => t.body.name)
-        );
-        const unmet = deps.filter((d) => !doneNames.has(d));
-        if (unmet.length > 0)
-          return {
-            json: { unmet_deps: unmet, task_name: task.body.name || "" },
-          };
+      const unmet = await PhaseHelper.unmetDependencies(Number(body.id));
+      if (unmet.length > 0) {
+        const task = await MetaData.findOne({ id: Number(body.id) });
+        return {
+          json: { unmet_deps: unmet, task_name: task?.body?.name || "" },
+        };
       }
     }
     runTask(body.id, { user: reqUser, __: req.__ }).catch((e) => {
@@ -67,8 +59,7 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
     });
     return { json: { success: true } };
   }
-  runNextTask(true).catch((e) => console.error("run_task error", e));
-  return { json: { success: true } };
+  return { json: { error: "Task id required" } };
 };
 
 const reset_task = async (table_id, viewname, config, body, { req, res }) => {
