@@ -649,9 +649,17 @@ class GenerateViewSkill {
     const getRelationPathsTool = {
       type: "function",
       function: GET_RELATION_PATHS_FUNCTION,
-      process: async ({ pairs }) => {
+      process: async ({ pairs, max_depth }) => {
         const schemaData = await build_schema_data();
-        const sections = getRelationPathsForPairs(pairs || [], schemaData);
+        const depth = Math.min(
+          6,
+          Math.max(1, Math.trunc(Number(max_depth) || 2)),
+        );
+        const sections = getRelationPathsForPairs(
+          pairs || [],
+          schemaData,
+          depth,
+        );
         return (
           sections.join("\n\n") +
           `\n\nFor each pair, set the "relation" property to one of the strings listed above.\n` +
