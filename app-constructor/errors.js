@@ -280,12 +280,18 @@ const errorList = async (req, page = 1) => {
         )
       );
 
+  // Only application errors are shown here — a fix task can be created for
+  // these. Errors from the constructor itself (source: "constructor") are
+  // internal/system errors with no fixable application entity, so they're
+  // excluded from this list.
   const allErrs = (
     await MetaData.find({
       type: "CopilotConstructMgr",
       name: "error",
     })
-  ).sort((a, b) => new Date(b.written_at) - new Date(a.written_at));
+  )
+    .filter((m) => m.body.source === "application")
+    .sort((a, b) => new Date(b.written_at) - new Date(a.written_at));
 
   const totalPages = Math.max(1, Math.ceil(allErrs.length / ERROR_PAGE_SIZE));
   const currentPage = Math.min(Math.max(1, page), totalPages);
@@ -337,25 +343,6 @@ const errorList = async (req, page = 1) => {
         mkTable(
           [
             {
-              label: "Source",
-              key: (m) =>
-                m.body.source === "constructor"
-                  ? span(
-                      {
-                        class: "badge bg-secondary",
-                        title: "Error in the app constructor itself",
-                      },
-                      "constructor"
-                    )
-                  : span(
-                      {
-                        class: "badge bg-primary",
-                        title: "Error in the application being built",
-                      },
-                      "application"
-                    ),
-            },
-            {
               label: "When",
               key: (m) => {
                 const d = m.written_at ? new Date(m.written_at) : null;
@@ -401,9 +388,7 @@ const errorList = async (req, page = 1) => {
                     )
                   : "";
                 return div(
-                  {
-                    style: "word-break:break-word;min-width:0;max-width:480px;",
-                  },
+                  { style: "word-break:break-word;min-width:0;" },
                   div({ class: "fw-semibold small" }, text(msg)),
                   urlLine,
                   stackPreview
@@ -413,7 +398,6 @@ const errorList = async (req, page = 1) => {
             {
               label: "Status",
               key: (r) => {
-                if (r.body.source === "constructor") return "";
                 if (r.body.fixing)
                   return span(
                     {
@@ -486,7 +470,7 @@ const errorList = async (req, page = 1) => {
                   )
                 );
                 let fixRow = "";
-                if (r.body.source !== "constructor" && !r.body.fixing) {
+                if (!r.body.fixing) {
                   const fixTask = fixTaskByErrorId[r.id];
                   if (r.body.fix_task_created && fixTask) {
                     const taskStatus = fixTask.body.status || null;
@@ -569,7 +553,11 @@ const del_all_errs = async (table_id, vn, config, body, { req, res }) => {
     type: "CopilotConstructMgr",
     name: "error",
   });
-  for (const r of rs) await r.delete();
+  // Only delete what the list actually shows — constructor-source errors
+  // stay, since they're hidden here and "Delete all" shouldn't silently
+  // wipe records the user can't see.
+  for (const r of rs.filter((r) => r.body.source === "application"))
+    await r.delete();
   return { json: { success: true } };
 };
 
@@ -673,14 +661,12 @@ const errTableStaticHtml = `
 #err-list-area table { table-layout: auto; width: 100%; }
 #err-list-area table th:nth-child(1),
 #err-list-area table td:nth-child(1),
-#err-list-area table th:nth-child(2),
-#err-list-area table td:nth-child(2),
-#err-list-area table th:nth-child(5),
-#err-list-area table td:nth-child(5) { width: 1px; white-space: nowrap; }
 #err-list-area table th:nth-child(3),
-#err-list-area table td:nth-child(3) { width: 100%; }
+#err-list-area table td:nth-child(3),
 #err-list-area table th:nth-child(4),
-#err-list-area table td:nth-child(4) { padding-right: 2rem; }
+#err-list-area table td:nth-child(4) { width: 1px; white-space: nowrap; }
+#err-list-area table th:nth-child(2),
+#err-list-area table td:nth-child(2) { width: 100%; }
 </style>
 <div class="modal fade" id="err-detail-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">

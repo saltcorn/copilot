@@ -1,9 +1,4 @@
 const MetaData = require("@saltcorn/data/models/metadata");
-const Table = require("@saltcorn/data/models/table");
-const View = require("@saltcorn/data/models/view");
-const Page = require("@saltcorn/data/models/page");
-const Trigger = require("@saltcorn/data/models/trigger");
-const Plugin = require("@saltcorn/data/models/plugin");
 const {
   div,
   h6,
@@ -15,7 +10,6 @@ const {
   ul,
   li,
   a,
-  pre,
   textarea,
   label,
   select,
@@ -23,11 +17,12 @@ const {
 } = require("@saltcorn/markup/tags");
 const { mkTable } = require("@saltcorn/markup");
 const { getState, features } = require("@saltcorn/data/db/state");
-const db = require("@saltcorn/data/db");
-const { viewname, tool_choice, projectType, BASE_TYPE } = require("./common");
-const { task_tool } = require("./tools");
-const { runTask } = require("./run_task");
-const { PromptGenerator } = require("./prompt-generator");
+const { viewname, getPt } = require("../common");
+// All phase/task business logic (task generation, run/stop, chain state
+// machine, crash recovery, phase-list & requirement CRUD) lives in
+// PhaseHelper - this file only does routing + rendering on top of it.
+const { PhaseHelper } = require("./phase-helper");
+const { tasksOfType, allTasksDone } = require("./common");
 
 // ── Static client-side script ─────────────────────────────────────────────────
 
@@ -38,6 +33,7 @@ function phasesStartPoll() {
   const poll = () => {
     view_post(_phasesVn, 'phases_status', {}, (resp) => {
       if (resp && !resp.generating) {
+        if (resp.error) notifyAlert({ type: 'danger', text: resp.error });
         view_post(_phasesVn, 'phases_html', {}, (r) => {
           if (r && r.html) document.getElementById('phases-panel').innerHTML = r.html;
         });
@@ -74,10 +70,27 @@ window.copilotGenPhases = function() {
   if (!window.dynamic_updates_cfg?.enabled) phasesStartPoll();
 };
 
+// Any phase card whose "Generate & Run" is currently in flight, and the
+// project-wide "Run all phases" overview if that's active — (re)starts each
+// one's status tracking (poll loop, or just an initial sync in push mode).
+function _trackBusyPhaseCards() {
+  document.querySelectorAll('[id^="phase-all-stop-btn-"]:not(.d-none)').forEach((btn) => {
+    const idx = parseInt(btn.id.replace('phase-all-stop-btn-', ''));
+    if (!isNaN(idx)) _refreshChainUI(idx);
+  });
+  const overviewStopBtn = document.getElementById('phases-stop-all-btn');
+  if (overviewStopBtn && !overviewStopBtn.classList.contains('d-none')) _refreshOverviewStatus();
+}
+
 window.copilotRefreshPhases = function() {
   _setPhaseParam(null);
   view_post(_phasesVn, 'phases_html', {}, (r) => {
-    if (r && r.html) document.getElementById('phases-panel').innerHTML = r.html;
+    const panel = document.getElementById('phases-panel');
+    if (r && r.html && panel) {
+      panel.innerHTML = r.html;
+      delete panel.dataset.phaseIdx;
+      _trackBusyPhaseCards();
+    }
   });
 };
 
@@ -113,15 +126,6 @@ window.copilotProgressGoPage = function(idx, pg) {
   });
 };
 
-function _recoverRunState(idx, taskType, isStopping, mode = 'running') {
-  if (_runAllState[idx]) return;
-  _runAllState[idx] = { currentType: taskType, stopped: true, mode };
-  const { status, runBtn, stopBtn, genRunBtn } = _runAllTopBar(idx);
-  if (status) status.textContent = isStopping ? 'Stopping…' : 'Running…';
-  if (runBtn) runBtn.disabled = true;
-  if (genRunBtn) { genRunBtn.disabled = true; genRunBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…'; }
-  if (stopBtn) { stopBtn.disabled = true; stopBtn.classList.remove('d-none'); }
-}
 function _loadPhaseDetail(idx) {
   view_post(_phasesVn, 'phase_detail_html', { idx }, (r) => {
     if (r && r.html) {
@@ -129,16 +133,16 @@ function _loadPhaseDetail(idx) {
       panel.innerHTML = r.html;
       panel.dataset.phaseIdx = idx;
 
+      _refreshChainUI(idx);
+
       for (const tt of ['plugin', 'data_model', 'feature']) {
         view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: tt }, (resp) => {
           if (!resp) return;
           if (resp.generating && !window.dynamic_updates_cfg?.enabled) phaseTasksPoll(idx, tt);
-          if (resp.generating) _recoverRunState(idx, tt, false, 'generating');
         });
         view_post(_phasesVn, 'phase_run_status', { idx, task_type: tt }, (resp) => {
           if (!resp) return;
           if (!window.dynamic_updates_cfg?.enabled && (resp.isRunning || resp.anyRunning)) phasePollRunning(idx, tt);
-          if (resp.isRunning || resp.anyRunning) _recoverRunState(idx, tt, !resp.isRunning && resp.anyRunning);
         });
       }
     }
@@ -297,8 +301,6 @@ function _tasksGeneratingHtml(idx, taskType) {
     '<i class="fas fa-times me-1"></i>cancel</button></div>';
 }
 
-const _runAllState = {}; // idx -> { currentType, stopped }
-
 function _runAllTopBar(idx) {
   return {
     status: document.getElementById('phase-all-run-status-' + idx),
@@ -308,7 +310,6 @@ function _runAllTopBar(idx) {
   };
 }
 function _runAllSetIdle(idx, msg) {
-  delete _runAllState[idx];
   const { status, runBtn, stopBtn, genRunBtn } = _runAllTopBar(idx);
   if (status) status.textContent = msg || 'Not running';
   if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = '<i class="fas fa-play me-1"></i>Run all'; }
@@ -317,8 +318,6 @@ function _runAllSetIdle(idx, msg) {
 }
 function _runAllSetRunning(idx, taskType) {
   const label = taskType === 'plugin' ? 'Plugins' : taskType === 'data_model' ? 'Data model' : 'Features';
-  const prevStopped = _runAllState[idx]?.stopped || false;
-  _runAllState[idx] = { currentType: taskType, stopped: prevStopped, mode: 'running' };
   const { status, runBtn, stopBtn, genRunBtn } = _runAllTopBar(idx);
   if (status) status.innerHTML = '<i class="fas fa-spinner fa-spin me-1 text-success"></i>Running: ' + label;
   if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…'; }
@@ -327,185 +326,128 @@ function _runAllSetRunning(idx, taskType) {
 }
 function _runAllSetGenerating(idx, taskType) {
   const label = taskType === 'plugin' ? 'Plugins' : taskType === 'data_model' ? 'Data model' : 'Features';
-  const prevStopped = _runAllState[idx]?.stopped || false;
-  _runAllState[idx] = { currentType: taskType, stopped: prevStopped, mode: 'generating' };
   const { status, runBtn, stopBtn, genRunBtn } = _runAllTopBar(idx);
   if (status) status.innerHTML = '<i class="fas fa-spinner fa-spin me-1 text-primary"></i>Generating: ' + label;
   if (runBtn) runBtn.disabled = true;
   if (genRunBtn) { genRunBtn.disabled = true; genRunBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…'; }
   if (stopBtn) { stopBtn.disabled = false; stopBtn.classList.remove('d-none'); }
 }
+function _runAllSetStopping(idx) {
+  const { status, runBtn, stopBtn, genRunBtn } = _runAllTopBar(idx);
+  if (status) status.innerHTML = '<i class="fas fa-spinner fa-spin me-1 text-danger"></i>Stopping after current task…';
+  if (runBtn) runBtn.disabled = true;
+  if (genRunBtn) genRunBtn.disabled = true;
+  if (stopBtn) { stopBtn.disabled = true; stopBtn.classList.remove('d-none'); }
+}
 
-window.runAllPhaseTasks = function(idx) {
-  const types = ['plugin', 'data_model', 'feature'];
-  function runNext(i) {
-    if (i >= types.length) { _runAllSetIdle(idx, 'Not running'); return; }
-    const taskType = types[i];
-    const areaId = taskType === 'plugin' ? 'phase-plugins-area'
-                 : taskType === 'data_model' ? 'phase-data-model-area'
-                 : 'phase-features-area';
-    const el = document.getElementById(areaId);
-    const hasTodo = el && el.querySelector('[data-task-run]');
-    if (!hasTodo) { runNext(i + 1); return; }
-    _runAllSetRunning(idx, taskType);
-    view_post(_phasesVn, 'run_phase_tasks', { idx, task_type: taskType }, (resp) => {
-      if (!resp) { runNext(i + 1); return; }
-      if (window.dynamic_updates_cfg?.enabled) {
-        _runAllState[idx].onDone = () => {
-          if (_runAllState[idx]?.stopped) { _runAllSetIdle(idx, 'Not running'); return; }
-          runNext(i + 1);
-        };
-      } else {
-        const poll = () => {
-          view_post(_phasesVn, 'phase_run_status', { idx, task_type: taskType }, (r) => {
-            if (!r) { _refreshPhaseArea(idx, taskType); _runAllSetIdle(idx, 'Not running'); return; }
-            if (r.isRunning || r.anyRunning) {
-              _refreshPhaseArea(idx, taskType);
-              setTimeout(poll, 3000);
-            } else {
-              _refreshPhaseArea(idx, taskType);
-              if (typeof copilotRefreshSchema === 'function') copilotRefreshSchema();
-              if (_runAllState[idx]?.stopped) {
-                _runAllSetIdle(idx, 'Not running');
-              } else {
-                runNext(i + 1);
-              }
-            }
-          });
-        };
-        setTimeout(poll, 2000);
-      }
-    });
-  }
-  runNext(0);
+// Requests can land out of order (a poll tick issued just before a click can
+// resolve just after that click's own refresh) - _chainStatusSeq tracks the
+// latest issued refresh per phase so a stale response can't clobber a newer
+// one (e.g. showing "Generating…"/"Running…" again right after "Stopping…").
+// Both the card-refresh and the status-check below share the same token per
+// _refreshChainUI call, since a stale response from either can cause it.
+const _chainStatusSeq = {};
+
+// Patches just one phase card in place (used when the phases list, not a
+// phase's detail view, is what's currently showing).
+function _refreshPhaseCard(idx, seq) {
+  if (seq === undefined) seq = (_chainStatusSeq[idx] = (_chainStatusSeq[idx] || 0) + 1);
+  view_post(_phasesVn, 'phase_card_html', { idx }, (r) => {
+    if (_chainStatusSeq[idx] !== seq) return; // superseded by a newer refresh
+    const el = document.getElementById('phase-card-' + idx);
+    if (r && r.html && el) el.outerHTML = r.html;
+  });
+}
+
+// The server keeps track of the run, not the browser - so this just asks
+// what's happening right now and shows that, which is why a reload doesn't lose it.
+function _refreshChainUI(idx) {
+  const panel = document.getElementById('phases-panel');
+  const openIdx = panel && panel.dataset.phaseIdx !== undefined ? parseInt(panel.dataset.phaseIdx) : null;
+  const seq = (_chainStatusSeq[idx] = (_chainStatusSeq[idx] || 0) + 1);
+  if (openIdx === idx) _refreshAllAreas(idx);
+  else if (openIdx === null) _refreshPhaseCard(idx, seq);
+  view_post(_phasesVn, 'phase_chain_status', { idx }, (r) => {
+    if (_chainStatusSeq[idx] !== seq) return; // superseded by a newer request
+    if (!r || !r.active) { _runAllSetIdle(idx, 'Not running'); return; }
+    if (r.isStopping) _runAllSetStopping(idx);
+    else if (r.isGenerating) _runAllSetGenerating(idx, r.taskType);
+    else if (r.isRunning) _runAllSetRunning(idx, r.taskType);
+    // else: mid-transition between steps — leave the status text as-is, the
+    // next tick (push or poll) will land on the settled state.
+    if (!window.dynamic_updates_cfg?.enabled) setTimeout(() => _refreshChainUI(idx), 2500);
+  });
+}
+
+// ── Overview: "Run all phases" + processing status ─────────────────────────────
+// Mirrors _refreshChainUI, but for the phases overview - it reflects only the
+// all_phases_chain-driven run (a lone phase card's own run shows its own status).
+function _refreshOverviewStatus() {
+  const statusEl = document.getElementById('phases-overview-status');
+  if (!statusEl) return; // navigated away from the overview
+  view_post(_phasesVn, 'phases_overview_status', {}, (r) => {
+    const runBtn = document.getElementById('phases-run-all-btn');
+    const stopBtn = document.getElementById('phases-stop-all-btn');
+    if (r && r.active) {
+      const typeLabel = r.taskType === 'plugin' ? 'Plugins'
+        : r.taskType === 'data_model' ? 'Data model' : 'Features';
+      statusEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1 text-primary"></i>' +
+        (r.stopped ? 'Stopping ' + r.phaseName + '…'
+          : 'Processing ' + r.phaseName + (r.taskType ? ' (' + typeLabel + ')' : '') + '…');
+      if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…'; }
+      if (stopBtn) stopBtn.classList.remove('d-none');
+      if (r.idx != null) _refreshPhaseCard(r.idx); // keep the in-flight phase's card in sync too
+      if (!window.dynamic_updates_cfg?.enabled) setTimeout(_refreshOverviewStatus, 3000);
+    } else {
+      // done (or stopped) — full repaint re-enables every card's run button
+      // and updates done-badges, so no separate "go idle" patch is needed here.
+      copilotRefreshPhases();
+    }
+  });
+}
+window.copilotPhasesOverviewUpdate = function() {
+  _refreshOverviewStatus();
 };
 
-window.stopAllPhaseTasks = function(idx) {
-  let state = _runAllState[idx];
-  if (!state) {
-    const stopBtn = document.getElementById('phase-all-stop-btn-' + idx);
-    const taskType = stopBtn?.dataset?.taskType;
-    const mode = stopBtn?.dataset?.mode || 'running';
-    if (!taskType) return;
-    state = { currentType: taskType, stopped: true, mode };
-    _runAllState[idx] = state;
-  }
-  state.stopped = true;
-  state.onDone = null;
-  const { status, stopBtn } = _runAllTopBar(idx);
-  if (status) status.textContent = 'Stopping…';
+window.runAllPhases = function() {
+  const runBtn = document.getElementById('phases-run-all-btn');
+  if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…'; }
+  view_post(_phasesVn, 'run_all_phases', {}, () => _refreshOverviewStatus());
+};
+
+window.stopAllPhases = function() {
+  const statusEl = document.getElementById('phases-overview-status');
+  if (statusEl) statusEl.textContent = 'Stopping…';
+  const stopBtn = document.getElementById('phases-stop-all-btn');
   if (stopBtn) stopBtn.disabled = true;
-  if (state.mode === 'generating') {
-    view_post(_phasesVn, 'cancel_generating_phase_tasks', { idx, task_type: state.currentType }, () => {
-      _refreshPhaseArea(idx, state.currentType);
-      _runAllSetIdle(idx, 'Not running');
-    });
-  } else {
-    view_post(_phasesVn, 'stop_phase_tasks', { idx, task_type: state.currentType }, (resp) => {
-      if (!resp || !resp.taskStillRunning) _runAllSetIdle(idx, 'Not running');
-      // if a task is still running, doRunPhaseTasks will emit copilotPhaseTasksDone when it finishes
-    });
-  }
+  view_post(_phasesVn, 'stop_all_phases', {}, () => _refreshOverviewStatus());
 };
 
 window.generateAndRunAllPhaseTasks = function(idx) {
-  const types = ['plugin', 'data_model', 'feature'];
-  _runAllState[idx] = { currentType: 'plugin', stopped: false };
-  const { runBtn, stopBtn } = _runAllTopBar(idx);
-  if (runBtn) runBtn.disabled = true;
-  _runAllSetGenerating(idx, 'plugin');
-
-  function processNext(i) {
-    if (i >= types.length) { _runAllSetIdle(idx, 'Not running'); return; }
-    if (_runAllState[idx]?.stopped) { _runAllSetIdle(idx, 'Not running'); return; }
-    const taskType = types[i];
-    const areaId = taskType === 'plugin' ? 'phase-plugins-area'
-                 : taskType === 'data_model' ? 'phase-data-model-area' : 'phase-features-area';
-    const el = document.getElementById(areaId);
-    const hasCards = el && el.querySelector('[data-task-card]');
-    if (!hasCards) {
-      _runAllSetGenerating(idx, taskType);
-      if (el) el.innerHTML = _tasksGeneratingHtml(idx, taskType);
-      view_post(_phasesVn, 'generate_phase_tasks', { idx, task_type: taskType }, () => {});
-      if (window.dynamic_updates_cfg?.enabled) {
-        _runAllState[idx].onDone = () => {
-          if (!_runAllState[idx] || _runAllState[idx].stopped) return;
-          _refreshPhaseArea(idx, taskType, () => {
-            if (!_runAllState[idx] || _runAllState[idx].stopped) return;
-            runTasksForType(i, taskType);
-          });
-        };
-      } else {
-        const genPoll = () => {
-          if (!_runAllState[idx] || _runAllState[idx].stopped) return;
-          view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: taskType }, (resp) => {
-            if (!_runAllState[idx] || _runAllState[idx].stopped) return;
-            if (resp && !resp.generating) {
-              _refreshPhaseArea(idx, taskType, () => {
-                if (!_runAllState[idx] || _runAllState[idx].stopped) return;
-                runTasksForType(i, taskType);
-              });
-            } else {
-              setTimeout(genPoll, 3000);
-            }
-          });
-        };
-        setTimeout(genPoll, 3000);
-      }
-    } else {
-      runTasksForType(i, taskType);
+  function start() {
+    const { genRunBtn } = _runAllTopBar(idx);
+    if (genRunBtn) { genRunBtn.disabled = true; genRunBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Running…'; }
+    view_post(_phasesVn, 'run_all_phase_tasks', { idx }, () => _refreshChainUI(idx));
+  }
+  view_post(_phasesVn, 'prev_phases_status', { idx }, (resp) => {
+    if (resp && !resp.allPreviousDone) {
+      const msg = 'These earlier phases are not finished yet:\\n\\n  ' + resp.incompletePhases.join('\\n  ') + '\\n\\nRun this phase anyway?';
+      if (!confirm(msg)) return;
     }
-  }
+    start();
+  });
+};
 
-  function runTasksForType(i, taskType) {
-    if (_runAllState[idx]?.stopped) { _runAllSetIdle(idx, 'Not running'); return; }
-    const areaId = taskType === 'plugin' ? 'phase-plugins-area'
-                 : taskType === 'data_model' ? 'phase-data-model-area' : 'phase-features-area';
-    const el = document.getElementById(areaId);
-    const hasTodo = el && el.querySelector('[data-task-run]');
-    if (!hasTodo) { processNext(i + 1); return; }
-    _runAllSetRunning(idx, taskType);
-    view_post(_phasesVn, 'run_phase_tasks', { idx, task_type: taskType }, (resp) => {
-      if (!resp) { processNext(i + 1); return; }
-      if (window.dynamic_updates_cfg?.enabled) {
-        _runAllState[idx].onDone = () => {
-          if (_runAllState[idx]?.stopped) { _runAllSetIdle(idx, 'Not running'); return; }
-          processNext(i + 1);
-        };
-      } else {
-        const poll = () => {
-          view_post(_phasesVn, 'phase_run_status', { idx, task_type: taskType }, (r) => {
-            if (!r) { _refreshPhaseArea(idx, taskType); _runAllSetIdle(idx, 'Not running'); return; }
-            if (r.isRunning || r.anyRunning) {
-              _refreshPhaseArea(idx, taskType);
-              setTimeout(poll, 3000);
-            } else {
-              _refreshPhaseArea(idx, taskType);
-              if (typeof copilotRefreshSchema === 'function') copilotRefreshSchema();
-              if (_runAllState[idx]?.stopped) {
-                _runAllSetIdle(idx, 'Not running');
-              } else {
-                processNext(i + 1);
-              }
-            }
-          });
-        };
-        setTimeout(poll, 2000);
-      }
-    });
-  }
-
-  processNext(0);
+window.stopAllPhaseTasks = function(idx) {
+  _runAllSetStopping(idx);
+  view_post(_phasesVn, 'stop_phase_chain', { idx }, () => _refreshChainUI(idx));
 };
 
 window.runGroupTasks = function(idx, taskType) {
-  if (_runAllState[idx]) return;
   _runAllSetRunning(idx, taskType);
   view_post(_phasesVn, 'run_phase_tasks', { idx, task_type: taskType }, (resp) => {
     if (!resp) { _runAllSetIdle(idx, 'Not running'); return; }
-    if (window.dynamic_updates_cfg?.enabled) {
-      _runAllState[idx].onDone = () => _runAllSetIdle(idx, 'Not running');
-    } else {
+    if (!window.dynamic_updates_cfg?.enabled) {
       const poll = () => {
         view_post(_phasesVn, 'phase_run_status', { idx, task_type: taskType }, (r) => {
           if (!r) { _refreshPhaseArea(idx, taskType); _runAllSetIdle(idx, 'Not running'); return; }
@@ -521,6 +463,8 @@ window.runGroupTasks = function(idx, taskType) {
       };
       setTimeout(poll, 2000);
     }
+    // push mode: nothing else to do here — copilotPhaseTasksDone/Failed will
+    // fire and repaint via _refreshChainUI, which correctly reports idle.
   });
 };
 
@@ -530,26 +474,9 @@ window.cancelGeneratingPhaseTasks = function(idx, taskType) {
   });
 };
 
-window.copilotPhaseTasksDone = function(idx) {
-  _refreshAllAreas(idx);
-  const state = _runAllState[idx];
-  if (!state) return;
-  if (state.stopped) {
-    _runAllSetIdle(idx, 'Not running');
-  } else if (state.onDone) {
-    const cb = state.onDone;
-    state.onDone = null;
-    cb();
-  } else {
-    // onDone is absent — chain state was lost (e.g. page reload); go idle
-    _runAllSetIdle(idx, 'Not running');
-  }
-};
-
-window.copilotPhaseTasksFailed = function(idx) {
-  _refreshAllAreas(idx);
-  _runAllSetIdle(idx, 'Not running');
-};
+window.copilotPhaseTasksDone = function(idx) { _refreshChainUI(idx); };
+window.copilotPhaseTasksFailed = function(idx) { _refreshChainUI(idx); };
+window.copilotPhaseChainUpdate = function(idx) { _refreshChainUI(idx); };
 
 window.copilotRefreshTasks = function() {
   const panel = document.getElementById('phases-panel');
@@ -567,16 +494,7 @@ function copilotInitPhasesState() {
     const idx = parseInt(phaseParam);
     const panel = document.getElementById('phases-panel');
     if (panel) panel.dataset.phaseIdx = idx;
-    // Synchronously recover state from server-rendered DOM so copilotPhaseTasksDone
-    // can call _runAllSetIdle even if it fires before the async XHR callbacks below land.
-    const _stopBtnInit = document.getElementById('phase-all-stop-btn-' + idx);
-    const _statusInit = document.getElementById('phase-all-run-status-' + idx);
-    if (_stopBtnInit && !_stopBtnInit.classList.contains('d-none') && !_runAllState[idx]) {
-      const _tt = _stopBtnInit.dataset.taskType;
-      const _mode = _stopBtnInit.dataset.mode || 'running';
-      const _isStopping = !!_statusInit && _statusInit.textContent.includes('Stopping');
-      if (_tt) _runAllState[idx] = { currentType: _tt, stopped: _isStopping, mode: _mode };
-    }
+    _refreshChainUI(idx);
     for (const tt of ['plugin', 'data_model', 'feature']) {
       view_post(_phasesVn, 'phase_tasks_status', { idx, task_type: tt }, (resp) => {
         if (!resp) return;
@@ -587,74 +505,22 @@ function copilotInitPhasesState() {
         if (!window.dynamic_updates_cfg?.enabled && (resp.isRunning || resp.anyRunning)) phasePollRunning(idx, tt);
       });
     }
+  } else {
+    _trackBusyPhaseCards();
   }
 }
 (function() {
-  if (document.readyState !== 'loading') copilotInitPhasesState();
-  else document.addEventListener('DOMContentLoaded', copilotInitPhasesState);
+  // Deferred via setTimeout, same as saltcorn's own domReady() helper, so this
+  // always runs after projectIdWrapperScript's view_post patch (view.js) has
+  // applied - otherwise the very first phase_tasks_html/phase_card_html calls
+  // below go out without project_id and come back empty, blanking out tasks
+  // that were correctly rendered server-side.
+  if (document.readyState === 'complete') setTimeout(copilotInitPhasesState);
+  else document.addEventListener('DOMContentLoaded', function() { setTimeout(copilotInitPhasesState); });
 })();
 </script>`;
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
-
-const phases_tool = {
-  type: "function",
-  function: {
-    name: "set_phases",
-    description:
-      "Set the development phases for the application. Each phase groups a set of requirements that belong together and should be built in the same iteration.",
-    parameters: {
-      type: "object",
-      required: ["phases"],
-      additionalProperties: false,
-      properties: {
-        phases: {
-          type: "array",
-          minItems: 1,
-          description: "Ordered list of development phases",
-          items: {
-            type: "object",
-            required: ["name", "description", "requirements"],
-            additionalProperties: false,
-            properties: {
-              name: {
-                type: "string",
-                description:
-                  "Short phase name, e.g. 'Phase 1: Core data entry'",
-              },
-              description: {
-                type: "string",
-                description:
-                  "1–3 sentences describing what this phase delivers and why it forms a coherent milestone",
-              },
-              requirements: {
-                type: "array",
-                description:
-                  "The requirements that belong to this phase, in the same format as make_requirements",
-                items: {
-                  type: "object",
-                  required: ["requirement", "priority"],
-                  additionalProperties: false,
-                  properties: {
-                    requirement: {
-                      type: "string",
-                      description: "A statement of the requirement",
-                    },
-                    priority: {
-                      type: "number",
-                      description:
-                        "Priority 1-5. 5: Must-have for this phase, 1: Nice-to-have",
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-};
 
 const phasesSpinner =
   `<p id="phases-generating-state">` +
@@ -682,7 +548,16 @@ const tasksSpinner = (phaseIdx, taskType) =>
 
 // ── Phase list view ───────────────────────────────────────────────────────────
 
-const phaseCard = (phase, idx, req, allDone, hasFeedback, projectId) => {
+const phaseCard = (
+  phase,
+  idx,
+  req,
+  allDone,
+  hasFeedback,
+  projectId,
+  runState,
+  disableRun
+) => {
   const starFieldview = getState().types.Integer.fieldviews.show_star_rating;
   const reqs = phase.requirements || [];
   const canEdit = features.view_route_modal && !allDone;
@@ -717,7 +592,9 @@ const phaseCard = (phase, idx, req, allDone, hasFeedback, projectId) => {
                       type: "button",
                       class: "btn btn-outline-danger btn-sm",
                       title: "Delete requirement",
-                      onclick: `if(confirm('Delete this requirement?')) view_post(_phasesVn,'delete_requirement',{phaseIdx:${idx},reqIdx:${rIdx}},()=>copilotRefreshPhases())`,
+                      onclick: `if(confirm('Delete this requirement?')) view_post(_phasesVn,'delete_requirement',{
+                        phaseIdx:${idx},reqIdx:${rIdx}
+                      },()=>copilotRefreshPhases())`,
                     },
                     i({ class: "fas fa-times" })
                   )
@@ -747,8 +624,16 @@ const phaseCard = (phase, idx, req, allDone, hasFeedback, projectId) => {
         String(idx + 1)
       );
 
+  const { statusHtml, genRunBtnHtml, stopBtnHtml } = runControlsHtml(
+    idx,
+    runState,
+    disableRun,
+    `Run Phase ${idx + 1}`
+  );
+
   return div(
     {
+      id: `phase-card-${idx}`,
       class: `card mb-3 shadow-sm border-start border-4 ${
         allDone ? "border-success" : "border-primary"
       }`,
@@ -784,6 +669,12 @@ const phaseCard = (phase, idx, req, allDone, hasFeedback, projectId) => {
             i({ class: "fas fa-arrow-right" })
           )
         )
+      ),
+      div(
+        { class: "d-flex align-items-center gap-2 mb-2 flex-wrap" },
+        genRunBtnHtml,
+        stopBtnHtml,
+        statusHtml
       ),
       div(
         { class: "border-top pt-2 mt-1" },
@@ -869,17 +760,14 @@ const phasesHtml = async (req, pt, projectId) => {
 
   const phaseAllDone = phases.map((_, idx) => {
     const phaseTasks = allTasks.filter((t) => t.body?.phase_idx === idx);
-    const byType = (type) =>
-      phaseTasks.filter((t) => (t.body.task_type || "feature") === type);
-    const dmTasks = byType("data_model");
-    const ftTasks = byType("feature");
-    const plTasks = byType("plugin");
-    const allDone = (tasks) =>
-      tasks.length > 0 && tasks.every((t) => t.body?.status === "Done");
     // ok if marker says 0 were needed, or if tasks exist and all done
-    const pluginOk = pluginMarkerIdxs.has(idx) || allDone(plTasks);
-    const dmOk = dmMarkerIdxs.has(idx) || allDone(dmTasks);
-    return dmOk && allDone(ftTasks) && pluginOk;
+    const pluginOk =
+      pluginMarkerIdxs.has(idx) ||
+      allTasksDone(tasksOfType(phaseTasks, "plugin"));
+    const dmOk =
+      dmMarkerIdxs.has(idx) ||
+      allTasksDone(tasksOfType(phaseTasks, "data_model"));
+    return dmOk && allTasksDone(tasksOfType(phaseTasks, "feature")) && pluginOk;
   });
 
   const phasesWithFeedback = new Set();
@@ -892,6 +780,58 @@ const phasesHtml = async (req, pt, projectId) => {
       if (r.body?.phase_idx != null) phasesWithFeedback.add(r.body.phase_idx);
   } catch (_) {}
 
+  const [runStates, overviewState] = await Promise.all([
+    Promise.all(phases.map((_, idx) => PhaseHelper.status(idx, pt))),
+    PhaseHelper.allPhasesStatus(pt),
+  ]);
+  const taskTypeLabel = (tt) =>
+    tt === "plugin"
+      ? "Plugins"
+      : tt === "data_model"
+      ? "Data model"
+      : "Features";
+
+  const runAllRow = div(
+    { class: "d-flex align-items-center gap-2 mb-3 flex-wrap" },
+    button(
+      {
+        id: "phases-run-all-btn",
+        class: "btn btn-success btn-sm",
+        onclick: "runAllPhases()",
+        title: "Generate and run tasks for every phase, in order",
+        ...(overviewState.active ? { disabled: true } : {}),
+      },
+      i({
+        class: overviewState.active
+          ? "fas fa-spinner fa-spin me-1"
+          : "fas fa-play me-1",
+      }),
+      overviewState.active ? "Running…" : "Run all phases"
+    ),
+    button(
+      {
+        id: "phases-stop-all-btn",
+        class: `btn btn-danger btn-sm${overviewState.active ? "" : " d-none"}`,
+        onclick: "stopAllPhases()",
+      },
+      i({ class: "fas fa-stop me-1" }),
+      "Stop"
+    ),
+    span(
+      { id: "phases-overview-status", class: "small text-muted" },
+      overviewState.active
+        ? i({ class: "fas fa-spinner fa-spin me-1 text-primary" }) +
+            (overviewState.stopped
+              ? `Stopping ${overviewState.phaseName}…`
+              : `Processing ${overviewState.phaseName}` +
+                (overviewState.taskType
+                  ? ` (${taskTypeLabel(overviewState.taskType)})`
+                  : "") +
+                "…")
+        : ""
+    )
+  );
+
   return (
     div(
       { class: "d-flex justify-content-between align-items-center mb-3" },
@@ -903,6 +843,7 @@ const phasesHtml = async (req, pt, projectId) => {
       ),
       generateBtn("Regenerate")
     ) +
+    runAllRow +
     phases
       .map((ph, idx) =>
         phaseCard(
@@ -911,7 +852,9 @@ const phasesHtml = async (req, pt, projectId) => {
           req,
           phaseAllDone[idx],
           phasesWithFeedback.has(idx),
-          projectId
+          projectId,
+          runStates[idx],
+          overviewState.active
         )
       )
       .join("") +
@@ -1211,22 +1154,16 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
       : [];
 
   if (!tasks.length) {
-    let emptyMsg = "No tasks yet.";
-    if (taskType === "plugin") {
-      const markers = await MetaData.find({
-        type: pt,
-        name: "phase_plugin_generated",
-      });
-      if (markers.some((m) => m.body?.phase_idx === phaseIdx))
-        emptyMsg = "No plugin installations needed for this phase.";
-    } else if (taskType === "data_model") {
-      const markers = await MetaData.find({
-        type: pt,
-        name: "phase_data_model_generated",
-      });
-      if (markers.some((m) => m.body?.phase_idx === phaseIdx))
-        emptyMsg = "No schema changes needed for this phase.";
-    }
+    const { markedEmpty } = await PhaseHelper.typeGenerationState(
+      phaseIdx,
+      taskType,
+      pt
+    );
+    const emptyMsg = !markedEmpty
+      ? "No tasks yet."
+      : taskType === "plugin"
+      ? "No plugin installations needed for this phase."
+      : "No schema changes needed for this phase.";
     return (
       staleNotice + topBar + p({ class: "text-muted small mt-2" }, emptyMsg)
     );
@@ -1383,53 +1320,57 @@ const phaseProgressHtml = async (idx, page = 1, pt) => {
   );
 };
 
-const phaseDetailHtml = async (phase, idx, pt, projectId) => {
-  const tabId = `phase-detail-tabs-${idx}`;
-  const [
-    plContent,
-    dmContent,
-    ftContent,
-    pgContent,
-    genMd,
-    allTasksMd,
-    ...runFlags
-  ] = await Promise.all([
-    phaseTasksHtml(idx, "plugin", pt, projectId),
-    phaseTasksHtml(idx, "data_model", pt, projectId),
-    phaseTasksHtml(idx, "feature", pt, projectId),
-    phaseProgressHtml(idx, 1, pt),
-    MetaData.findOne({ type: pt, name: "generating_phase_tasks" }),
-    MetaData.find({ type: pt, name: "task" }),
-    MetaData.findOne({ type: pt, name: `phase_running_${idx}_plugin` }),
-    MetaData.findOne({ type: pt, name: `phase_running_${idx}_data_model` }),
-    MetaData.findOne({ type: pt, name: `phase_running_${idx}_feature` }),
-  ]);
-
-  const isGenerating = genMd?.body?.phase_idx === idx;
-  const isRunning = runFlags.some(Boolean);
-  const anyRunning = allTasksMd.some(
-    (t) => t.body?.phase_idx === idx && t.body?.status === "Running"
-  );
-  const isBusy = isGenerating || isRunning || anyRunning;
-  const isStopping = !isRunning && !isGenerating && anyRunning;
-  const runStatus = isStopping
-    ? "Stopping…"
-    : isBusy
-    ? "Running…"
-    : "Not running";
+// The "Generate & Run" / "Stop" controls for a phase — same three elements
+// (status span + run button + stop button, same IDs) wherever a phase's
+// run state needs to be shown: the phase card in the list, and the phase
+// detail view. Sharing the IDs (never both on screen at once — the list and
+// a phase's detail occupy the same panel) is what lets a single client-side
+// refresh function drive whichever one is currently rendered.
+// disableRun: true while "Run all phases" (project-wide) is active, so a
+// phase not yet reached by it can't also be started individually.
+const runControlsHtml = (
+  idx,
+  runState,
+  disableRun = false,
+  idleLabel = "Generate &amp; Run"
+) => {
+  const { isBusy, isStopping } = runState;
+  const status = isStopping ? "Stopping…" : isBusy ? "Running…" : "";
   const genRunBtnContent = isBusy
     ? `<i class="fas fa-spinner fa-spin me-1"></i>Running…`
-    : `<i class="fas fa-play me-1"></i>Generate &amp; Run`;
-  const stopBtnExtra = isStopping ? " disabled" : "";
-  const currentMode = isGenerating ? "generating" : "running";
-  const currentTaskType = isGenerating
-    ? genMd.body?.task_type || "feature"
-    : isRunning
-    ? ["plugin", "data_model", "feature"][runFlags.findIndex(Boolean)] ||
-      "feature"
-    : allTasksMd.find(
-        (t) => t.body?.phase_idx === idx && t.body?.status === "Running"
-      )?.body?.task_type || "feature";
+    : `<i class="fas fa-play me-1"></i>${idleLabel}`;
+  const runBtnTitle =
+    disableRun && !isBusy
+      ? "Disabled while ‘Run all phases’ is in progress"
+      : "Generate and run all tasks for this phase";
+  return {
+    statusHtml: `<span id="phase-all-run-status-${idx}" class="small text-muted">${status}</span>`,
+    genRunBtnHtml: `<button id="phase-all-gen-run-btn-${idx}" class="btn btn-success btn-sm" onclick="generateAndRunAllPhaseTasks(${idx})" title="${runBtnTitle}"${
+      isBusy || disableRun ? " disabled" : ""
+    }>${genRunBtnContent}</button>`,
+    stopBtnHtml: `<button id="phase-all-stop-btn-${idx}" class="btn btn-danger btn-sm${
+      isBusy ? "" : " d-none"
+    }"${
+      isStopping ? " disabled" : ""
+    } onclick="stopAllPhaseTasks(${idx})"><i class="fas fa-stop me-1"></i>Stop</button>`,
+  };
+};
+
+const phaseDetailHtml = async (phase, idx, pt, projectId) => {
+  const tabId = `phase-detail-tabs-${idx}`;
+  const [plContent, dmContent, ftContent, pgContent, runState] =
+    await Promise.all([
+      phaseTasksHtml(idx, "plugin", pt, projectId),
+      phaseTasksHtml(idx, "data_model", pt, projectId),
+      phaseTasksHtml(idx, "feature", pt, projectId),
+      phaseProgressHtml(idx, 1, pt),
+      PhaseHelper.status(idx, pt),
+    ]);
+
+  const { statusHtml, genRunBtnHtml, stopBtnHtml } = runControlsHtml(
+    idx,
+    runState
+  );
 
   const backBtn = button(
     {
@@ -1492,18 +1433,11 @@ const phaseDetailHtml = async (phase, idx, pt, projectId) => {
 </ul>
 <div class="tab-content pt-3">
   <div class="tab-pane fade show active" id="${tabId}-tasks">
+    <p class="text-muted small mb-2">Generates then runs all tasks for this phase, in order.</p>
     <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-      <span id="phase-all-run-status-${idx}" class="small text-muted">${runStatus}</span>
-      <button id="phase-all-gen-run-btn-${idx}" class="btn btn-success btn-sm" onclick="generateAndRunAllPhaseTasks(${idx})" title="Generate tasks for each section (if not yet generated), then run them all"${
-    isBusy ? " disabled" : ""
-  }>
-        ${genRunBtnContent}
-      </button>
-      <button id="phase-all-stop-btn-${idx}" class="btn btn-danger btn-sm${
-    isBusy ? "" : " d-none"
-  }"${stopBtnExtra} data-task-type="${currentTaskType}" data-mode="${currentMode}" onclick="stopAllPhaseTasks(${idx})">
-        <i class="fas fa-stop me-1"></i>Stop
-      </button>
+      ${genRunBtnHtml}
+      ${stopBtnHtml}
+      ${statusHtml}
     </div>
     ${taskGroup("fa-puzzle-piece", "Plugins", "phase-plugins-area", plContent)}
     ${taskGroup(
@@ -1540,353 +1474,7 @@ const phasesPanel = async (req, pt, projectId) => {
   return div({ class: "mt-2" }, div({ id: "phases-panel" }, innerHtml));
 };
 
-// ── Phase generation ──────────────────────────────────────────────────────────
-
-const deletePhaseScopedFeedback = async (pt) => {
-  for (const name of ["feedback_pending", "feedback"]) {
-    const records = await MetaData.find({ type: pt, name });
-    for (const r of records.filter((r) => r.body?.phase_idx != null)) {
-      const research = await MetaData.findOne({
-        type: pt,
-        name: `feedback_research_${r.id}`,
-      });
-      if (research) await research.delete();
-      await r.delete();
-    }
-  }
-};
-
-const doGenPhases = async (userId, pt) => {
-  const generatingMd = await MetaData.create({
-    type: pt,
-    name: "generating_phases",
-    body: {},
-    user_id: userId,
-  });
-  try {
-    const generator = await PromptGenerator.createInstance({ pt });
-    if (!generator.spec) throw new Error("Specification not found");
-    const answer = await getState().functions.llm_generate.run(
-      generator.phasesPlanPrompt(),
-      {
-        tools: [phases_tool],
-        ...tool_choice("set_phases"),
-        systemPrompt:
-          "You are a senior software architect and project manager. " +
-          "Break the application into logical delivery phases, each containing the requirements that belong to that phase. " +
-          "Only include what is explicitly stated in the specification — do not infer or add plausible extras.",
-      }
-    );
-
-    const tc = answer.getToolCalls()[0];
-
-    // Delete all phase tasks and phase-scoped feedback before replacing phases
-    // (phase indices will shift, making both stale)
-    const allTasks = await MetaData.find({
-      type: pt,
-      name: "task",
-    });
-    for (const t of allTasks.filter((t) => t.body?.phase_idx !== undefined))
-      await t.delete();
-    await deletePhaseScopedFeedback(pt);
-
-    const existing = await MetaData.findOne({
-      type: pt,
-      name: "phases",
-    });
-    if (existing) {
-      await existing.update({ body: { phases: tc.input.phases } });
-    } else {
-      await MetaData.create({
-        type: pt,
-        name: "phases",
-        body: { phases: tc.input.phases },
-        user_id: userId,
-      });
-    }
-  } finally {
-    await generatingMd.delete();
-    try {
-      getState().emitDynamicUpdate(db.getTenantSchema(), {
-        eval_js:
-          "if(typeof copilotRefreshPhases==='function')copilotRefreshPhases();",
-      });
-    } catch (_) {}
-  }
-};
-
-// ── Task generation for a phase ───────────────────────────────────────────────
-
-// taskType: "data_model" | "feature" | null (null = generate both)
-const doGenPhaseTasks = async (phase, userId, taskType, pt) => {
-  const generatingMd = await MetaData.create({
-    type: pt,
-    name: "generating_phase_tasks",
-    body: { phase_idx: phase.idx, task_type: taskType },
-    user_id: userId,
-  });
-  let cancelled = false;
-  let failed = false;
-  let toastMsg = "";
-
-  try {
-    const generator = await PromptGenerator.createInstance({ phase, pt });
-    const answer = await getState().functions.llm_generate.run(
-      generator.taskPlanPrompt(taskType),
-      {
-        tools: [task_tool],
-        ...tool_choice("plan_tasks"),
-        systemPrompt:
-          "You are a project manager planning implementation tasks for a Saltcorn application. " +
-          "Each task must map to a concrete deliverable (a view, page, trigger, or schema change). " +
-          "Keep tasks small and focused.",
-      }
-    );
-
-    // If cancelled while the LLM was running, bail out without creating tasks
-    const stillActive = await MetaData.findOne({
-      type: pt,
-      name: "generating_phase_tasks",
-    });
-    if (!stillActive || stillActive.id !== generatingMd.id) {
-      cancelled = true;
-      return;
-    }
-
-    const tc = answer.getToolCalls()[0];
-
-    // Remove existing tasks of the relevant type(s) before storing new ones
-    const existing = await MetaData.find({
-      type: pt,
-      name: "task",
-    });
-    const phaseTasks = existing.filter((t) => t.body?.phase_idx === phase.idx);
-    for (const t of phaseTasks) {
-      const tType = t.body.task_type || "feature";
-      if (tType === taskType) await t.delete();
-    }
-
-    // Clear any existing "no tasks needed" markers for this phase
-    if (taskType === "plugin") {
-      const oldMarkers = await MetaData.find({
-        type: pt,
-        name: "phase_plugin_generated",
-      });
-      for (const m of oldMarkers.filter((m) => m.body?.phase_idx === phase.idx))
-        await m.delete();
-    } else if (taskType === "data_model") {
-      const oldMarkers = await MetaData.find({
-        type: pt,
-        name: "phase_data_model_generated",
-      });
-      for (const m of oldMarkers.filter((m) => m.body?.phase_idx === phase.idx))
-        await m.delete();
-    }
-
-    const projectId = Number(pt.split(":")[1]);
-    for (const task of tc.input.tasks)
-      await MetaData.create({
-        type: pt,
-        name: "task",
-        body: {
-          ...task,
-          phase_idx: phase.idx,
-          phase_name: phase.name,
-          project_id: projectId,
-        },
-        user_id: userId,
-      });
-
-    await clearPhaseStaleMarker(phase.idx, pt);
-
-    // If generation produced 0 tasks, record that it was considered
-    if (
-      taskType === "plugin" &&
-      tc.input.tasks.filter((t) => t.task_type === "plugin").length === 0
-    ) {
-      await MetaData.create({
-        type: pt,
-        name: "phase_plugin_generated",
-        body: { phase_idx: phase.idx },
-        user_id: userId,
-      });
-    }
-    if (
-      taskType === "data_model" &&
-      tc.input.tasks.filter((t) => t.task_type === "data_model").length === 0
-    ) {
-      await MetaData.create({
-        type: pt,
-        name: "phase_data_model_generated",
-        body: { phase_idx: phase.idx },
-        user_id: userId,
-      });
-    }
-  } catch (err) {
-    const activeOnErr = await MetaData.findOne({
-      type: pt,
-      name: "generating_phase_tasks",
-    }).catch(() => null);
-    if (!activeOnErr || activeOnErr.id !== generatingMd.id) {
-      cancelled = true;
-    }
-    if (!cancelled) {
-      const statusCode =
-        err?.statusCode ||
-        err?.lastError?.statusCode ||
-        (err?.errors || [])[0]?.statusCode;
-      toastMsg = statusCode
-        ? `Task generation failed: API error (HTTP ${statusCode})`
-        : `Task generation failed: ${String(err?.message || err)
-            .replace(/\s+/g, " ")
-            .slice(0, 120)}`;
-      try {
-        await MetaData.create({
-          type: BASE_TYPE,
-          name: "error",
-          body: {
-            source: "constructor",
-            error: { message: err?.message || String(err), stack: err?.stack },
-          },
-          user_id: userId,
-        });
-      } catch (_) {}
-      failed = true;
-    }
-  } finally {
-    try {
-      await generatingMd.delete();
-    } catch (_) {}
-    if (!cancelled)
-      try {
-        getState().emitDynamicUpdate(db.getTenantSchema(), {
-          eval_js: failed
-            ? `notifyAlert({type:'danger',text:${JSON.stringify(
-                toastMsg
-              )}});if(typeof copilotPhaseTasksFailed==='function')copilotPhaseTasksFailed(${
-                phase.idx
-              });`
-            : `if(typeof copilotPhaseTasksDone==='function')copilotPhaseTasksDone(${phase.idx});`,
-        });
-      } catch (_) {}
-  }
-};
-
-// ── Phase task chain runner ───────────────────────────────────────────────────
-
-const doRunPhaseTasks = async (phaseIdx, taskType, req, pt) => {
-  const flagName = `phase_running_${phaseIdx}_${taskType}`;
-  const running = await MetaData.findOne({
-    type: pt,
-    name: flagName,
-  });
-  if (!running) {
-    try {
-      getState().emitDynamicUpdate(db.getTenantSchema(), {
-        eval_js: `if(typeof copilotPhaseTasksDone==='function')copilotPhaseTasksDone(${phaseIdx});`,
-      });
-    } catch (_) {}
-    return;
-  }
-
-  const allTasks = await MetaData.find({
-    type: pt,
-    name: "task",
-  });
-  const phaseTasks = allTasks.filter((t) => t.body?.phase_idx === phaseIdx);
-  const typedTasks = phaseTasks.filter(
-    (t) => (t.body.task_type || "feature") === taskType
-  );
-
-  if (typedTasks.some((t) => t.body.status === "Running")) return;
-
-  const doneNames = new Set(
-    phaseTasks.filter((t) => t.body.status === "Done").map((t) => t.body.name)
-  );
-  // Only block on same-type dependencies; cross-type deps are the user's ordering concern
-  const sameTypeNames = new Set(
-    typedTasks.map((t) => t.body.name).filter(Boolean)
-  );
-  const todos = typedTasks.filter(
-    (t) => !t.body.status || t.body.status === "To do"
-  );
-  const startable = todos.filter((t) =>
-    (t.body.depends_on || []).every(
-      (nm) => doneNames.has(nm) || !sameTypeNames.has(nm)
-    )
-  );
-
-  if (startable[0]) {
-    try {
-      await runTask(startable[0].id, req);
-    } catch (e) {
-      let toastMsg = "Task run failed";
-      try {
-        const statusCode =
-          e?.statusCode ||
-          e?.lastError?.statusCode ||
-          (e?.errors || [])[0]?.statusCode;
-        toastMsg = statusCode
-          ? `Task run failed: API error (HTTP ${statusCode})`
-          : `Task run failed: ${String(e?.message || e)
-              .replace(/\s+/g, " ")
-              .slice(0, 120)}`;
-        await MetaData.create({
-          type: BASE_TYPE,
-          name: "error",
-          body: {
-            source: "constructor",
-            error: { message: e?.message || String(e), stack: e?.stack },
-          },
-        });
-      } catch (_) {}
-      const runningMd = await MetaData.findOne({ type: pt, name: flagName });
-      if (runningMd) await runningMd.delete();
-      try {
-        getState().emitDynamicUpdate(db.getTenantSchema(), {
-          eval_js: `notifyAlert({type:'danger',text:${JSON.stringify(
-            toastMsg
-          )}});if(typeof copilotPhaseTasksFailed==='function')copilotPhaseTasksFailed(${phaseIdx});`,
-        });
-      } catch (_) {}
-      return;
-    }
-    await doRunPhaseTasks(phaseIdx, taskType, req, pt);
-  } else {
-    const runningMd = await MetaData.findOne({
-      type: pt,
-      name: flagName,
-    });
-    if (runningMd) await runningMd.delete();
-    try {
-      getState().emitDynamicUpdate(db.getTenantSchema(), {
-        eval_js: `if(typeof copilotPhaseTasksDone==='function')copilotPhaseTasksDone(${phaseIdx});`,
-      });
-    } catch (_) {}
-  }
-};
-
 // ── Routes ────────────────────────────────────────────────────────────────────
-
-const getPt = (body, req) =>
-  projectType(body.project_id ?? req.query?.project_id);
-
-const gen_phases = async (table_id, vn, config, body, { req, res }) => {
-  const pt = getPt(body, req);
-  doGenPhases(req.user?.id, pt).catch((e) =>
-    console.error("gen_phases error", e)
-  );
-  return { json: { success: true } };
-};
-
-const phases_status = async (table_id, vn, config, body, { req, res }) => {
-  const pt = getPt(body, req);
-  const generating = await MetaData.findOne({
-    type: pt,
-    name: "generating_phases",
-  });
-  return { json: { generating: !!generating } };
-};
 
 const phases_html = async (table_id, vn, config, body, { req, res }) => {
   const pt = getPt(body, req);
@@ -1908,6 +1496,36 @@ const phase_detail_html = async (table_id, vn, config, body, { req, res }) => {
   return { json: { html: await phaseDetailHtml(phase, idx, pt, projectId) } };
 };
 
+const phase_card_html = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  const projectId = body.project_id ?? req.query?.project_id;
+  const idx = parseInt(body.idx);
+  const phasesMd = await MetaData.findOne({ type: pt, name: "phases" });
+  const phase = phasesMd?.body?.phases?.[idx];
+  if (!phase) return { json: { error: "Phase not found" } };
+  const [runState, { allDone, hasFeedback }, overviewState] = await Promise.all(
+    [
+      PhaseHelper.status(idx, pt),
+      PhaseHelper.cardData(idx, pt),
+      PhaseHelper.allPhasesStatus(pt),
+    ]
+  );
+  return {
+    json: {
+      html: phaseCard(
+        phase,
+        idx,
+        req,
+        allDone,
+        hasFeedback,
+        projectId,
+        runState,
+        overviewState.active
+      ),
+    },
+  };
+};
+
 const generate_phase_tasks = async (
   table_id,
   vn,
@@ -1925,7 +1543,7 @@ const generate_phase_tasks = async (
   const phase = phasesMd?.body?.phases?.[idx];
   if (!phase) return { json: { error: "Phase not found" } };
   phase.idx = idx;
-  doGenPhaseTasks(phase, req.user?.id, taskType, pt).catch((e) =>
+  PhaseHelper.generateTasks(phase, req.user?.id, taskType, pt).catch((e) =>
     console.error("generate_phase_tasks error", e)
   );
   return { json: { success: true } };
@@ -1974,7 +1592,7 @@ const run_phase_tasks = async (table_id, vn, config, body, { req, res }) => {
       body: { started: Date.now() },
       user_id: req.user?.id,
     });
-  doRunPhaseTasks(
+  PhaseHelper.startTaskChain(
     idx,
     taskType,
     {
@@ -1996,10 +1614,7 @@ const stop_phase_tasks = async (table_id, vn, config, body, { req, res }) => {
     name: `phase_running_${idx}_${taskType}`,
   });
   if (running) await running.delete();
-  const allTasks = await MetaData.find({
-    type: pt,
-    name: "task",
-  });
+  const allTasks = await MetaData.find({ type: pt, name: "task" });
   const taskStillRunning = allTasks.some(
     (t) =>
       t.body?.phase_idx === idx &&
@@ -2007,6 +1622,91 @@ const stop_phase_tasks = async (table_id, vn, config, body, { req, res }) => {
       t.body?.status === "Running"
   );
   return { json: { success: true, taskStillRunning } };
+};
+
+// Whether every phase before idx is fully done (same "allDone" definition
+// phasesHtml uses for the card's done-badge) — the server-side source of
+// truth behind the "earlier phases aren't finished yet" confirm dialog.
+const prev_phases_status = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  const idx = parseInt(body.idx);
+  const phasesMd = await MetaData.findOne({ type: pt, name: "phases" });
+  const phases = phasesMd?.body?.phases || [];
+  const incompletePhases = [];
+  for (let i = 0; i < idx; i++) {
+    const { allDone } = await PhaseHelper.cardData(i, pt);
+    if (!allDone) incompletePhases.push(phases[i]?.name || `Phase ${i + 1}`);
+  }
+  return {
+    json: {
+      allPreviousDone: incompletePhases.length === 0,
+      incompletePhases,
+    },
+  };
+};
+
+const run_all_phase_tasks = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const pt = getPt(body, req);
+  const idx = parseInt(body.idx);
+  await PhaseHelper.start(idx, pt, {
+    user: req.user,
+    __: req.__ || ((s) => s),
+    getLocale: req.getLocale || (() => "en"),
+  });
+  return { json: { success: true } };
+};
+
+const stop_phase_chain = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  const idx = parseInt(body.idx);
+  await PhaseHelper.stop(idx, pt);
+  return { json: { success: true } };
+};
+
+const phase_chain_status = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  const idx = parseInt(body.idx);
+  return { json: await PhaseHelper.status(idx, pt) };
+};
+
+const run_all_phases = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  await PhaseHelper.startAll(pt, req.user?.id, {
+    user: req.user,
+    __: req.__ || ((s) => s),
+    getLocale: req.getLocale || (() => "en"),
+  });
+  return { json: { success: true } };
+};
+
+const stop_all_phases = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  const allChain = await MetaData.findOne({
+    type: pt,
+    name: "all_phases_chain",
+  });
+  if (!allChain) return { json: { success: true } };
+  // Stopping the phase currently driving it stops all_phases_chain too.
+  await PhaseHelper.stop(allChain.body.phaseIdx, pt);
+  return { json: { success: true } };
+};
+
+const phases_overview_status = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req, res }
+) => {
+  const pt = getPt(body, req);
+  const state = await PhaseHelper.allPhasesStatus(pt);
+  return { json: state };
 };
 
 const del_phase_type_tasks = async (
@@ -2019,53 +1719,7 @@ const del_phase_type_tasks = async (
   const pt = getPt(body, req);
   const idx = parseInt(body.idx);
   const taskType = body.task_type || "feature";
-  const allTasks = await MetaData.find({
-    type: pt,
-    name: "task",
-  });
-  for (const t of allTasks) {
-    if (
-      t.body?.phase_idx === idx &&
-      (t.body?.task_type || "feature") === taskType
-    )
-      await t.delete();
-  }
-  if (taskType === "plugin") {
-    const markers = await MetaData.find({
-      type: pt,
-      name: "phase_plugin_generated",
-    });
-    for (const m of markers.filter((m) => m.body?.phase_idx === idx))
-      await m.delete();
-    const pluginPhase = await MetaData.find({
-      type: pt,
-      name: "plugin_phase",
-    });
-    for (const m of pluginPhase.filter((m) => m.body?.phase_idx === idx))
-      await m.delete();
-  }
-  if (taskType === "data_model") {
-    const tablePhase = await MetaData.find({
-      type: pt,
-      name: "table_phase",
-    });
-    for (const m of tablePhase.filter((m) => m.body?.phase_idx === idx))
-      await m.delete();
-    const dmMarkers = await MetaData.find({
-      type: pt,
-      name: "phase_data_model_generated",
-    });
-    for (const m of dmMarkers.filter((m) => m.body?.phase_idx === idx))
-      await m.delete();
-  }
-  if (taskType === "feature") {
-    const viewPhase = await MetaData.find({
-      type: pt,
-      name: "view_phase",
-    });
-    for (const m of viewPhase.filter((m) => m.body?.phase_idx === idx))
-      await m.delete();
-  }
+  await PhaseHelper.deleteTypeTasks(idx, pt, taskType);
   return { json: { success: true } };
 };
 
@@ -2098,43 +1752,6 @@ const phase_run_status = async (table_id, vn, config, body, { req, res }) => {
   };
 };
 
-const del_all_phases = async (table_id, vn, config, body, { req, res }) => {
-  const pt = getPt(body, req);
-  const allTasks = await MetaData.find({
-    type: pt,
-    name: "task",
-  });
-  for (const t of allTasks.filter((t) => t.body?.phase_idx !== undefined))
-    await t.delete();
-  await deletePhaseScopedFeedback(pt);
-  const markers = await MetaData.find({
-    type: pt,
-    name: "phase_plugin_generated",
-  });
-  for (const m of markers) await m.delete();
-  const tablePhase = await MetaData.find({
-    type: pt,
-    name: "table_phase",
-  });
-  for (const m of tablePhase) await m.delete();
-  const viewPhase = await MetaData.find({
-    type: pt,
-    name: "view_phase",
-  });
-  for (const m of viewPhase) await m.delete();
-  const pluginPhaseAll = await MetaData.find({
-    type: pt,
-    name: "plugin_phase",
-  });
-  for (const m of pluginPhaseAll) await m.delete();
-  const phasesMd = await MetaData.findOne({
-    type: pt,
-    name: "phases",
-  });
-  if (phasesMd) await phasesMd.delete();
-  return { json: { success: true } };
-};
-
 const phase_progress_html = async (
   table_id,
   vn,
@@ -2158,6 +1775,79 @@ const del_phase_progress = async (table_id, vn, config, body, { req, res }) => {
   });
   for (const r of all.filter((p) => p.body?.phase_idx === idx))
     await r.delete();
+  return { json: { success: true } };
+};
+
+const cancel_generating_phase_tasks = async (
+  table_id,
+  vn,
+  config,
+  body,
+  { req }
+) => {
+  const { task_type } = body;
+  const idx = parseInt(body.idx, 10);
+  const pt = getPt(body, req);
+  await PhaseHelper.cancelGenerating(idx, pt, task_type);
+  return { json: { success: true } };
+};
+
+const prev_section_status = async (table_id, vn, config, body, { req }) => {
+  const { task_type } = body;
+  const idx = parseInt(body.idx, 10);
+  if (task_type !== "data_model" && task_type !== "feature")
+    return { json: { hasIncompleteTasks: false, incompleteSections: [] } };
+  const pt = getPt(body, req);
+  const prevTypes =
+    task_type === "data_model" ? ["plugin"] : ["plugin", "data_model"];
+  const allTasks = await MetaData.find({ type: pt, name: "task" });
+  const phaseTasks = allTasks.filter((t) => t.body?.phase_idx === idx);
+  const incompleteSections = prevTypes.filter((prevType) =>
+    tasksOfType(phaseTasks, prevType).some(
+      (t) => (t.body.status || "To do") !== "Done"
+    )
+  );
+  return {
+    json: {
+      hasIncompleteTasks: incompleteSections.length > 0,
+      incompleteSections,
+    },
+  };
+};
+
+// ── Phase-list & requirement CRUD routes ───────────────────────────────────
+
+const gen_phases = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  PhaseHelper.generatePhases(req.user?.id, pt).catch((e) =>
+    getState().log(1, "gen_phases error", e)
+  );
+  return { json: { success: true } };
+};
+
+const phases_status = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  const generating = await MetaData.findOne({
+    type: pt,
+    name: "generating_phases",
+  });
+  const errorMd = await MetaData.findOne({
+    type: pt,
+    name: "phases_gen_error",
+  });
+  // report the error once, then clear it so it doesn't reappear on a later poll
+  if (errorMd) await errorMd.delete();
+  return {
+    json: {
+      generating: !!generating,
+      error: errorMd?.body?.message || null,
+    },
+  };
+};
+
+const del_all_phases = async (table_id, vn, config, body, { req, res }) => {
+  const pt = getPt(body, req);
+  await PhaseHelper.deleteAllPhases(pt);
   return { json: { success: true } };
 };
 
@@ -2253,87 +1943,29 @@ const get_requirement_form = async (
   return { html, title };
 };
 
-const markPhaseTasksStale = async (phaseIdx, userId, pt) => {
-  const all = await MetaData.find({
-    type: pt,
-    name: "phase_reqs_changed",
-  });
-  if (!all.some((m) => m.body?.phase_idx === phaseIdx)) {
-    await MetaData.create({
-      type: pt,
-      name: "phase_reqs_changed",
-      body: { phase_idx: phaseIdx },
-      user_id: userId,
-    });
-  }
-};
-
-const clearPhaseStaleMarker = async (phaseIdx, pt) => {
-  const all = await MetaData.find({
-    type: pt,
-    name: "phase_reqs_changed",
-  });
-  for (const m of all.filter((m) => m.body?.phase_idx === phaseIdx))
-    await m.delete();
-};
-
 const save_requirement = async (table_id, vn, config, body, { req, res }) => {
   const pt = getPt(body, req);
-  const phaseIdx = parseInt(body.phaseIdx);
-  const reqIdx = parseInt(body.reqIdx);
   const { requirement, priority } = body;
-
-  const phasesMd = await MetaData.findOne({
-    type: pt,
-    name: "phases",
-  });
-  if (!phasesMd) return { json: { error: "Phases not found" } };
-
-  const phases = phasesMd.body.phases || [];
-  if (!phases[phaseIdx]) return { json: { error: "Phase not found" } };
-
-  const reqs = phases[phaseIdx].requirements || [];
-  if (reqIdx >= 0 && reqIdx < reqs.length) {
-    reqs[reqIdx] = { requirement, priority: parseInt(priority) };
-  } else {
-    reqs.push({ requirement, priority: parseInt(priority) });
-  }
-  phases[phaseIdx].requirements = reqs;
-  await phasesMd.update({ body: { ...phasesMd.body, phases } });
-
-  const hasTasks = (await MetaData.find({ type: pt, name: "task" })).some(
-    (t) => t.body?.phase_idx === phaseIdx
+  const result = await PhaseHelper.saveRequirement(
+    parseInt(body.phaseIdx),
+    pt,
+    parseInt(body.reqIdx),
+    requirement,
+    priority,
+    req.user?.id
   );
-  if (hasTasks) await markPhaseTasksStale(phaseIdx, req.user?.id, pt);
-
-  return { json: { success: true } };
+  return { json: result };
 };
 
 const delete_requirement = async (table_id, vn, config, body, { req, res }) => {
   const pt = getPt(body, req);
-  const phaseIdx = parseInt(body.phaseIdx);
-  const reqIdx = parseInt(body.reqIdx);
-
-  const phasesMd = await MetaData.findOne({
-    type: pt,
-    name: "phases",
-  });
-  if (!phasesMd) return { json: { error: "Phases not found" } };
-
-  const phases = phasesMd.body.phases || [];
-  if (!phases[phaseIdx]) return { json: { error: "Phase not found" } };
-
-  const reqs = phases[phaseIdx].requirements || [];
-  reqs.splice(reqIdx, 1);
-  phases[phaseIdx].requirements = reqs;
-  await phasesMd.update({ body: { ...phasesMd.body, phases } });
-
-  const hasTasks = (await MetaData.find({ type: pt, name: "task" })).some(
-    (t) => t.body?.phase_idx === phaseIdx
+  const result = await PhaseHelper.deleteRequirement(
+    parseInt(body.phaseIdx),
+    pt,
+    parseInt(body.reqIdx),
+    req.user?.id
   );
-  if (hasTasks) await markPhaseTasksStale(phaseIdx, req.user?.id, pt);
-
-  return { json: { success: true } };
+  return { json: result };
 };
 
 const dismiss_stale_notice = async (
@@ -2344,55 +1976,8 @@ const dismiss_stale_notice = async (
   { req, res }
 ) => {
   const pt = getPt(body, req);
-  await clearPhaseStaleMarker(parseInt(body.phaseIdx), pt);
+  await PhaseHelper.clearStaleMarker(parseInt(body.phaseIdx), pt);
   return { json: { success: true } };
-};
-
-const cancel_generating_phase_tasks = async (
-  table_id,
-  vn,
-  config,
-  body,
-  { req }
-) => {
-  const { task_type } = body;
-  const idx = parseInt(body.idx, 10);
-  const pt = getPt(body, req);
-  const generating = await MetaData.findOne({
-    type: pt,
-    name: "generating_phase_tasks",
-  });
-  if (
-    generating &&
-    generating.body?.phase_idx === idx &&
-    (!generating.body?.task_type || generating.body?.task_type === task_type)
-  ) {
-    await generating.delete();
-  }
-  return { json: { success: true } };
-};
-
-const prev_section_status = async (table_id, vn, config, body, { req }) => {
-  const { task_type } = body;
-  const idx = parseInt(body.idx, 10);
-  if (task_type !== "data_model" && task_type !== "feature")
-    return { json: { hasIncompleteTasks: false, incompleteSections: [] } };
-  const pt = getPt(body, req);
-  const prevTypes =
-    task_type === "data_model" ? ["plugin"] : ["plugin", "data_model"];
-  const allTasks = await MetaData.find({ type: pt, name: "task" });
-  const phaseTasks = allTasks.filter((t) => t.body?.phase_idx === idx);
-  const incompleteSections = prevTypes.filter((prevType) =>
-    phaseTasks
-      .filter((t) => (t.body.task_type || "feature") === prevType)
-      .some((t) => (t.body.status || "To do") !== "Done")
-  );
-  return {
-    json: {
-      hasIncompleteTasks: incompleteSections.length > 0,
-      incompleteSections,
-    },
-  };
 };
 
 const phase_routes = {
@@ -2400,12 +1985,20 @@ const phase_routes = {
   phases_status,
   phases_html,
   phase_detail_html,
+  phase_card_html,
   generate_phase_tasks,
   phase_tasks_status,
   phase_tasks_html,
   run_phase_tasks,
   stop_phase_tasks,
   phase_run_status,
+  prev_phases_status,
+  run_all_phase_tasks,
+  stop_phase_chain,
+  phase_chain_status,
+  run_all_phases,
+  stop_all_phases,
+  phases_overview_status,
   del_phase_type_tasks,
   del_all_phases,
   phase_progress_html,
@@ -2418,4 +2011,8 @@ const phase_routes = {
   cancel_generating_phase_tasks,
 };
 
-module.exports = { phasesPanel, phasesStaticScript, phase_routes };
+module.exports = {
+  phasesPanel,
+  phasesStaticScript,
+  phase_routes,
+};

@@ -19,7 +19,13 @@ const {
 } = require("@saltcorn/markup/tags");
 const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
-const { viewname, tool_choice, projectType } = require("./common");
+const {
+  viewname,
+  tool_choice,
+  projectType,
+  BASE_TYPE,
+  genErrorToastMsg,
+} = require("./common");
 const { PromptGenerator } = require("./prompt-generator");
 
 const questions_tool = {
@@ -492,7 +498,8 @@ function researchStartPoll() {
         view_post(_vn, 'research_html', {}, (r) => {
           if (r && r.html) document.getElementById('research-panel').innerHTML = r.html;
           if (openId) researchOpenSection(openId);
-          if (showWebToast) notifyAlert({ type: 'info', text: _webRegenToastMsg });
+          if (resp.error) notifyAlert({ type: 'danger', text: resp.error });
+          else if (showWebToast) notifyAlert({ type: 'info', text: _webRegenToastMsg });
         });
       } else setTimeout(poll, 3000);
     });
@@ -577,12 +584,21 @@ ${
 };
 
 const doGenResearch = async (userId, pt) => {
+  // clear any leftover error from a previous failed attempt
+  const oldErr = await MetaData.findOne({
+    type: pt,
+    name: "research_gen_error",
+  });
+  if (oldErr) await oldErr.delete();
+
   const generatingMd = await MetaData.create({
     type: pt,
     name: "generating_research",
     body: {},
     user_id: userId,
   });
+  let failed = false;
+  let toastMsg = "";
   try {
     const generator = await PromptGenerator.createInstance({ pt });
     if (!generator.spec) throw new Error("Specification not found");
@@ -684,12 +700,38 @@ const doGenResearch = async (userId, pt) => {
       name: "research_answers",
     });
     if (oldAnswers) await oldAnswers.delete();
+  } catch (err) {
+    getState().log(1, "Research generation error:", err);
+    toastMsg = genErrorToastMsg(err, "Research generation");
+    failed = true;
+    try {
+      await MetaData.create({
+        type: pt,
+        name: "research_gen_error",
+        body: { message: toastMsg },
+        user_id: userId,
+      });
+    } catch (_) {}
+    try {
+      await MetaData.create({
+        type: BASE_TYPE,
+        name: "error",
+        body: {
+          source: "constructor",
+          error: { message: err?.message || String(err), stack: err?.stack },
+        },
+        user_id: userId,
+      });
+    } catch (_) {}
   } finally {
     await generatingMd.delete();
     try {
       getState().emitDynamicUpdate(db.getTenantSchema(), {
-        eval_js:
-          "if(typeof copilotRefreshResearch==='function')copilotRefreshResearch();",
+        eval_js: failed
+          ? `notifyAlert({type:'danger',text:${JSON.stringify(
+              toastMsg
+            )}});if(typeof copilotRefreshResearch==='function')copilotRefreshResearch();`
+          : "if(typeof copilotRefreshResearch==='function')copilotRefreshResearch();",
       });
     } catch (_) {}
   }
@@ -937,7 +979,18 @@ const research_status = async (
     type: pt,
     name: "generating_research",
   });
-  return { json: { generating: !!generating } };
+  const errorMd = await MetaData.findOne({
+    type: pt,
+    name: "research_gen_error",
+  });
+  // report the error once, then clear it so it doesn't reappear on a later poll
+  if (errorMd) await errorMd.delete();
+  return {
+    json: {
+      generating: !!generating,
+      error: errorMd?.body?.message || null,
+    },
+  };
 };
 
 const research_html = async (

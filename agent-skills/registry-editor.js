@@ -9,6 +9,7 @@ const Role = require("@saltcorn/data/models/role");
 const File = require("@saltcorn/data/models/file");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const { getState } = require("@saltcorn/data/db/state");
+const { sanitizeLayout } = require("../builder-gen");
 
 class RegistryEditorSkill {
   static skill_name = "Registry editor";
@@ -526,6 +527,10 @@ with both the entity type and name, and the new JSON definition as a string as a
 
                 if (viewname && !viewNoTable.name) viewNoTable.name = viewname;
                 if (!viewNoTable.name) viewNoTable.name = input.entity_name;
+                if (viewNoTable.configuration?.layout)
+                  viewNoTable.configuration.layout = sanitizeLayout(
+                    viewNoTable.configuration.layout,
+                  );
 
                 if (typeof viewNoTable.table_id === "string") {
                   const t = Table.findOne({ name: viewNoTable.table_id });
@@ -667,6 +672,8 @@ with both the entity type and name, and the new JSON definition as a string as a
               case "page": {
                 const { root_page_for_roles, menu_label, ...pageSpec } =
                   entityValue;
+                if (pageSpec.layout)
+                  pageSpec.layout = sanitizeLayout(pageSpec.layout);
 
                 if (!pageSpec.min_role) {
                   pageSpec.min_role = 100;

@@ -286,34 +286,10 @@ class GenerateViewSkill {
         };
         const builderMode = builderModeByPattern[viewpattern];
         if (builderMode) {
-          const extractText = (c) => {
-            if (typeof c === "string") return c;
-            if (Array.isArray(c)) {
-              const textPart = c.find(
-                (p) => p?.type === "text" || typeof p === "string"
-              );
-              return (
-                textPart?.text || (typeof textPart === "string" ? textPart : "")
-              );
-            }
-            return "";
-          };
-          const isToolResultMessage = (item) => {
-            if (!Array.isArray(item?.content)) return false;
-            return item.content.every((p) => p?.type === "tool_result");
-          };
-          const promptFromChat = Array.isArray(chat)
-            ? (() => {
-                const userMsgs = chat.filter(
-                  (item) =>
-                    item?.role === "user" &&
-                    item?.content &&
-                    !isToolResultMessage(item)
-                );
-                return userMsgs.length ? extractText(userMsgs[0].content) : "";
-              })()
-            : "";
-          const layoutPrompt = promptFromChat || tool_call.input.name || "";
+          const layoutPrompt = builderGen.extractLayoutPromptFromChat(
+            chat,
+            tool_call.input.name || ""
+          );
           wfctx.layout = await builderGen.run(
             layoutPrompt,
             builderMode,

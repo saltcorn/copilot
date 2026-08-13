@@ -916,6 +916,54 @@ const collectSegments = (segment, out = []) => {
   return out;
 };
 
+// margin/padding must be [top, right, bottom, left] - saltcorn-markup's
+// renderer calls .every()/.map() on them and crashes on a bare string/number.
+const fixBoxModel = (value) => {
+  if (value == null) return undefined;
+  if (Array.isArray(value))
+    return value.length === 4
+      ? value
+      : [0, 1, 2, 3].map((i) => value[i] ?? value[0] ?? 0);
+  if (typeof value === "string" || typeof value === "number")
+    return [value, value, value, value];
+  return undefined;
+};
+
+// Recursively fixes margin/padding shape, with no HTML stripping - used
+// internally by sanitizeLayout below.
+const fixLayoutBoxModel = (segment) => {
+  if (segment == null) return segment;
+  if (Array.isArray(segment)) return segment.map(fixLayoutBoxModel);
+  if (typeof segment !== "object") return segment;
+
+  const clone = { ...segment };
+  if (clone.margin !== undefined) {
+    const fixed = fixBoxModel(clone.margin);
+    if (fixed) clone.margin = fixed;
+    else delete clone.margin;
+  }
+  if (clone.padding !== undefined) {
+    const fixed = fixBoxModel(clone.padding);
+    if (fixed) clone.padding = fixed;
+    else delete clone.padding;
+  }
+
+  if (clone.contents !== undefined)
+    clone.contents = fixLayoutBoxModel(clone.contents);
+  if (clone.above !== undefined) clone.above = fixLayoutBoxModel(clone.above);
+  if (clone.besides !== undefined)
+    clone.besides = fixLayoutBoxModel(clone.besides);
+  if (clone.tabs !== undefined)
+    clone.tabs = ensureArray(clone.tabs).map((tab) => ({
+      ...tab,
+      contents: fixLayoutBoxModel(tab?.contents),
+    }));
+  return clone;
+};
+
+// Pre-save fixes for callers that must not otherwise change the layout.
+const sanitizeLayout = (layout) => fixLayoutBoxModel(layout);
+
 const sanitizeNoHtmlSegments = (segment) => {
   if (segment == null) return segment;
   if (Array.isArray(segment))
@@ -932,6 +980,17 @@ const sanitizeNoHtmlSegments = (segment) => {
     if (usedHtml && typeof clone.contents === "string") {
       clone.contents = stripHtmlTags(clone.contents);
     }
+  }
+
+  if (clone.margin !== undefined) {
+    const fixed = fixBoxModel(clone.margin);
+    if (fixed) clone.margin = fixed;
+    else delete clone.margin;
+  }
+  if (clone.padding !== undefined) {
+    const fixed = fixBoxModel(clone.padding);
+    if (fixed) clone.padding = fixed;
+    else delete clone.padding;
   }
 
   if (clone.contents !== undefined)
@@ -1499,8 +1558,37 @@ const runWithRelationTools = async (llm, mainPrompt, opts) => {
   return typeof final === "string" ? final : final?.content ?? "";
 };
 
+// Extracts the layout-generation prompt from the user's chat message, skipping
+// tool-result-only turns. Shared by viewgen.js and pagegen.js before run().
+const extractLayoutPromptFromChat = (chat, fallback = "") => {
+  const extractText = (c) => {
+    if (typeof c === "string") return c;
+    if (Array.isArray(c)) {
+      const textPart = c.find((p) => p?.type === "text" || typeof p === "string");
+      return textPart?.text || (typeof textPart === "string" ? textPart : "");
+    }
+    return "";
+  };
+  const isToolResultMessage = (item) => {
+    if (!Array.isArray(item?.content)) return false;
+    return item.content.every((p) => p?.type === "tool_result");
+  };
+  const userMsgs = Array.isArray(chat)
+    ? chat.filter(
+        (item) =>
+          item?.role === "user" && item?.content && !isToolResultMessage(item)
+      )
+    : [];
+  const promptFromChat = userMsgs.length
+    ? extractText(userMsgs[0].content)
+    : "";
+  return promptFromChat || fallback;
+};
+
 module.exports = {
   normalizeLayoutCandidate,
+  extractLayoutPromptFromChat,
+  sanitizeLayout,
   run: async (prompt, mode, table, existing_layout, chat) => {
     prompt = prompt.trim().replace(/^\[\w+\]:\s*/, "");
 
