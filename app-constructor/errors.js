@@ -388,9 +388,7 @@ const errorList = async (req, page = 1) => {
                     )
                   : "";
                 return div(
-                  {
-                    style: "word-break:break-word;min-width:0;max-width:480px;",
-                  },
+                  { style: "word-break:break-word;min-width:0;" },
                   div({ class: "fw-semibold small" }, text(msg)),
                   urlLine,
                   stackPreview
@@ -663,14 +661,12 @@ const errTableStaticHtml = `
 #err-list-area table { table-layout: auto; width: 100%; }
 #err-list-area table th:nth-child(1),
 #err-list-area table td:nth-child(1),
-#err-list-area table th:nth-child(2),
-#err-list-area table td:nth-child(2),
-#err-list-area table th:nth-child(5),
-#err-list-area table td:nth-child(5) { width: 1px; white-space: nowrap; }
 #err-list-area table th:nth-child(3),
-#err-list-area table td:nth-child(3) { width: 100%; }
+#err-list-area table td:nth-child(3),
 #err-list-area table th:nth-child(4),
-#err-list-area table td:nth-child(4) { padding-right: 2rem; }
+#err-list-area table td:nth-child(4) { width: 1px; white-space: nowrap; }
+#err-list-area table th:nth-child(2),
+#err-list-area table td:nth-child(2) { width: 100%; }
 </style>
 <div class="modal fade" id="err-detail-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">

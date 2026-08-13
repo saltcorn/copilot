@@ -280,6 +280,16 @@ const buildBuilderSchema = ({ mode, ctx }) => {
     },
   };
 
+  // [top, right, bottom, left] - never a bare string/number, or
+  // saltcorn-markup's renderer crashes (allZero calls .every() on it).
+  const boxModelSchema = (label) => ({
+    type: "array",
+    items: { type: ["string", "number"] },
+    minItems: 4,
+    maxItems: 4,
+    description: `${label} as [top, right, bottom, left], e.g. ["0","0","0","0"].`,
+  });
+
   const blankDef = buildSegmentDef({
     type: "blank",
     description: "Plain text block.",
@@ -418,6 +428,29 @@ const buildBuilderSchema = ({ mode, ctx }) => {
         type: "object",
         description: "Inline style overrides.",
         additionalProperties: true,
+      },
+      margin: boxModelSchema("Margin"),
+      padding: boxModelSchema("Padding"),
+      width: {
+        type: ["string", "number"],
+        description:
+          "Fixed CSS width (unit from widthUnit, default px). NOT a column " +
+          "fraction — for side-by-side columns use the parent besides " +
+          "segment's widths array (0-12) instead.",
+      },
+      widthUnit: { type: "string", description: "Unit for width. Default px." },
+      height: {
+        type: ["string", "number"],
+        description: "Fixed CSS height (unit from heightUnit, default px).",
+      },
+      heightUnit: { type: "string", description: "Unit for height. Default px." },
+      minHeight: {
+        type: ["string", "number"],
+        description: "Minimum CSS height (unit from minHeightUnit, default px).",
+      },
+      minHeightUnit: {
+        type: "string",
+        description: "Unit for minHeight. Default px.",
       },
       ...backgroundProps,
     },
@@ -636,7 +669,7 @@ const buildBuilderSchema = ({ mode, ctx }) => {
     },
   });
 
-  defs.segment.anyOf.push(
+  const allSegmentRefs = [
     { $ref: "#/$defs/stack" },
     { $ref: "#/$defs/columns" },
     { $ref: "#/$defs/blank" },
@@ -659,7 +692,18 @@ const buildBuilderSchema = ({ mode, ctx }) => {
     { $ref: "#/$defs/join_field" },
     { $ref: "#/$defs/list_column" },
     { $ref: "#/$defs/list_columns" },
-    { $ref: "#/$defs/page" }
+    { $ref: "#/$defs/page" },
+  ];
+  // Only offer segment types this mode's toolbox allows (stack is always kept).
+  // Unknown modes get the full list instead of risking an empty schema.
+  const allowedTypes = TOOLBOX_BY_MODE[normalizedMode];
+  defs.segment.anyOf.push(
+    ...(allowedTypes
+      ? allSegmentRefs.filter((ref) => {
+          const name = ref.$ref.split("/").pop();
+          return name === "stack" || allowedTypes.includes(name);
+        })
+      : allSegmentRefs)
   );
 
   Object.assign(defs, {

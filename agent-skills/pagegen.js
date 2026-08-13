@@ -22,6 +22,7 @@ const { eval_expression } = require("@saltcorn/data/models/expression");
 const { interpolate } = require("@saltcorn/data/utils");
 const { features } = require("@saltcorn/data/db/state");
 const GeneratePage = require("../actions/generate-page");
+const builderGen = require("../builder-gen");
 
 //const { fieldProperties } = require("./helpers");
 
@@ -133,44 +134,29 @@ class GeneratePageSkill {
           );
         } else return "Metadata recieved";
       },
-      postProcess: async ({ tool_call, generate, req }) => {
+      postProcess: async ({ tool_call, generate, req, chat }) => {
         const version_tag = db.connectObj.version_tag;
         const asset = (name) => `/static_assets/${version_tag}/${name}`;
         const { name, title, description, min_role, page_type } =
           tool_call.input;
 
         if (page_type === "Layout page") {
-          const str = await generate(
-            `Generate the Saltcorn layout JSON for the ${name} page. ` +
-              `Your response must be a single valid JSON object — no explanatory text, no markdown fences, no reasoning. ` +
-              `\n\nThe layout is a tree of segments. The top-level object is:\n` +
-              `  {"above": [...segments...]}  — stack items vertically\n` +
-              `or:\n` +
-              `  {"besides": [...segments...], "widths": [6,6]}  — place side by side (widths must sum to 12)\n` +
-              `\nAvailable segment types:\n` +
-              `- Embed a view (receives page URL state, e.g. id):  {"type":"view","view":"viewname","state":"shared"}\n` +
-              `  Use state "shared" whenever the embedded view needs variables from the page URL (such as id for a Show view).\n` +
-              `  To pass only specific variables, add extra_state_fml: {"type":"view","view":"viewname","state":"shared","extra_state_fml":"{id: id}"}\n` +
-              `- HTML block:         {"type":"blank","isHTML":true,"contents":"<p>html</p>"}\n` +
-              `- Text block:         {"type":"blank","contents":"plain text"}\n` +
-              `- Container/wrapper:  {"type":"container","customClass":"p-3","htmlElement":"div","contents":{segment}}\n` +
-              `- Vertical stack:     {"above":[{segment},{segment}]}\n` +
-              `- Horizontal split:   {"besides":[{segment},{segment}],"widths":[8,4]}\n`
+          const chatPrompt = builderGen.extractLayoutPromptFromChat(chat, "");
+          const layoutPrompt = [
+            `Generate the "${name}" page` +
+              (title ? ` (title: "${title}")` : "") +
+              ".",
+            chatPrompt,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const layout = await builderGen.run(
+            layoutPrompt,
+            "page",
+            null,
+            null,
+            chat
           );
-          const jsonStr = str.includes("```json")
-            ? str.split("```json")[1].split("```")[0]
-            : str.includes("```")
-            ? str.split("```")[1].split("```")[0]
-            : str;
-          let layout;
-          try {
-            layout = JSON.parse(jsonStr.trim());
-          } catch (e) {
-            return {
-              stop: true,
-              add_response: `Error parsing layout JSON for ${name}: ${e.message}`,
-            };
-          }
           if (this.yoloMode) {
             const existingPage = await Page.findOne({ name });
             if (existingPage) {
