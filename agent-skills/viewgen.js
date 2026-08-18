@@ -8,8 +8,6 @@ const {
 const { getState } = require("@saltcorn/data/db/state");
 const {
   div,
-  pre,
-  code,
   a,
   text,
   escape,
@@ -17,6 +15,10 @@ const {
   text_attr,
 } = require("@saltcorn/markup/tags");
 const builderGen = require("../builder-gen");
+const { SHOW_LAYOUT_GUIDANCE } = require("../view-layout-guidance");
+const {
+  renderGeneratedViewConfiguration,
+} = require("./generated-view-preview");
 const {
   RELATION_PATH_DOC,
   GET_RELATION_PATHS_FUNCTION,
@@ -142,8 +144,9 @@ class GenerateViewSkill {
       `(1) Call get_view_config to fetch the current configuration.\n` +
       `(2) Only if you are adding view_link columns or embedded view (type "view") segments: call get_relation_paths once with all the source_table/target_view pairs you need. For changes that don't involve linking or embedding views (e.g. adding a field, changing a label), skip this step.\n` +
       `(3) Write out the complete updated configuration JSON in full — every key from the existing config must be present, with only your targeted changes merged in.\n` +
-      `(4) Call apply_view_config with that complete object. NEVER call apply_view_config before step (3) is finished. NEVER call it with only the name or a partial object — the configuration field is mandatory and must be the full merged result from step (3). Calling apply_view_config without a complete configuration is an error.\n\n` +
-      `**Generating a new view that contains view_links or embedded views:**\n` +
+      `(4) Call apply_view_config with that complete object. The configuration field contains the full merged result from step (3).\n\n` +
+      SHOW_LAYOUT_GUIDANCE +
+      `\n\n**Generating a new view that contains view_links or embedded views:**\n` +
       `If the task or prompt mentions a viewlink, a link to another view, or a button that opens another view from a list row, that view_link column is REQUIRED — do not omit it. ` +
       `You MUST call get_relation_paths with all source_table/target_view pairs before constructing the layout. Never skip this step when view_links are needed.\n\n` +
       `**Embedded view segment format (for Show layouts):**\n` +
@@ -508,7 +511,7 @@ class GenerateViewSkill {
         return {
           stop: true,
           add_response:
-            pre(JSON.stringify(wfctx, null, 2)) +
+            renderGeneratedViewConfiguration(wfctx) +
             div(
               { style: { maxHeight: 800, maxWidth: 500, overflow: "scroll" } },
               runres
@@ -558,10 +561,9 @@ class GenerateViewSkill {
       function: {
         name: "apply_view_config",
         description:
-          "Save an updated configuration to an existing view. " +
-          "STRICT PRECONDITION: you must have already called get_view_config AND written out the complete merged configuration JSON before calling this tool. " +
-          "Do NOT call this tool as a placeholder or before the configuration is fully constructed. " +
-          "Calling this tool without a complete configuration object is always wrong and will fail.",
+          "Save the complete updated configuration of an existing view after retrieving it with get_view_config. " +
+          "Pass the existing view name and the full merged configuration, preserving every existing key and changing only what the user requested. " +
+          "For Show views, use blank segments for literal labels, field/Field pairs for direct fields, and join_field/JoinField pairs for related fields.",
         parameters: {
           type: "object",
           required: ["name", "configuration"],
@@ -573,9 +575,8 @@ class GenerateViewSkill {
             configuration: {
               type: "object",
               description:
-                "REQUIRED. The complete updated configuration object — every key from the existing config preserved, with only your changes merged in. " +
-                "You MUST have the full object written out before calling this tool. " +
-                "Passing null, an empty object, or a partial object (e.g. only the name) is always wrong and will return an error.",
+                "The complete updated configuration object returned by get_view_config, with every existing key preserved and only the requested changes merged in. " +
+                "For Show views, keep layout segments and configuration.columns synchronized: field with Field, and join_field with JoinField.",
             },
           },
         },
@@ -611,7 +612,7 @@ class GenerateViewSkill {
         }
         return {
           stop: true,
-          add_response: pre(JSON.stringify(cfg, null, 2)),
+          add_response: renderGeneratedViewConfiguration(cfg),
           add_user_action: {
             name: "build_copilot_view_update",
             type: "button",

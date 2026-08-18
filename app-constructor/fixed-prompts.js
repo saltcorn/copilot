@@ -2,6 +2,8 @@
 // Originals in prompts.js are kept intact; these will replace them in a future refactor.
 // Join with "\n\n" to reproduce block-style sections.
 
+const { SHOW_LAYOUT_GUIDANCE } = require("../view-layout-guidance");
+
 const saltcorn_description = [
   `This application will be implemented in Saltcorn, a database application development
 environment.
@@ -497,11 +499,11 @@ Exception: File-type fields hold a file ID and cannot be given a placeholder val
 declare File fields as \`required: false\` (nullable) unless the file is guaranteed to exist
 at the moment the row is first inserted.`,
 
-  `Important: In Show view layouts, every field must be its own separate segment with
-\`"type": "field"\` (singular). There is NO \`"type": "fields"\` (plural) segment — using it
-crashes with "unknown layout segment" at runtime. Never bundle multiple fields into a single
-segment. Each field appears as an individual element in the layout array, for example:
-\`{"type": "field", "field_name": "invoice_date", "fieldview": "show"}\`.`,
+  SHOW_LAYOUT_GUIDANCE,
+
+  `Important: In Show view layouts, every direct field must be its own separate segment with
+\`"type": "field"\` (singular). There is no \`"type": "fields"\` (plural) segment. Never
+bundle multiple fields into a single segment.`,
 ];
 
 const fieldview_selection_rules = [
