@@ -65,7 +65,13 @@ window.copilotGenPhases = function() {
   const hasPhases = panel && panel.querySelector('.card');
   if (hasPhases && !confirm('Regenerate phases? This will replace all existing phases and delete all phase tasks.')) return;
   _setPhaseParam(null);
-  panel.innerHTML = '<p><i class="fas fa-spinner fa-spin me-2"></i>Generating phases, please wait...</p>';
+  panel.innerHTML =
+    '<div id="phases-generating-state" class="d-flex align-items-center gap-2">' +
+    '<i class="fas fa-spinner fa-spin"></i>Generating phases, please wait...' +
+    '<button class="btn btn-sm text-muted ms-2" ' +
+    'style="font-size:0.75rem;padding:1px 6px;border:1px solid #ced4da;" ' +
+    'title="Cancel generation" onclick="cancelGeneratingPhases()">' +
+    '<i class="fas fa-times me-1"></i>cancel</button></div>';
   view_post(_phasesVn, 'gen_phases', {}, () => {});
   if (!window.dynamic_updates_cfg?.enabled) phasesStartPoll();
 };
@@ -347,6 +353,7 @@ function _runAllSetStopping(idx) {
 // Both the card-refresh and the status-check below share the same token per
 // _refreshChainUI call, since a stale response from either can cause it.
 const _chainStatusSeq = {};
+let _overviewStatusSeq = 0;
 
 // Patches just one phase card in place (used when the phases list, not a
 // phase's detail view, is what's currently showing).
@@ -385,7 +392,9 @@ function _refreshChainUI(idx) {
 function _refreshOverviewStatus() {
   const statusEl = document.getElementById('phases-overview-status');
   if (!statusEl) return; // navigated away from the overview
+  const seq = ++_overviewStatusSeq;
   view_post(_phasesVn, 'phases_overview_status', {}, (r) => {
+    if (seq !== _overviewStatusSeq) return; // superseded by a newer request
     const runBtn = document.getElementById('phases-run-all-btn');
     const stopBtn = document.getElementById('phases-stop-all-btn');
     if (r && r.active) {
@@ -474,6 +483,14 @@ window.cancelGeneratingPhaseTasks = function(idx, taskType) {
   });
 };
 
+window.cancelGeneratingPhases = function() {
+  view_post(_phasesVn, 'cancel_generating_phases', {}, () => {
+    view_post(_phasesVn, 'phases_html', {}, (r) => {
+      if (r && r.html) document.getElementById('phases-panel').innerHTML = r.html;
+    });
+  });
+};
+
 window.copilotPhaseTasksDone = function(idx) { _refreshChainUI(idx); };
 window.copilotPhaseTasksFailed = function(idx) { _refreshChainUI(idx); };
 window.copilotPhaseChainUpdate = function(idx) { _refreshChainUI(idx); };
@@ -522,10 +539,21 @@ function copilotInitPhasesState() {
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-const phasesSpinner =
-  `<p id="phases-generating-state">` +
-  i({ class: "fas fa-spinner fa-spin me-2" }) +
-  "Generating phases, please wait...</p>";
+const phasesSpinner = div(
+  { id: "phases-generating-state", class: "d-flex align-items-center gap-2" },
+  i({ class: "fas fa-spinner fa-spin" }),
+  "Generating phases, please wait...",
+  button(
+    {
+      class: "btn btn-sm text-muted ms-2",
+      style: "font-size:0.75rem;padding:1px 6px;border:1px solid #ced4da;",
+      title: "Cancel generation",
+      onclick: "cancelGeneratingPhases()",
+    },
+    i({ class: "fas fa-times me-1" }),
+    "cancel"
+  )
+);
 
 const tasksSpinner = (phaseIdx, taskType) =>
   div(
@@ -1163,7 +1191,9 @@ const phaseTasksHtml = async (phaseIdx, taskType, pt, projectId) => {
       ? "No tasks yet."
       : taskType === "plugin"
       ? "No plugin installations needed for this phase."
-      : "No schema changes needed for this phase.";
+      : taskType === "data_model"
+      ? "No schema changes needed for this phase."
+      : "No feature work needed for this phase.";
     return (
       staleNotice + topBar + p({ class: "text-muted small mt-2" }, emptyMsg)
     );
@@ -1303,6 +1333,16 @@ const phaseProgressHtml = async (idx, page = 1, pt) => {
               },
               m.body.text || ""
             ),
+        },
+        {
+          label: "Tokens",
+          key: (m) => {
+            const total = m.body?.token_usage?.totalTokens;
+            return small(
+              { class: "text-muted", style: "white-space:nowrap" },
+              typeof total === "number" ? total.toLocaleString() : "—"
+            );
+          },
         },
       ],
       pageEntries
@@ -1792,6 +1832,12 @@ const cancel_generating_phase_tasks = async (
   return { json: { success: true } };
 };
 
+const cancel_generating_phases = async (table_id, vn, config, body, { req }) => {
+  const pt = getPt(body, req);
+  await PhaseHelper.cancelGeneratingPhases(pt);
+  return { json: { success: true } };
+};
+
 const prev_section_status = async (table_id, vn, config, body, { req }) => {
   const { task_type } = body;
   const idx = parseInt(body.idx, 10);
@@ -2009,6 +2055,7 @@ const phase_routes = {
   dismiss_stale_notice,
   prev_section_status,
   cancel_generating_phase_tasks,
+  cancel_generating_phases,
 };
 
 module.exports = {

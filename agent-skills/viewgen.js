@@ -20,39 +20,30 @@ const {
   renderGeneratedViewConfiguration,
 } = require("./generated-view-preview");
 const {
-  RELATION_PATH_DOC,
   GET_RELATION_PATHS_FUNCTION,
   getRelationPathsForPairs,
 } = require("../relation-paths");
 
-const collectViewLinks = (segment, out = []) => {
+// Single walk of a layout tree that collects view_link/action segments and field names at once.
+const collectLayoutSegments = (
+  segment,
+  out = { viewLinks: [], actions: [], fieldNames: new Set() }
+) => {
   if (!segment || typeof segment !== "object") return out;
   if (Array.isArray(segment)) {
-    segment.forEach((s) => collectViewLinks(s, out));
+    segment.forEach((s) => collectLayoutSegments(s, out));
     return out;
   }
-  if (segment.type === "view_link" && segment.view) out.push(segment);
-  if (segment.above) collectViewLinks(segment.above, out);
-  if (segment.besides) collectViewLinks(segment.besides, out);
-  if (segment.contents) collectViewLinks(segment.contents, out);
-  if (Array.isArray(segment.tabs))
-    segment.tabs.forEach((t) => collectViewLinks(t?.contents, out));
-  return out;
-};
-
-const collectLayoutFieldNames = (segment, out = new Set()) => {
-  if (!segment || typeof segment !== "object") return out;
-  if (Array.isArray(segment)) {
-    segment.forEach((s) => collectLayoutFieldNames(s, out));
-    return out;
-  }
+  if (segment.type === "view_link" && segment.view) out.viewLinks.push(segment);
+  if (segment.type === "action" && segment.action_name)
+    out.actions.push(segment);
   if (segment.type === "field" && segment.field_name)
-    out.add(segment.field_name);
-  if (segment.above) collectLayoutFieldNames(segment.above, out);
-  if (segment.besides) collectLayoutFieldNames(segment.besides, out);
-  if (segment.contents) collectLayoutFieldNames(segment.contents, out);
+    out.fieldNames.add(segment.field_name);
+  if (segment.above) collectLayoutSegments(segment.above, out);
+  if (segment.besides) collectLayoutSegments(segment.besides, out);
+  if (segment.contents) collectLayoutSegments(segment.contents, out);
   if (Array.isArray(segment.tabs))
-    segment.tabs.forEach((t) => collectLayoutFieldNames(t?.contents, out));
+    segment.tabs.forEach((t) => collectLayoutSegments(t?.contents, out));
   return out;
 };
 
@@ -124,6 +115,21 @@ const toFilterColumn = (segment) => ({
   configuration: segment.configuration || {},
 });
 
+// Guards against tool_call.input arriving as a raw string instead of parsed JSON.
+const asPlainObject = (value) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+        return parsed;
+    } catch (_) {
+      // fall through
+    }
+  }
+  return null;
+};
+
 class GenerateViewSkill {
   static skill_name = "Generate View";
 
@@ -137,22 +143,45 @@ class GenerateViewSkill {
 
   async systemPrompt() {
     return (
-      `If the user asks to generate a view, use the generate_view tool — but ONLY if the view does not already exist. ` +
-      `If a view with that name already exists, do NOT call generate_view — doing so will create a duplicate. Instead follow the modification sequence below.\n` +
-      `The Edit viewtemplate serves both create (no id in state) and edit (id in state) — one view covers both.\n\n` +
+      `If the user asks to generate a view, use the generate_view tool — but ` +
+      `ONLY if the view does not already exist. If a view with that name ` +
+      `already exists, do NOT call generate_view — doing so will create a ` +
+      `duplicate. Instead follow the modification sequence below.\n` +
+      `The Edit viewtemplate serves both create (no id in state) and edit ` +
+      `(id in state) — one view covers both.\n\n` +
       `**Modifying an existing view — required sequence:**\n` +
       `(1) Call get_view_config to fetch the current configuration.\n` +
-      `(2) Only if you are adding view_link columns or embedded view (type "view") segments: call get_relation_paths once with all the source_table/target_view pairs you need. For changes that don't involve linking or embedding views (e.g. adding a field, changing a label), skip this step.\n` +
-      `(3) Write out the complete updated configuration JSON in full — every key from the existing config must be present, with only your targeted changes merged in.\n` +
-      `(4) Call apply_view_config with that complete object. The configuration field contains the full merged result from step (3).\n\n` +
+      `(2) Only if you are adding view_link columns or embedded view (type ` +
+      `"view") segments: call get_relation_paths once with all the ` +
+      `source_table/target_view pairs you need. For changes that don't ` +
+      `involve linking or embedding views (e.g. adding a field, changing a ` +
+      `label), skip this step.\n` +
+      `(3) Write out the complete updated configuration JSON in full — every ` +
+      `key from the existing config must be present, with only your ` +
+      `targeted changes merged in.\n` +
+      `(4) Call apply_view_config with that complete object. NEVER call ` +
+      `apply_view_config before step (3) is finished. NEVER call it with ` +
+      `only the name or a partial object — the configuration field is ` +
+      `mandatory and must be the full merged result from step (3). Calling ` +
+      `apply_view_config without a complete configuration is an error.\n\n` +
       SHOW_LAYOUT_GUIDANCE +
       `\n\n**Generating a new view that contains view_links or embedded views:**\n` +
-      `If the task or prompt mentions a viewlink, a link to another view, or a button that opens another view from a list row, that view_link column is REQUIRED — do not omit it. ` +
-      `You MUST call get_relation_paths with all source_table/target_view pairs before constructing the layout. Never skip this step when view_links are needed.\n\n` +
+      `If the task or prompt mentions a viewlink, a link to another view, or ` +
+      `a button that opens another view from a list row, that view_link ` +
+      `column is REQUIRED — do not omit it. You MUST call get_relation_paths ` +
+      `with all source_table/target_view pairs before constructing the ` +
+      `layout. Never skip this step when view_links are needed.\n\n` +
       `**Embedded view segment format (for Show layouts):**\n` +
-      `  { "type": "view", "view": "<viewName>", "name": "<viewName>", "relation": "<from get_relation_paths>" }\n` +
-      `Do NOT use blank text segments as placeholders — always use a real view segment with a relation string from get_relation_paths.\n\n` +
-      RELATION_PATH_DOC
+      `  { "type": "view", "view": "<viewName>", "name": "<viewName>", ` +
+      `"relation": "<from get_relation_paths>" }\n` +
+      `Do NOT use blank text segments as placeholders — always use a real ` +
+      `view segment with a relation string from get_relation_paths.\n\n` +
+      `Relation strings always use the dot-separated path format (e.g. ` +
+      `".trips.packing_items$trip_id") returned by get_relation_paths — use ` +
+      `them verbatim, never construct your own. If an existing configuration ` +
+      `you are editing contains an old colon-based relation format (e.g. ` +
+      `"ChildList:view.table.field"), that is legacy — call get_relation_paths ` +
+      `and rewrite it in the new format rather than preserving it.`
     );
   }
 
@@ -278,8 +307,19 @@ class GenerateViewSkill {
           vt.tableless === true
             ? null
             : Table.findOne({ name: tool_call.input.table });
+        const roleName = tool_call.input.min_role || "public";
+        const rolesState = getState().roles;
+        const min_role = rolesState
+          ? (rolesState.find((r) => r.role === roleName) || { id: 100 }).id
+          : { admin: 1, public: 100, user: 80 }[roleName] ?? 100;
 
-        const wfctx = { viewname: tool_call.input.name, table_id: table?.id };
+        // Lets a viewtemplate's own step.form(context) tell an AI-driven call apart from a
+        // real user filling in the wizard (e.g. to offer a blank option only for the former).
+        const wfctx = {
+          viewname: tool_call.input.name,
+          table_id: table?.id,
+          copilot_call: true,
+        };
         const viewpattern = tool_call.input.viewpattern;
         const builderModeByPattern = {
           Show: "show",
@@ -288,13 +328,20 @@ class GenerateViewSkill {
           Filter: "filter",
         };
         const builderMode = builderModeByPattern[viewpattern];
+        // Hoisted so the wizard-step loop below can restate the task instead of relying on chat recall.
+        const layoutPrompt = builderGen.extractLayoutPromptFromChat(
+          chat,
+          tool_call.input.name || ""
+        );
         if (builderMode) {
-          const layoutPrompt = builderGen.extractLayoutPromptFromChat(
-            chat,
-            tool_call.input.name || ""
-          );
+          // Lets a viewtemplate require specific layout content (e.g. List needs a
+          // viewlink/delete segment) without hardcoding that knowledge in the constructor.
+          const layoutRule =
+            typeof vt.copilot_layout_rule === "function"
+              ? await vt.copilot_layout_rule(tool_call.input)
+              : vt.copilot_layout_rule;
           wfctx.layout = await builderGen.run(
-            layoutPrompt,
+            layoutRule ? `${layoutRule}\n\n${layoutPrompt}` : layoutPrompt,
             builderMode,
             table?.name,
             null,
@@ -310,21 +357,40 @@ class GenerateViewSkill {
           }
           if (viewpattern === "List" && wfctx.layout) {
             // initial_config_all_fields never generates ViewLink columns — inject them from layout
-            const viewLinks = collectViewLinks(wfctx.layout);
+            const { viewLinks, actions } = collectLayoutSegments(wfctx.layout);
             const viewLinkColumns = viewLinks.map((seg) => ({
               type: "ViewLink",
               view: seg.view,
               block: seg.block || false,
               label: seg.view_label || "",
-              minRole: seg.minRole || 100,
+              // Never more permissive than the list itself by default - a missing minRole
+              // on the segment must not silently make it public.
+              minRole: seg.minRole || min_role,
               ...(seg.relation ? { relation: seg.relation } : {}),
               isFormula: seg.isFormula || {},
             }));
             if (viewLinkColumns.length > 0)
               wfctx.columns = [...(wfctx.columns || []), ...viewLinkColumns];
+            // Same as above for Action columns - without this, buttons render but crash on click.
+            const actionColumns = actions.map((seg) => ({
+              type: "Action",
+              action_name: seg.action_name,
+              action_label: seg.action_label || "",
+              action_style: seg.action_style || "btn-primary",
+              rndid: seg.rndid,
+              minRole: seg.minRole || min_role,
+              nsteps: seg.nsteps || 1,
+              isFormula: seg.isFormula || {},
+              configuration: seg.configuration || {},
+              ...(seg.confirm ? { confirm: seg.confirm } : {}),
+            }));
+            if (actionColumns.length > 0)
+              wfctx.columns = [...(wfctx.columns || []), ...actionColumns];
           }
           if (viewpattern === "Edit" && table) {
-            const layoutFieldNames = collectLayoutFieldNames(wfctx.layout);
+            const { fieldNames: layoutFieldNames } = collectLayoutSegments(
+              wfctx.layout
+            );
             const fields = table.fields || [];
             const fixed = {};
             const usersFkColumnsToAdd = [];
@@ -385,12 +451,15 @@ class GenerateViewSkill {
           if (wfctx.layout !== undefined) prefilledFields.add("layout");
           if (wfctx.columns !== undefined) prefilledFields.add("columns");
 
-          // For List views: pre-fill view_to_create with the best Edit view for the table
+          // For List views: pre-fill view_to_create with the best Edit view for the table -
+          // only one at least as accessible as this List, or a user could see the "Create
+          // new row" link/button but be denied when they open it.
           if (viewpattern === "List" && table) {
             const candidateViews = await View.find_table_views_where(
               table.id,
               ({ state_fields, viewrow }) =>
                 viewrow.name !== tool_call.input.name &&
+                viewrow.min_role >= min_role &&
                 state_fields.every((sf) => !sf.required)
             );
             if (candidateViews.length > 0) {
@@ -408,16 +477,21 @@ class GenerateViewSkill {
             }
           }
 
+          // One LLM round-trip for all steps, not one per step.
+          const stepNames = [];
+          const properties = {};
+          // Maps a field's answer back to its step.contextField.
+          const fieldContextField = {};
           for (const step of flow.steps) {
             if (typeof step.form !== "function") continue;
             const form = await step.form(wfctx);
-            const properties = {};
+            let stepHadFields = false;
             //TODO onlyWhen
             for (const field of form.fields) {
               if (prefilledFields.has(field.name)) continue;
               //TODO showIf
               const isShowif = field.name.endsWith("_showif");
-              properties[field.name] = {
+              const fieldSchema = {
                 description:
                   field.copilot_description ||
                   (isShowif
@@ -427,58 +501,94 @@ class GenerateViewSkill {
                       }`),
                 ...fieldProperties(field),
               };
-              if (!properties[field.name].type) {
-                properties[field.name].type = "string";
-              }
+              if (!fieldSchema.type) fieldSchema.type = "string";
+              properties[field.name] = fieldSchema;
+              fieldContextField[field.name] = step.contextField;
+              stepHadFields = true;
             }
+            if (stepHadFields) stepNames.push(step.name);
+          }
 
-            if (!Object.keys(properties).length) continue;
-
-            const answer = await generate(
-              `${vt_prompt ? vt_prompt + "\n\n" : ""}Now generate the ${
-                step.name
-              } details of the view by calling the generate_view_details tool`,
-              {
-                tools: [
-                  {
+          if (Object.keys(properties).length) {
+            // Caught, not thrown: an uncaught error here would abort before the view is created, and common.js's postProcess catch swallows it into a silent "Done".
+            let answer;
+            let tc;
+            try {
+              answer = await generate(
+                `${vt_prompt ? vt_prompt + "\n\n" : ""}${
+                  layoutPrompt ? `Task: ${layoutPrompt}\n\n` : ""
+                }Now generate the ${stepNames.join(
+                  ", "
+                )} details of the view by calling the generate_view_details tool`,
+                {
+                  tools: [
+                    {
+                      type: "function",
+                      function: {
+                        name: "generate_view_details",
+                        description: "Provide view details",
+                        parameters: {
+                          type: "object",
+                          properties,
+                        },
+                      },
+                    },
+                  ],
+                  tool_choice: {
                     type: "function",
                     function: {
                       name: "generate_view_details",
-                      description: "Provide view details",
-                      parameters: {
-                        type: "object",
-                        properties,
-                      },
                     },
                   },
-                ],
-                tool_choice: {
-                  type: "function",
-                  function: {
-                    name: "generate_view_details",
-                  },
-                },
-              }
-            );
-            const tc =
-              typeof answer?.getToolCalls === "function"
-                ? answer.getToolCalls()[0]
-                : null;
+                }
+              );
+              tc =
+                typeof answer?.getToolCalls === "function"
+                  ? answer.getToolCalls()[0]
+                  : null;
+              if (!tc)
+                getState().log(
+                  2,
+                  `generate() returned no tool call for view config steps ` +
+                    `[${stepNames.join(", ")}] - skipping these details.`
+                );
+            } catch (e) {
+              getState().log(
+                2,
+                `generate() failed for view config steps [${stepNames.join(
+                  ", "
+                )}] - skipping these details.`,
+                e
+              );
+            }
             if (tc) {
               await getState().functions.llm_add_message.run(
                 "tool_response",
                 { type: "text", value: "Details provided" },
                 { chat, tool_call: tc }
               );
-              Object.assign(wfctx, tc.input);
+              const details = asPlainObject(tc.input);
+              if (details) {
+                for (const [key, value] of Object.entries(details)) {
+                  const ctxField = fieldContextField[key];
+                  if (ctxField) {
+                    wfctx[ctxField] = { ...(wfctx[ctxField] || {}), [key]: value };
+                  } else {
+                    wfctx[key] = value;
+                  }
+                }
+              } else {
+                getState().log(
+                  2,
+                  `generate_view_details tool call for steps [${stepNames.join(
+                    ", "
+                  )}] returned unparseable input - skipping these details.`,
+                  tc.input
+                );
+              }
             }
           }
         }
-        const roleName = tool_call.input.min_role || "public";
-        const rolesState = getState().roles;
-        const min_role = rolesState
-          ? (rolesState.find((r) => r.role === roleName) || { id: 100 }).id
-          : { admin: 1, public: 100, user: 80 }[roleName] ?? 100;
         const existingView = View.findOne({ name: tool_call.input.name });
         if (existingView) {
           return {
@@ -561,8 +671,10 @@ class GenerateViewSkill {
       function: {
         name: "apply_view_config",
         description:
-          "Save the complete updated configuration of an existing view after retrieving it with get_view_config. " +
-          "Pass the existing view name and the full merged configuration, preserving every existing key and changing only what the user requested. " +
+          "Save an updated configuration to an existing view. " +
+          "STRICT PRECONDITION: you must have already called get_view_config AND written out the complete merged configuration JSON before calling this tool. " +
+          "Do NOT call this tool as a placeholder or before the configuration is fully constructed. " +
+          "Calling this tool without a complete configuration object is always wrong and will fail. " +
           "For Show views, use blank segments for literal labels, field/Field pairs for direct fields, and join_field/JoinField pairs for related fields.",
         parameters: {
           type: "object",
@@ -575,7 +687,9 @@ class GenerateViewSkill {
             configuration: {
               type: "object",
               description:
-                "The complete updated configuration object returned by get_view_config, with every existing key preserved and only the requested changes merged in. " +
+                "REQUIRED. The complete updated configuration object — every key from the existing config preserved, with only your changes merged in. " +
+                "You MUST have the full object written out before calling this tool. " +
+                "Passing null, an empty object, or a partial object (e.g. only the name) is always wrong and will return an error. " +
                 "For Show views, keep layout segments and configuration.columns synchronized: field with Field, and join_field with JoinField.",
             },
           },

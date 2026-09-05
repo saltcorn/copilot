@@ -187,10 +187,7 @@ function getRelationPathsForPairs(pairs, schemaData, maxDepth = 2) {
   });
 }
 
-/**
- * Pick the most useful relation from a list: Own > Parent > Child > first.
- * Used as a fallback in builder-gen when the model doesn't specify a relation.
- */
+/** Caps relations to `limit`, round-robin across types so none crowds out the others. */
 function selectRelationPaths(relations, limit = MAX_PATHS_PER_PAIR) {
   const unique = [
     ...new Map(relations.map((r) => [r.relationString, r])).values(),
@@ -225,23 +222,6 @@ function selectRelationPaths(relations, limit = MAX_PATHS_PER_PAIR) {
   }
   selected.sort(comparePaths);
   return { selected, omitted: unique.length - selected.length };
-}
-
-function pickBestRelation(relations) {
-  if (!relations.length) return null;
-  let own = null,
-    parent = null,
-    child = null;
-  for (const r of relations) {
-    if (r.type === RelationType.OWN) own = r;
-    else if (r.type === RelationType.PARENT_SHOW) parent = r;
-    else if (
-      r.type === RelationType.CHILD_LIST ||
-      r.type === RelationType.ONE_TO_ONE_SHOW
-    )
-      child = r;
-  }
-  return own || parent || child || relations[0];
 }
 
 /**
@@ -306,8 +286,6 @@ const GET_RELATION_PATHS_FUNCTION = {
 module.exports = {
   RELATION_PATH_DOC,
   GET_RELATION_PATHS_FUNCTION,
-  getRelationPaths,
   getRelationPathsForPairs,
   selectRelationPaths,
-  pickBestRelation,
 };

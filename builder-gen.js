@@ -1,16 +1,13 @@
 const { getState } = require("@saltcorn/data/db/state");
 const Table = require("@saltcorn/data/models/table");
 const Trigger = require("@saltcorn/data/models/trigger");
-const View = require("@saltcorn/data/models/view");
 const { edit_build_in_actions } = require("@saltcorn/data/viewable_fields");
 const { buildBuilderSchema } = require("./builder-schema");
 const { getLlmConfigurationSafe, canUseResponseFormat } = require("./common");
 const { build_schema_data } = require("@saltcorn/data/plugin-helper");
 const {
   GET_RELATION_PATHS_FUNCTION,
-  getRelationPaths,
   getRelationPathsForPairs,
-  pickBestRelation,
 } = require("./relation-paths");
 
 const ACTION_SIZES = ["btn-sm", "btn-lg"];
@@ -29,7 +26,7 @@ selector inputs; Saltcorn auto-fills them from the URL state when opened in cont
 
 const {
   fieldview_selection_rules: EDIT_FIELDVIEW_SELECTION,
-} = require("./app-constructor/fixed-prompts");
+} = require("./app-constructor/prompts/fixed-prompts");
 
 const EDIT_LAYOUT_STRUCTURE = `\
 Every field MUST be preceded by a label. \
@@ -639,12 +636,36 @@ const normalizeChild = (value, ctx) => {
   return normalizeSegment(value, ctx);
 };
 
+// Rejects a missing relation instead of guessing one, so run() retries the whole candidate.
+const requireRelation = (relation, segmentType, viewName) => {
+  if (typeof relation === "string" && relation.trim()) return relation;
+  throw new Error(
+    `Missing "relation" on ${segmentType} segment embedding view "${viewName}". ` +
+      `Call get_relation_paths for this source_table/target_view pair and ` +
+      `set "relation" to the chosen path - do not omit it.`
+  );
+};
+
+// Rejects an unknown view name instead of silently swapping in ctx.viewNames[0].
+const requireKnownView = (view, ctx, segmentType) => {
+  if (ctx.viewNames.includes(view)) return view;
+  throw new Error(
+    `Unknown view "${view}" on ${segmentType} segment - must be one of: ` +
+      `${ctx.viewNames.join(", ")}.`
+  );
+};
+
 const normalizeTabs = (tabs, ctx) =>
   ensureArray(tabs)
     .map((tab) => ({ ...tab, contents: normalizeChild(tab?.contents, ctx) }))
     .filter((tab) => tab?.title && tab.contents)
     .map((tab) => ({ ...tab, class: tab.class || "" }));
 
+/**
+ * Recursively validates and repairs one LLM-generated layout segment against ctx.
+ * @param {*} segment  Raw segment from the LLM's layout JSON.
+ * @param {object} ctx  buildContext() output (table, fields, viewNames, etc).
+ */
 const normalizeSegment = (segment, ctx) => {
   if (segment == null) return null;
   if (typeof segment === "string") return { type: "blank", contents: segment };
@@ -768,37 +789,26 @@ const normalizeSegment = (segment, ctx) => {
         : null;
     case "search_bar":
       return { ...clone, class: clone.class || "" };
-    case "view":
+    case "view": {
       if (!ctx.viewNames.length) return null;
+      const resolvedView = requireKnownView(clone.view, ctx, "view");
+      const relation = requireRelation(clone.relation, "view", resolvedView);
       return {
         ...clone,
-        view: ctx.viewNames.includes(clone.view)
-          ? clone.view
-          : ctx.viewNames[0],
+        view: resolvedView,
         state: clone.state || {},
         class: clone.class || "",
+        relation,
       };
+    }
     case "view_link": {
       if (!ctx.viewNames.length) return null;
-      const resolvedView = ctx.viewNames.includes(clone.view)
-        ? clone.view
-        : ctx.viewNames[0];
-      let relation = clone.relation;
-      if (!relation && ctx.table && ctx.schemaData) {
-        try {
-          const relations = getRelationPaths(
-            ctx.table.name,
-            resolvedView,
-            ctx.schemaData
-          );
-          if (relations.length > 0) {
-            const picked = pickBestRelation(relations);
-            if (picked) relation = picked.relationString;
-          }
-        } catch (e) {
-          console.error("view_link relation lookup failed:", e.message);
-        }
-      }
+      const resolvedView = requireKnownView(clone.view, ctx, "view_link");
+      const relation = requireRelation(
+        clone.relation,
+        "view_link",
+        resolvedView
+      );
       // Convert {{ expr }} template syntax to isFormula.label: true with JS expression
       let viewLabel = clone.view_label || clone.view;
       let isFormula = clone.isFormula || {};
@@ -816,7 +826,7 @@ const normalizeSegment = (segment, ctx) => {
         link_style: clone.link_style || "",
         class: clone.class || "",
         isFormula,
-        ...(relation ? { relation } : {}),
+        relation,
       };
     }
     case "field": {
@@ -937,6 +947,17 @@ const fixLayoutBoxModel = (segment) => {
   if (typeof segment !== "object") return segment;
 
   const clone = { ...segment };
+  // Saltcorn renders `contents`, not these LLM-invented synonyms - rename or the segment silently renders empty.
+  if (clone.contents === undefined) {
+    for (const alias of ["children", "segments", "items"]) {
+      if (clone[alias] === undefined) continue;
+      const items = ensureArray(clone[alias]).filter(Boolean);
+      if (items.length === 1) clone.contents = items[0];
+      else if (items.length > 1) clone.contents = { above: items };
+      delete clone[alias];
+      break;
+    }
+  }
   if (clone.margin !== undefined) {
     const fixed = fixBoxModel(clone.margin);
     if (fixed) clone.margin = fixed;
@@ -963,6 +984,41 @@ const fixLayoutBoxModel = (segment) => {
 
 // Pre-save fixes for callers that must not otherwise change the layout.
 const sanitizeLayout = (layout) => fixLayoutBoxModel(layout);
+
+// The model sometimes drops the final closing bracket(s) of a long JSON-string
+// tool argument (e.g. set_entity's entity_definition). Appends whatever
+// brackets are still open, outermost last, and returns null if that doesn't
+// yield valid JSON - never guesses at anything other than trailing closers.
+const repairTruncatedJson = (raw) => {
+  const stack = [];
+  let inStr = false,
+    esc = false;
+  for (const c of raw) {
+    if (esc) {
+      esc = false;
+      continue;
+    }
+    if (c === "\\") {
+      esc = true;
+      continue;
+    }
+    if (c === '"') {
+      inStr = !inStr;
+      continue;
+    }
+    if (inStr) continue;
+    if (c === "{" || c === "[") stack.push(c === "{" ? "}" : "]");
+    else if (c === "}" || c === "]") stack.pop();
+  }
+  if (!stack.length) return null;
+  const repaired = raw + stack.reverse().join("");
+  try {
+    JSON.parse(repaired);
+    return repaired;
+  } catch (_) {
+    return null;
+  }
+};
 
 const sanitizeNoHtmlSegments = (segment) => {
   if (segment == null) return segment;
@@ -1015,6 +1071,11 @@ const truncateText = (value, maxLen) => {
   return `${str.slice(0, maxLen)}\n...truncated...`;
 };
 
+/**
+ * Pure entry point: turns a parsed LLM layout candidate into a valid Saltcorn layout.
+ * @param {*} candidate  Parsed JSON layout from the LLM (or an existing layout to repair).
+ * @param {object} ctx  buildContext() output (table, fields, viewNames, etc).
+ */
 const normalizeLayoutCandidate = (candidate, ctx) => {
   let normalized = normalizeSegment(candidate, ctx);
   if (!normalized) {
@@ -1039,17 +1100,19 @@ const normalizeLayoutCandidate = (candidate, ctx) => {
   return sanitizeNoHtmlSegments(layout);
 };
 
-const buildFieldMetadata = (fields) => {
+const formatFieldAttrs = (attributes) =>
+  Object.entries(attributes || {})
+    .filter(([, v]) => v !== null && v !== undefined && v !== "" && v !== false)
+    .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+    .join(", ");
+
+/** One table's fields, shaped like buildContext's output, as prose for the layout prompt. */
+const describeLayoutFields = (fields) => {
   if (!fields || !fields.length) return null;
   const lines = fields
     .filter((f) => !f.primary_key)
     .map((f) => {
-      const attrs = Object.entries(f.attributes || {})
-        .filter(
-          ([, v]) => v !== null && v !== undefined && v !== "" && v !== false
-        )
-        .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-        .join(", ");
+      const attrs = formatFieldAttrs(f.attributes);
       return `  ${f.name} (${f.type}${f.calculated ? ", calculated" : ""}${
         attrs ? ` — attrs: ${attrs}` : ""
       })`;
@@ -1057,48 +1120,77 @@ const buildFieldMetadata = (fields) => {
   return `Table fields available for this layout:\n${lines.join("\n")}`;
 };
 
-const buildPromptText = (userPrompt, ctx, schema) => {
+const buildPromptText = (
+  userPrompt,
+  ctx,
+  schema,
+  { includeSchemaText = true } = {}
+) => {
   const parts = [
-    `You are an expert Saltcorn layout builder assistant. Your task is to generate a layout for mode "${ctx.mode}" that precisely fulfills the user's request.`,
-    'CRITICAL: You must return ONLY a single valid JSON object. Do not include introductory text, explanations, markdown formatting (like ```json), or any pseudo-markup. The output must strictly follow this shape: {"layout": <layout-object>}.',
-    'The "layout" object MUST conform entirely to the provided JSON Schema. Do not invent properties, types, or structure not defined in the schema.',
+    `You are an expert Saltcorn layout builder assistant. Your task is to ` +
+      `generate a layout for mode "${ctx.mode}" that precisely fulfills the ` +
+      `user's request.`,
+    `CRITICAL: You must return ONLY a single valid JSON object. Do not ` +
+      "include introductory text, explanations, markdown formatting (like " +
+      '```json), or any pseudo-markup. The output must strictly follow ' +
+      'this shape: {"layout": <layout-object>}.',
+    `The "layout" object MUST conform entirely to the provided JSON ` +
+      "Schema. Do not invent properties, types, or structure not defined " +
+      "in the schema.",
   ];
   parts.push(ctx.modeGuidance);
-  const fieldMeta = buildFieldMetadata(ctx.fields);
+  const fieldMeta = describeLayoutFields(ctx.fields);
   if (fieldMeta) parts.push(fieldMeta);
   parts.push(
-    "When a card or container background is requested, set bgType explicitly (None, Color, Image, or Gradient). For Color use bgColor, for Image use bgFileId plus imageLocation (Top, Card, Body) and optionally imageSize (cover, contain, repeat using cover as default) when location is Card or Body, and for Gradient use gradStartColor, gradEndColor, and numeric gradDirection. Use hex color codes when specifying colors."
+    "When a card or container background is requested, set bgType " +
+      "explicitly (None, Color, Image, or Gradient). For Color use " +
+      "bgColor, for Image use bgFileId plus imageLocation (Top, Card, " +
+      "Body) and optionally imageSize (cover, contain, repeat using cover " +
+      "as default) when location is Card or Body, and for Gradient use " +
+      "gradStartColor, gradEndColor, and numeric gradDirection. Use hex " +
+      "color codes when specifying colors."
+  );
+  // Avoid paying for the schema twice when response_format already carries it.
+  if (includeSchemaText) {
+    parts.push(
+      `Here is the strict Saltcorn layout JSON schema you MUST follow to ` +
+        `construct the layout. Do not deviate from these definitions:\n` +
+        `${JSON.stringify(schema)}`
+    );
+  }
+  parts.push(
+    `TOOL CALL REQUIRED: If the layout you are about to generate contains ` +
+      `any view_link or embedded view (type "view") segment, you MUST ` +
+      `call get_relation_paths with all required source_table/target_view ` +
+      `pairs BEFORE returning JSON. Do NOT guess or omit the "relation" ` +
+      `field — return the tool call first and use the result in the layout.`
   );
   parts.push(
-    `Here is the strict Saltcorn layout JSON schema you MUST follow to construct the layout. Do not deviate from these definitions:\n${JSON.stringify(
-      schema
-    )}`
-  );
-  parts.push(
-    `TOOL CALL REQUIRED: If the layout you are about to generate contains any view_link or embedded view (type "view") segment, ` +
-      `you MUST call get_relation_paths with all required source_table/target_view pairs BEFORE returning JSON. ` +
-      `Do NOT guess or omit the "relation" field — return the tool call first and use the result in the layout.`
-  );
-  parts.push(
-    `Based on the schema above, process the following user request and generate the layout JSON. Reminder: ONLY output valid JSON starting with { and ending with }, no markdown fences.\nUser request:\n"${userPrompt}"`
+    `Based on the JSON Schema, process the following user request and ` +
+      `generate the layout JSON. Reminder: ONLY output valid JSON starting ` +
+      `with { and ending with }, no markdown fences.\nUser request:\n` +
+      `"${userPrompt}"`
   );
   return parts.join("\n\n");
 };
 
-const buildRepairPrompt = (rawOutput, schema) => {
+const buildRepairPrompt = (rawOutput, schema, errorMessage) => {
   const cleaned = truncateText(rawOutput, 6000);
   return [
     "You are repairing a JSON payload for Saltcorn. Return ONLY valid JSON.",
     "Do not add explanations, markdown, or code fences.",
     "If the JSON is incomplete, finish it. If it has extra text, remove it.",
+    errorMessage ? `Specific problem to fix:\n${errorMessage}` : null,
     `Schema (must conform):\n${JSON.stringify(schema)}`,
     `Invalid output to fix:\n${cleaned}`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 };
 
-const buildReducedPrompt = (userPrompt, ctx, schema) => {
+const buildReducedPrompt = (userPrompt, ctx, schema, opts) => {
   const limitedPrompt = `${userPrompt}\n\nLimit the layout to at most 4 containers/cards and no more than 2 levels of nesting. Keep the output compact.`;
-  return buildPromptText(limitedPrompt, ctx, schema);
+  return buildPromptText(limitedPrompt, ctx, schema, opts);
 };
 
 const convertChildList = (children, ctx) => {
@@ -1409,14 +1501,6 @@ const buildContext = async (mode, tableName) => {
     when_trigger: { or: ["API call", "Never"] },
   }).filter((tr) => tr.name && (!tr.table_id || tr.table_id === table.id));
 
-  let viewNames = [];
-  try {
-    const views = await View.find_table_views_where(table.id, () => true);
-    viewNames = views.map((v) => v.name);
-  } catch (err) {
-    viewNames = [];
-  }
-
   const builtIns =
     ctx.mode === "edit" || ctx.mode === "filter"
       ? edit_build_in_actions || []
@@ -1429,7 +1513,6 @@ const buildContext = async (mode, tableName) => {
   ctx.fields = fields;
   ctx.fieldMap = Object.fromEntries(fields.map((f) => [f.name, f]));
   ctx.actions = actions;
-  ctx.viewNames = viewNames;
   return ctx;
 };
 
@@ -1539,10 +1622,12 @@ const runWithRelationTools = async (llm, mainPrompt, opts) => {
         );
         resultText =
           sections.join("\n\n") +
-          `\n\nFor each pair above: analyse whether the listed paths include a suitable one for the intended relation type (ChildList, ParentShow, Own, etc.). ` +
-          `If a suitable path exists, set the "relation" property to the chosen path string for all types including Own. ` +
-          `If no suitable path exists for a pair (no paths listed, or none match the intended type), call get_relation_paths again with a higher max_depth (4, then 6). ` +
-          `Do not escalate just because multiple paths are listed — only escalate when none is appropriate.`;
+          `\n\nFor each pair above: check whether the listed paths include one ` +
+          `suitable for the intended relationship. If so, set the "relation" ` +
+          `property to that path string. If no suitable path exists for a pair ` +
+          `(no paths listed, or none fit), call get_relation_paths again with a ` +
+          `higher max_depth (4, then 6). Do not escalate just because multiple ` +
+          `paths are listed — only escalate when none is appropriate.`;
       } else {
         resultText = `Unknown tool: ${tc.tool_name}`;
       }
@@ -1557,6 +1642,9 @@ const runWithRelationTools = async (llm, mainPrompt, opts) => {
   const final = await llm.run(null, { ...opts, chat: runChat });
   return typeof final === "string" ? final : final?.content ?? "";
 };
+
+// Splits off the task description that taskExecPrompt() (prompt-generator.js) appends after this marker.
+const TASK_DESCRIPTION_MARKER = "Your task now is:";
 
 // Extracts the layout-generation prompt from the user's chat message, skipping
 // tool-result-only turns. Shared by viewgen.js and pagegen.js before run().
@@ -1579,16 +1667,44 @@ const extractLayoutPromptFromChat = (chat, fallback = "") => {
           item?.role === "user" && item?.content && !isToolResultMessage(item)
       )
     : [];
-  const promptFromChat = userMsgs.length
-    ? extractText(userMsgs[0].content)
-    : "";
+  const fullPrompt = userMsgs.length ? extractText(userMsgs[0].content) : "";
+  // The full prompt is the entire task-exec prompt (app spec, tables, rules...) —
+  // only the part after the marker is the actual task description we need here.
+  const markerIdx = fullPrompt.indexOf(TASK_DESCRIPTION_MARKER);
+  const promptFromChat =
+    markerIdx >= 0
+      ? fullPrompt.slice(markerIdx + TASK_DESCRIPTION_MARKER.length).trim()
+      : fullPrompt;
   return promptFromChat || fallback;
+};
+
+// Extracts only get_relation_paths call/result pairs - a bundled tool-call like generate_view would otherwise dangle unanswered.
+const trimChatForRelationContext = (chat) => {
+  if (!Array.isArray(chat)) return [];
+  const callIds = new Set();
+  const out = [];
+  for (const item of chat) {
+    if (item?.role === "assistant" && Array.isArray(item.content)) {
+      const calls = item.content.filter(
+        (c) => c?.type === "tool-call" && c.toolName === "get_relation_paths"
+      );
+      if (calls.length) {
+        calls.forEach((c) => callIds.add(c.toolCallId));
+        out.push({ ...item, content: calls });
+      }
+    } else if (item?.role === "tool" && Array.isArray(item.content)) {
+      const results = item.content.filter((c) => callIds.has(c?.toolCallId));
+      if (results.length) out.push({ ...item, content: results });
+    }
+  }
+  return out;
 };
 
 module.exports = {
   normalizeLayoutCandidate,
   extractLayoutPromptFromChat,
   sanitizeLayout,
+  repairTruncatedJson,
   run: async (prompt, mode, table, existing_layout, chat) => {
     prompt = prompt.trim().replace(/^\[\w+\]:\s*/, "");
 
@@ -1600,22 +1716,14 @@ module.exports = {
     const llmConfig = await getLlmConfigurationSafe();
     const allowResponseFormat = canUseResponseFormat(llmConfig);
 
-    let llmPrompt = buildPromptText(prompt, ctx, schema);
-    if (existing_layout !== undefined && existing_layout !== null) {
-      const layoutJson =
-        typeof existing_layout === "string"
-          ? existing_layout
-          : JSON.stringify(existing_layout);
-      llmPrompt = `${llmPrompt}\n\nExisting layout (reproduce this with the requested changes applied):\n${layoutJson}`;
-    }
-
+    // Computed early so buildPromptText can skip the schema text when response_format already carries it.
     let responseFormat;
     try {
       if (!schema || !schema.schema) {
         throw new Error("Builder schema unavailable");
       }
       if (!allowResponseFormat) {
-        console.warn("LLM backend does not support response_format; skipping");
+        getState().log(2, "LLM backend does not support response_format; skipping");
       } else {
         validateSchemaRefs(schema.schema);
         let simplified = simplifySchemaForLlm(schema.schema);
@@ -1625,7 +1733,8 @@ module.exports = {
           simplified = trimOptionalProperties(simplified, 24);
         }
         if (simplified && schemaHasRef(simplified)) {
-          console.warn(
+          getState().log(
+            2,
             "Builder response schema still contains $ref; skipping response_format"
           );
         } else if (simplified) {
@@ -1639,15 +1748,26 @@ module.exports = {
         }
       }
     } catch (err) {
-      console.warn("Builder response schema validation failed", err);
+      getState().log(2, "Builder response schema validation failed", err);
       // responseFormat = null;
+    }
+
+    const promptOpts = { includeSchemaText: !responseFormat };
+    let llmPrompt = buildPromptText(prompt, ctx, schema, promptOpts);
+    if (existing_layout !== undefined && existing_layout !== null) {
+      const layoutJson =
+        typeof existing_layout === "string"
+          ? existing_layout
+          : JSON.stringify(existing_layout);
+      llmPrompt = `${llmPrompt}\n\nExisting layout (reproduce this with the requested changes applied):\n${layoutJson}`;
     }
 
     const options = {};
     if (responseFormat) {
       options.response_format = responseFormat;
     }
-    if (Array.isArray(chat) && chat.length) options.chat = chat;
+    const relationChat = trimChatForRelationContext(chat);
+    if (relationChat.length) options.chat = relationChat;
 
     // const deterministicLayout = buildDeterministicLayout(ctx, prompt);
 
@@ -1666,8 +1786,9 @@ module.exports = {
     } catch (err) {
       let lastError = err;
       try {
-        const repairPrompt = buildRepairPrompt(rawResponse, schema);
-        rawResponse = await llm.run(repairPrompt, options);
+        const repairPrompt = buildRepairPrompt(rawResponse, schema, err?.message);
+        // Give the retry tool access so it can fix a missing relation, not just hear about it.
+        rawResponse = await runWithRelationTools(llm, repairPrompt, options);
         payload = parseJsonPayload(rawResponse);
         const candidate = payload.layout ?? payload;
         const result = normalizeLayoutCandidate(candidate, ctx);
@@ -1678,8 +1799,8 @@ module.exports = {
       }
 
       try {
-        const reducedPrompt = buildReducedPrompt(prompt, ctx, schema);
-        rawResponse = await llm.run(reducedPrompt, options);
+        const reducedPrompt = buildReducedPrompt(prompt, ctx, schema, promptOpts);
+        rawResponse = await runWithRelationTools(llm, reducedPrompt, options);
         payload = parseJsonPayload(rawResponse);
         const candidate = payload.layout ?? payload;
         const result = normalizeLayoutCandidate(candidate, ctx);
@@ -1689,7 +1810,7 @@ module.exports = {
         lastError = reducedErr;
       }
 
-      console.warn("Copilot layout generation failed", lastError);
+      getState().log(2, "Copilot layout generation failed", lastError);
       const errorLayout = buildErrorLayout({
         message: lastError?.message || String(lastError),
         mode,

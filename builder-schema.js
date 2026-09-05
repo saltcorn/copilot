@@ -379,6 +379,7 @@ const buildBuilderSchema = ({ mode, ctx }) => {
   const viewDef = buildSegmentDef({
     type: "view",
     description: "Embedded view.",
+    required: ["relation"],
     properties: {
       view: defs.view_name_enum
         ? { $ref: "#/$defs/view_name_enum", description: "View name." }
@@ -388,7 +389,12 @@ const buildBuilderSchema = ({ mode, ctx }) => {
         description: "View state overrides.",
         additionalProperties: true,
       },
-      relation: { type: "string", description: "Relation name." },
+      relation: {
+        type: "string",
+        description:
+          "Relation path from the enclosing table to this view's table. " +
+          "Always required - call get_relation_paths to obtain it, never leave it empty or guess.",
+      },
       order_field: { type: "string", description: "Order field name." },
       view_name: { type: "string", description: "View name override." },
       name: { type: "string", description: "View instance name." },
@@ -407,6 +413,7 @@ const buildBuilderSchema = ({ mode, ctx }) => {
   const viewLinkDef = buildSegmentDef({
     type: "view_link",
     description: "Link to a view.",
+    required: ["relation"],
     properties: {
       view: defs.view_name_enum
         ? { $ref: "#/$defs/view_name_enum", description: "View name." }
@@ -414,6 +421,12 @@ const buildBuilderSchema = ({ mode, ctx }) => {
       view_label: { type: "string", description: "Link label." },
       link_style: { type: "string", description: "Link style class." },
       class: { type: "string", description: "Extra CSS class names." },
+      relation: {
+        type: "string",
+        description:
+          "Relation path from the enclosing table to the linked view's table. " +
+          "Always required - call get_relation_paths to obtain it, never leave it empty or guess.",
+      },
     },
   });
 

@@ -35,18 +35,27 @@ const summarizeTriggerActionMatrix = () => {
       notRequireRow: true,
       workflow: true,
     });
-    const lines = Trigger.when_options.map((when) => {
+    // Group trigger types by their actual category list instead of repeating it per type.
+    const groups = new Map();
+    for (const when of Trigger.when_options) {
       const pool = table_triggers.includes(when) ? allActions : noRowActions;
-      return `* ${when}: ${joinOptionNames(pool)}`;
-    });
+      const categories = joinOptionNames(pool);
+      if (!groups.has(categories)) groups.set(categories, []);
+      groups.get(categories).push(when);
+    }
     const notes = `Triggers requiring a table context: ${table_triggers.join(
       ", "
-    )}.
-Additional triggers that commonly use contextual only_if checks: ${additional_triggers_with_onlyif.join(
+    )}. Additional triggers that commonly use contextual only_if checks: ${additional_triggers_with_onlyif.join(
       ", "
     )}.`;
-    return `${notes}
-${lines.join("\n")}`;
+    if (groups.size === 1) {
+      const [[categories]] = groups;
+      return `${notes}\nAll trigger types support actions from these categories: ${categories}.`;
+    }
+    const lines = [...groups.entries()].map(
+      ([categories, whens]) => `* ${whens.join(", ")}: ${categories}`
+    );
+    return `${notes}\n${lines.join("\n")}`;
   } catch (e) {
     console.error("GenerateWorkflow: action matrix failed", e);
     return "";

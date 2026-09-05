@@ -9,13 +9,9 @@ const {
   genErrorToastMsg,
   missingToolCallError,
 } = require("../common");
-const { PromptGenerator } = require("../prompt-generator");
-const {
-  tasksOfType,
-  allTasksDone,
-  unmetDeps,
-  phases_tool,
-} = require("./common");
+const { PromptGenerator } = require("../prompts/prompt-generator");
+const { tasksOfType, allTasksDone, unmetDeps } = require("./common");
+const { phases_tool } = require("../tools");
 const { ChainHelper } = require("./chain-helper");
 
 /**
@@ -161,6 +157,18 @@ class PhaseHelper {
     ) {
       await generatingMd.delete();
     }
+  }
+
+  /**
+   * Cancels an in-flight "Generate phases" step by deleting its row; generatePhases() checks it's still present before writing.
+   * @param {string} pt - project type namespace
+   */
+  static async cancelGeneratingPhases(pt) {
+    const generatingMd = await MetaData.findOne({
+      type: pt,
+      name: "generating_phases",
+    });
+    if (generatingMd) await generatingMd.delete();
   }
 
   /**
@@ -421,11 +429,12 @@ class PhaseHelper {
     const generatingMd = await MetaData.create({
       type: pt,
       name: "generating_phases",
-      body: {},
+      body: { project_id: Number(pt.split(":")[1]) },
       user_id: userId,
     });
     let failed = false;
     let toastMsg = "";
+    let cancelled = false;
     try {
       const generator = await PromptGenerator.createInstance({ pt });
       if (!generator.spec) throw new Error("Specification not found");
@@ -440,6 +449,16 @@ class PhaseHelper {
             "Only include what is explicitly stated in the specification — do not infer or add plausible extras.",
         }
       );
+
+      // Only write phases if our row is still the current one (not cancelled or superseded).
+      const stillActive = await MetaData.findOne({
+        type: pt,
+        name: "generating_phases",
+      });
+      if (!stillActive || stillActive.id !== generatingMd.id) {
+        cancelled = true;
+        return;
+      }
 
       if (typeof answer?.getToolCalls !== "function")
         throw new Error(missingToolCallError());
@@ -470,39 +489,55 @@ class PhaseHelper {
         });
       }
     } catch (err) {
-      getState().log(1, "PhaseHelper.generatePhases error:", err);
-      toastMsg = genErrorToastMsg(err, "Phase generation");
-      failed = true;
-      try {
-        await MetaData.create({
-          type: pt,
-          name: "phases_gen_error",
-          body: { message: toastMsg },
-          user_id: userId,
-        });
-      } catch (_) {}
-      try {
-        await MetaData.create({
-          type: BASE_TYPE,
-          name: "error",
-          body: {
-            source: "constructor",
-            error: { message: err?.message || String(err), stack: err?.stack },
-          },
-          user_id: userId,
-        });
-      } catch (_) {}
+      // Re-check for a concurrent cancel before reporting an error toast for what was just a cancel.
+      const activeOnErr = await MetaData.findOne({
+        type: pt,
+        name: "generating_phases",
+      }).catch(() => null);
+      if (!activeOnErr || activeOnErr.id !== generatingMd.id) {
+        cancelled = true;
+      }
+      if (!cancelled) {
+        getState().log(1, "PhaseHelper.generatePhases error:", err);
+        toastMsg = genErrorToastMsg(err, "Phase generation");
+        failed = true;
+        try {
+          await MetaData.create({
+            type: pt,
+            name: "phases_gen_error",
+            body: { message: toastMsg },
+            user_id: userId,
+          });
+        } catch (_) {}
+        try {
+          await MetaData.create({
+            type: BASE_TYPE,
+            name: "error",
+            body: {
+              source: "constructor",
+              error: {
+                message: err?.message || String(err),
+                stack: err?.stack,
+              },
+            },
+            user_id: userId,
+          });
+        } catch (_) {}
+      }
     } finally {
-      await generatingMd.delete();
       try {
-        getState().emitDynamicUpdate(db.getTenantSchema(), {
-          eval_js: failed
-            ? `notifyAlert({type:'danger',text:${JSON.stringify(
-                toastMsg
-              )}});if(typeof copilotRefreshPhases==='function')copilotRefreshPhases();`
-            : "if(typeof copilotRefreshPhases==='function')copilotRefreshPhases();",
-        });
+        await generatingMd.delete();
       } catch (_) {}
+      if (!cancelled)
+        try {
+          getState().emitDynamicUpdate(db.getTenantSchema(), {
+            eval_js: failed
+              ? `notifyAlert({type:'danger',text:${JSON.stringify(
+                  toastMsg
+                )}});if(typeof copilotRefreshPhases==='function')copilotRefreshPhases();`
+              : "if(typeof copilotRefreshPhases==='function')copilotRefreshPhases();",
+          });
+        } catch (_) {}
     }
   }
 

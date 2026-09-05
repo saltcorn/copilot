@@ -1,3 +1,4 @@
+// Unused/dead code - superseded by agent-skills/viewgen.js, not registered anywhere in index.js.
 const { getState } = require("@saltcorn/data/db/state");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");

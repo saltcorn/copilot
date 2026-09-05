@@ -3,7 +3,7 @@ const { interpolate } = require("@saltcorn/data/utils");
 const { getState } = require("@saltcorn/data/db/state");
 const { requirements_tool, task_tool } = require("./tools");
 const { tool_choice } = require("./common");
-const { PromptGenerator } = require("./prompt-generator");
+const { PromptGenerator } = require("./prompts/prompt-generator");
 
 module.exports = {
   description: "Provide user feedback to the AppConstructor",
@@ -138,7 +138,7 @@ module.exports = {
 
     // plan tasks for the new requirements
     const taskAnswer = await getState().functions.llm_generate.run(
-      generator.feedbackPrompt({
+      await generator.feedbackPrompt({
         title: use_title,
         description: use_description,
         urlSection,

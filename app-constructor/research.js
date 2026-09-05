@@ -26,7 +26,7 @@ const {
   BASE_TYPE,
   genErrorToastMsg,
 } = require("./common");
-const { PromptGenerator } = require("./prompt-generator");
+const { PromptGenerator } = require("./prompts/prompt-generator");
 
 const questions_tool = {
   type: "function",

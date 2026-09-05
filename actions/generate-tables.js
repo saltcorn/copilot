@@ -329,6 +329,8 @@ class GenerateTables {
         await Field.create(field);
       }
     }
+    // Without this, later tools/tasks can see these new tables as missing.
+    await getState().refresh_tables();
     Trigger.emitEvent("AppChange", `Tables created`, req?.user, {
       entity_type: "Table",
       entity_names: sctables.map((t) => t.name),
@@ -380,6 +382,8 @@ class GenerateTables {
       }
     }
 
+    // Same as above - keep these field changes from looking missing later.
+    await getState().refresh_tables();
     Trigger.emitEvent(
       "AppChange",
       `Fields updated on ${table_name}`,

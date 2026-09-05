@@ -30,7 +30,7 @@ jest.mock("../app-constructor/run_task", () => ({ runTask: jest.fn() }), {
   virtual: true,
 });
 jest.mock(
-  "../app-constructor/prompt-generator",
+  "../app-constructor/prompts/prompt-generator",
   () => ({ PromptGenerator: { createInstance: async () => ({}) } }),
   { virtual: true }
 );

@@ -9,7 +9,7 @@ const Role = require("@saltcorn/data/models/role");
 const File = require("@saltcorn/data/models/file");
 const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const { getState } = require("@saltcorn/data/db/state");
-const { sanitizeLayout } = require("../builder-gen");
+const { sanitizeLayout, repairTruncatedJson } = require("../builder-gen");
 
 class RegistryEditorSkill {
   static skill_name = "Registry editor";
@@ -35,8 +35,21 @@ details about them but not the full configuration details.
 If you need to retrieve the JSON definition of an entity, use the get_entity tool. This will
 return the JSON definition. It must be called with both the entity type and name as arguments.
 
-If you need to set the JSON definition of an entity, use the set_entity tool It must be called 
+If you need to set the JSON definition of an entity, use the set_entity tool It must be called
 with both the entity type and name, and the new JSON definition as a string as arguments.
+
+When entity_type is "page" or "view", the definition may include a "layout" field - a tree of
+segments. Rules for it:
+- A nested segment always goes under "contents", as ONE segment object - never an array, and
+  never under "children", "segments", or "items".
+- For multiple stacked children use {"above": [segment, segment, ...]}; for side-by-side use
+  {"besides": [...], "widths": [...]} (0-12, summing to 12).
+- Valid segment "type" values: blank, container, card, columns, tabs, field, view, view_link,
+  action, image, link, line_break, search_bar, dropdown_menu, table, page. There is no
+  "markdown", "text", or "html" type - for any text (including markdown), use
+  {"type": "blank", "contents": "the text"} - it is rendered as markdown automatically.
+Example: a container embedding a view:
+  {"type": "container", "contents": {"type": "view", "view": "my_view", "state": "shared"}}
 `;
   }
 
@@ -510,7 +523,18 @@ with both the entity type and name, and the new JSON definition as a string as a
         },
         process: async (input, ctx) => {
           try {
-            const entityValue = JSON.parse(input.entity_definition);
+            let entityValue;
+            try {
+              entityValue = JSON.parse(input.entity_definition);
+            } catch (parseErr) {
+              const repaired = repairTruncatedJson(input.entity_definition);
+              if (!repaired) throw parseErr;
+              getState().log(
+                2,
+                "RegistryEditorSkill.set_entity: repaired a truncated entity_definition JSON string"
+              );
+              entityValue = JSON.parse(repaired);
+            }
             const tables = await Table.find({}, { cached: true });
             const tableNames = {};
             for (const table of tables) tableNames[table.id] = table.name;

@@ -23,7 +23,7 @@ const { viewname, projectType } = require("./common");
 const getPt = (body, req) =>
   projectType(body?.project_id ?? req?.query?.project_id);
 const { questions_tool } = require("./research");
-const { PromptGenerator } = require("./prompt-generator");
+const { PromptGenerator } = require("./prompts/prompt-generator");
 
 /**
  * Returns the Bootstrap modal HTML that prompts the user to analyse or skip.

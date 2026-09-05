@@ -9,13 +9,51 @@ const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
 const { getState } = require("@saltcorn/data/db/state");
 const { viewname, TaskType, projectType, BASE_TYPE } = require("./common");
-const { PromptGenerator } = require("./prompt-generator");
+const { PromptGenerator } = require("./prompts/prompt-generator");
 
 const getOrCreatePhaseTag = async (phaseIdx, projectName) => {
   const tagName = `${projectName} Phase ${phaseIdx + 1}`;
   const existing = await Tag.findOne({ name: tagName });
   if (existing) return existing;
   return await Tag.create({ name: tagName });
+};
+
+// Skills add their own tool set and system prompt - attach only what the topics need.
+const TOPIC_SKILLS = {
+  workflow: ["Generate Workflow"],
+  trigger_action: ["Generate trigger"],
+  custom_code: ["Generate trigger", "Generate Workflow"],
+  view_embedding: ["Generate View"],
+  list_view: ["Generate View"],
+  show_view: ["Generate View"],
+  edit_view: ["Generate View"],
+  navigation_links: ["Generate Page", "Generate View"],
+  auth_pages: ["Generate Page"],
+  system_config: [],
+};
+const ALWAYS_ON_FEATURE_SKILLS = ["Registry editor"];
+const ALL_FEATURE_SKILLS = [
+  "Generate Page",
+  "Generate Workflow",
+  "Generate trigger",
+  "Generate View",
+  ...ALWAYS_ON_FEATURE_SKILLS,
+];
+
+/**
+ * Maps a task's topic tags to the agent skills it needs.
+ * @param {string[]} topics - task's topic tags
+ * @returns {string[]} skill_type names to attach
+ */
+const resolveFeatureSkills = (topics) => {
+  if (!topics || !topics.length) return ALL_FEATURE_SKILLS;
+  const wanted = new Set(ALWAYS_ON_FEATURE_SKILLS);
+  for (const topic of topics) {
+    // No entry (unlike system_config's known-empty one) means unmapped - play it safe.
+    if (!(topic in TOPIC_SKILLS)) return ALL_FEATURE_SKILLS;
+    for (const skill of TOPIC_SKILLS[topic]) wanted.add(skill);
+  }
+  return [...wanted];
 };
 
 /**
@@ -44,16 +82,25 @@ const runTask = async (md_id, req) => {
       viewname: viewname,
       sys_prompt:
         taskType === TaskType.PLUGIN
-          ? "Each task installs exactly one plugin from the Saltcorn plugin store. " +
-            "Use the Install Plugin skill to find and install it. Call the skill once and then stop."
+          ? "Each task installs exactly one plugin from the Saltcorn plugin " +
+            "store. Use the Install Plugin skill to find and install it. " +
+            "Call the skill once and then stop."
           : taskType === TaskType.DATA_MODEL
-          ? "Each task creates or modifies database tables/fields or configures platform-level settings (such as custom roles). " +
-            "Use the database design tool for schema changes. Use the Registry editor (set_entity) for platform configuration such as creating custom roles. " +
-            "Call only the tools needed for the task and then stop. Do not create any views, pages, or triggers."
-          : "Each task creates exactly one primary artifact: one view, one page, or one workflow trigger. " +
-            "Never create more than one view or page per task, even if the description mentions multiple. " +
-            "Exception: if the task description explicitly says to both create a workflow trigger AND update an existing view to add an action button for it, do both — create the workflow first, then update the specified view. " +
-            "After completing the primary artifact (and the explicitly described action button update, if any), stop.",
+          ? "Each task creates or modifies database tables/fields or " +
+            "configures platform-level settings (such as custom roles). " +
+            "Use the database design tool for schema changes. Use the " +
+            "Registry editor (set_entity) for platform configuration such " +
+            "as creating custom roles. Call only the tools needed for the " +
+            "task and then stop. Do not create any views, pages, or triggers."
+          : "Each task creates exactly one primary artifact: one view, one " +
+            "page, or one workflow trigger. Never create more than one " +
+            "view or page per task, even if the description mentions " +
+            "multiple. Exception: if the task description explicitly says " +
+            "to both create a workflow trigger AND update an existing " +
+            "view to add an action button for it, do both — create the " +
+            "workflow first, then update the specified view. After " +
+            "completing the primary artifact (and the explicitly " +
+            "described action button update, if any), stop.",
       prompt: "{{prompt}}",
       skills:
         taskType === TaskType.PLUGIN
@@ -63,21 +110,22 @@ const runTask = async (md_id, req) => {
               { skill_type: "Database design", yoloMode: true },
               { skill_type: "Registry editor", yoloMode: true },
             ]
-          : [
-              { skill_type: "Generate Page", yoloMode: true },
-              { skill_type: "Generate Workflow", yoloMode: true },
-              { skill_type: "Generate trigger", yoloMode: true },
-              { skill_type: "Generate View", yoloMode: true },
-              { skill_type: "Install Plugin", yoloMode: true },
-              { skill_type: "Registry editor", yoloMode: true },
-            ],
+          : resolveFeatureSkills(md.body.topics).map((skill_type) => ({
+              skill_type,
+              yoloMode: true,
+            })),
     },
   });
 
   const pt = projectType(md.body.project_id);
   const generator = await PromptGenerator.createInstance({ pt });
   if (!generator.spec) return { error: "Specification not found" };
-  const prompt = generator.taskExecPrompt(taskType, md.body.description);
+  const prompt = generator.taskExecPrompt(
+    taskType,
+    md.body.description,
+    md.body.topics,
+    md.body.name
+  );
 
   const safeReq =
     req?.__ && req?.getLocale
@@ -128,11 +176,7 @@ const runTask = async (md_id, req) => {
     const run_id = actionres.json.run_id;
     const run = await WorkflowRun.findOne({ id: run_id });
 
-    // The task's real work is already done at this point (actionres above) -
-    // this second call only writes a nicer human-readable summary for the
-    // progress log. A transient failure here (e.g. an LLM API hiccup)
-    // shouldn't undo a task that actually succeeded, so it's isolated in its
-    // own try/catch with a plain fallback instead of failing the whole task.
+    // Only writes a progress-log summary; isolated so an LLM hiccup here can't undo a task that already succeeded.
     let lastText = "";
     try {
       await agent_action.runWithoutRow({
@@ -176,6 +220,11 @@ const runTask = async (md_id, req) => {
       );
     }
     if (!lastText) lastText = md.body.description || md.body.name || "";
+    // Fetched fresh to include token usage from the follow-up call above.
+    let finalRun = null;
+    try {
+      finalRun = await WorkflowRun.findOne({ id: run_id });
+    } catch (_) {}
     await MetaData.create({
       type: pt,
       name: "progress",
@@ -184,6 +233,7 @@ const runTask = async (md_id, req) => {
         run_id,
         task_id: md.id,
         phase_idx: md.body.phase_idx ?? null,
+        token_usage: finalRun?.context?.cumulative_usage || null,
       },
       user_id: req?.user?.id,
     });
@@ -304,6 +354,16 @@ const runTask = async (md_id, req) => {
     } catch (_) {}
   } catch (e) {
     await md.update({ body: { ...md.body, status: "To do" } });
+    try {
+      const phaseIdx = md.body.phase_idx;
+      getState().emitDynamicUpdate(db.getTenantSchema(), {
+        eval_js:
+          "if(typeof copilotRefreshTasks==='function')copilotRefreshTasks();" +
+          (phaseIdx != null
+            ? `if(typeof copilotRefreshPhaseProgress==='function')copilotRefreshPhaseProgress(${phaseIdx});`
+            : ""),
+      });
+    } catch (_) {}
     throw e;
   }
 };

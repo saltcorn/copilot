@@ -172,11 +172,15 @@ const fieldProperties = (field) => {
     };
   }
   switch (typeName) {
-    case "String":
+    case "String": {
       props.type = "string";
-      if (field.attributes?.options)
-        props.enum = toArrayOfStrings(field.attributes.options);
+      // An empty enum is unsatisfiable and has caused garbled empty responses - only set it when non-empty.
+      const stringOpts = field.attributes?.options
+        ? toArrayOfStrings(field.attributes.options)
+        : [];
+      if (stringOpts.length) props.enum = stringOpts;
       break;
+    }
     case "Bool":
       props.type = "boolean";
       break;
@@ -186,10 +190,12 @@ const fieldProperties = (field) => {
     case "Float":
       props.type = "number";
       break;
-    case "select":
+    case "select": {
       props.type = "string";
-      if (field.options) props.enum = toArrayOfStrings(field.options);
+      const selectOpts = field.options ? toArrayOfStrings(field.options) : [];
+      if (selectOpts.length) props.enum = selectOpts;
       break;
+    }
   }
   if (!props.type) {
     switch (field.input_type) {

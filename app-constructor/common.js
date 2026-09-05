@@ -15,6 +15,20 @@ const TASK_TYPE_ORDER = [
   TaskType.FEATURE,
 ];
 
+// Topics a "feature" task can be tagged with, selecting which fixed-prompts.js rules it gets.
+const TASK_TOPICS = [
+  "view_embedding", // embedding/linking/viewlinks, dashboards, extra_state_fml
+  "workflow", // workflow steps: TableQuery, PDF export, TerminateWorkflow, row inserts
+  "custom_code", // JsCode views and run_js_code workflow steps
+  "trigger_action", // triggers, action buttons, modify_row
+  "auth_pages", // landing/login/signup pages
+  "list_view", // List view specifics
+  "show_view", // Show view specifics
+  "edit_view", // Edit view specifics
+  "navigation_links", // Link columns, page vs view URL prefixes
+  "system_config", // set_entity for home_page_by_role, 2FA, etc.
+];
+
 const tool_choice = (tool_name) => ({
   tool_choice: {
     type: "function",
@@ -73,6 +87,7 @@ module.exports = {
   tool_choice,
   TaskType,
   TASK_TYPE_ORDER,
+  TASK_TOPICS,
   projectType,
   BASE_TYPE,
   genErrorToastMsg,

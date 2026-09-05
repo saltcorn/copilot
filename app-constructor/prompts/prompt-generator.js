@@ -22,13 +22,91 @@ const {
   phase_scope_rule,
   no_roles_table_rule,
   exec_tool_call_rule,
+  exec_final_create_check_rule,
   exec_schema_rule_plugin,
   exec_schema_rule_data_model,
   exec_schema_rule_feature,
   feedback_analyse_decision,
   research_questions_rules,
 } = require("./fixed-prompts");
-const { TaskType } = require("./common");
+const { TaskType } = require("../common");
+
+/**
+ * Describes a whole Table model as text for app-constructor planning/exec prompts.
+ * @param {object} table  A Saltcorn Table model, with its .fields already loaded.
+ * @returns {string}
+ */
+const describePlanningTable = (table) => {
+  const fieldLines = (table.fields || []).map((f) => {
+    const attrs = [];
+    if (f.required) attrs.push("NOT NULL");
+    if (f.is_unique) attrs.push("unique");
+    const def = f.attributes?.default;
+    if (f.required && def !== undefined && def !== null && def !== "")
+      attrs.push(`default: ${JSON.stringify(def)}`);
+    const attrStr = attrs.length ? ` (${attrs.join(", ")})` : "";
+    return `  * ${f.name} with type: ${f.pretty_type}${attrStr}.${
+      f.description ? ` ${f.description}` : ""
+    }`;
+  });
+  return `${table.name}${
+    table.description ? `: ${table.description}.` : "."
+  } min_role_write: ${
+    table.min_role_write
+  }. Contains the following fields:\n${fieldLines.join("\n")}`;
+};
+
+const describePlanningTables = (tables) =>
+  (tables || []).map(describePlanningTable).join("\n\n");
+
+// Joins a fixed-prompts.js rule array ({text, topics} items), filtered to `topics`
+// (falsy/empty topics = include everything).
+// "base" (List/Show/Edit/...) is always registered; other viewtemplates only count as
+// available to a project once their plugin is installed for it.
+const ALWAYS_ON_VIEWTEMPLATE_PLUGINS = ["base"];
+
+// Collects each registered viewtemplate's own planning guidance (ViewTemplate.copilot_planning_rule),
+// scoped to viewtemplates actually available to this project - same scoping as
+// installed_plugins_list, instead of hardcoding per-viewtemplate knowledge here.
+const viewtemplate_planning_rules = async (installedNames = new Set()) => {
+  const state = getState();
+  const relevantNames = new Set();
+  for (const pluginName of [...ALWAYS_ON_VIEWTEMPLATE_PLUGINS, ...installedNames]) {
+    const resolvedName = state.plugin_module_names[pluginName] || pluginName;
+    const mod = state.plugins[resolvedName];
+    if (!mod) continue;
+    const cfg = state.plugin_cfgs?.[resolvedName];
+    const raw = mod.configuration_workflow
+      ? mod.viewtemplates
+        ? mod.viewtemplates(cfg || {})
+        : []
+      : mod.viewtemplates || [];
+    for (const vt of raw || []) relevantNames.add(vt.name);
+  }
+  const relevantVts = Object.values(state.viewtemplates || {}).filter(
+    (vt) => vt.copilot_planning_rule && relevantNames.has(vt.name)
+  );
+  const lines = await Promise.all(
+    relevantVts.map(async (vt) => {
+      const rule =
+        typeof vt.copilot_planning_rule === "function"
+          ? await vt.copilot_planning_rule()
+          : vt.copilot_planning_rule;
+      return `Important ${vt.name} view planning rule:\n${rule}`;
+    })
+  );
+  return lines.join("\n\n");
+};
+
+const joinRules = (rules, topics) => {
+  if (!topics || !topics.length)
+    return rules.map((r) => r.text).join("\n\n");
+  const wanted = new Set(topics);
+  return rules
+    .filter((r) => !r.topics.length || r.topics.some((t) => wanted.has(t)))
+    .map((r) => r.text)
+    .join("\n\n");
+};
 
 const installed_plugins_list = (installedNames, storePlugins = []) => {
   const state = getState();
@@ -98,31 +176,18 @@ const available_plugins_list = (storePlugins, installedNames) => {
     lines.join("\n\n")
   );
 };
-const format_table_entry = (table) => {
-  const fieldLines = (table.fields || []).map((f) => {
-    const attrs = [];
-    if (f.required) attrs.push("NOT NULL");
-    if (f.is_unique) attrs.push("unique");
-    const def = f.attributes?.default;
-    if (f.required && def !== undefined && def !== null && def !== "")
-      attrs.push(`default: ${JSON.stringify(def)}`);
-    const attrStr = attrs.length ? ` (${attrs.join(", ")})` : "";
-    return `  * ${f.name} with type: ${f.pretty_type}${attrStr}.${
-      f.description ? ` ${f.description}` : ""
-    }`;
-  });
-  return `${table.name}${
-    table.description ? `: ${table.description}.` : "."
-  } Contains the following fields:\n${fieldLines.join("\n")}`;
-};
-
 const existing_entities_list = ({ views, triggers, pages, tableById = {} }) => {
   const sections = [];
   if (views.length)
     sections.push(
       `The following views are already implemented — do NOT plan tasks to create them. ` +
         `If you find yourself constructing a new view name that avoids a collision with an existing one ` +
-        `(e.g. by prepending "my_", "user_", or "filtered_"), that is a signal you should use the existing view instead:\n` +
+        `while serving the SAME purpose (e.g. by prepending "my_" or "filtered_" to dodge a name clash), ` +
+        `that is a signal you should use the existing view instead. This does NOT apply to a deliberately ` +
+        `separate, differently-scoped view for a different role (e.g. a "..._user_list" scoped to the ` +
+        `logged-in user, alongside an existing "..._list" that shows all rows to admins) — that is a ` +
+        `distinct view serving a distinct purpose; if the task names it and it is not in the list below, ` +
+        `create it as named, do not redirect the task onto a similarly-named existing view:\n` +
         views
           .map((v) => {
             const tablePart =
@@ -164,9 +229,6 @@ const existing_entities_list = ({ views, triggers, pages, tableById = {} }) => {
   return sections.join("\n\n");
 };
 
-const flatTablesList = (allTables) =>
-  (allTables || []).map(format_table_entry).join("\n\n");
-
 const buildGroupedTablesSection = async (allTables, currentPhaseIdx, pt) => {
   if (!allTables.length) return "";
 
@@ -191,8 +253,6 @@ const buildGroupedTablesSection = async (allTables, currentPhaseIdx, pt) => {
     }
   }
 
-  const formatTables = (tables) => tables.map(format_table_entry).join("\n\n");
-
   const sections = [];
   const sortedIdxs = Object.keys(phaseGroups)
     .map(Number)
@@ -205,22 +265,30 @@ const buildGroupedTablesSection = async (allTables, currentPhaseIdx, pt) => {
     sections.push(
       `--- Tables from ${label}${
         idx === currentPhaseIdx ? " (current phase)" : ""
-      } ---\n\n${formatTables(g.tables)}`
+      } ---\n\n${describePlanningTables(g.tables)}`
     );
   }
   if (ungrouped.length)
     sections.push(
-      `--- Tables with no phase association ---\n\n${formatTables(ungrouped)}`
+      `--- Tables with no phase association ---\n\n${describePlanningTables(
+        ungrouped
+      )}`
     );
 
   return (
     "The database already contains the following tables, grouped by the phase that created them:\n\n" +
     sections.join("\n\n") +
-    "\n\nAll tables listed above already exist — do NOT create or recreate any of them." +
-    " Only plan tasks for tables or fields genuinely missing from the requirements of this phase." +
-    " Tables listed under 'Tables with no phase association' are pre-existing tables outside" +
-    " this project. You may add fields to them when necessary, but avoid modifying or removing" +
-    " existing fields unless unavoidable. Any task that touches a pre-existing table must set" +
+    "\n\nImportant database rules: all tables listed above already exist — do NOT create or" +
+    " recreate any of them. Only plan tasks for tables or fields genuinely missing from the" +
+    " requirements of this phase. Tables listed under 'Tables with no phase association' are" +
+    " pre-existing tables outside this project. Be cautious adding fields to a pre-existing" +
+    " table — only add one when clearly required to satisfy a phase requirement, and prefer a" +
+    " new table when the data represents a new entity rather than extending an existing one." +
+    " Avoid modifying or removing existing fields unless strictly necessary — never for" +
+    " convenience or because an alternative schema would be preferable. Never make" +
+    " speculative, optional, or convenience-driven changes to a pre-existing table — keep its" +
+    " structure unchanged unless a phase requirement explicitly requires the change. Any task" +
+    " that adds, modifies, or removes anything in a pre-existing table must set" +
     " modifies_existing_table: true."
   );
 };
@@ -327,7 +395,7 @@ class PromptGenerator {
       }
     } catch (_) {}
 
-    const { getResearchAnswersText } = require("./research");
+    const { getResearchAnswersText } = require("../research");
     instance.researchSection = research_answers_section(
       await getResearchAnswersText(pt)
     );
@@ -388,7 +456,7 @@ class PromptGenerator {
   }
 
   /**
-   * Prompt for the plan_tasks LLM call — plans implementation tasks for one phase.
+   * Context/data for the plan_tasks call - rules live in taskPlanSystemPrompt() instead.
    * Requires the instance to have been created with a `phase` object.
    * @param {"plugin"|"data_model"|"feature"} taskType
    */
@@ -401,24 +469,19 @@ class PromptGenerator {
     if (this.researchSection) parts.push(this.researchSection);
     parts.push(
       `Phase: ${this.phase.name}\n${this.phase.description}`,
-      `Requirements for this phase:\n${this.reqLines}`,
-      phase_scope_rule,
-      no_roles_table_rule
+      `Requirements for this phase:\n${this.reqLines}`
     );
     switch (taskType) {
       case "plugin":
-        parts.push(plugin_type_instruction.join("\n"));
         if (this.installedPluginsSection)
           parts.push(this.installedPluginsSection);
         parts.push(...this.pluginAvailabilitySections);
         break;
       case "data_model":
-        parts.push(data_model_type_instruction.join("\n"));
         if (this.installedPluginsSection)
           parts.push(this.installedPluginsSection);
         break;
       case "feature":
-        parts.push(feature_type_instruction.join("\n"));
         if (this.installedPluginsSection)
           parts.push(this.installedPluginsSection);
         if (this.existingDmNames.length)
@@ -429,16 +492,50 @@ class PromptGenerator {
               )}`
           );
         if (this.entitiesSection) parts.push(this.entitiesSection);
-        parts.push(task_planning_rules.join("\n\n"));
         break;
       default:
         throw new Error(`Unknown taskType: ${taskType}`);
     }
     if (this.existingTablesSection) parts.push(this.existingTablesSection);
-    parts.push(
-      task_planning_closing.join("\n\n"),
-      "Now call the plan_tasks tool with your tasks for this phase."
-    );
+    parts.push("Now call the plan_tasks tool with your tasks for this phase.");
+    return parts.join("\n\n");
+  }
+
+  /**
+   * All behavioral rules for the plan_tasks call - the context lives in taskPlanPrompt().
+   * @param {"plugin"|"data_model"|"feature"} taskType
+   */
+  async taskPlanSystemPrompt(taskType) {
+    const parts = [
+      `You are a project manager planning implementation tasks for a Saltcorn ` +
+        `application. Each task is one complete deliverable — a view, a page, a ` +
+        `trigger, or a table's full schema — never the smallest possible slice of ` +
+        `one. Never split a single deliverable into a create task plus follow-up ` +
+        `update tasks (e.g. a table's fields) — build it complete in one step. Never ` +
+        `invent a requirement or a schema change that nothing above actually asked ` +
+        `for, and never create a task for a requirement that another task's schema ` +
+        `already fully covers.`,
+      phase_scope_rule,
+      no_roles_table_rule,
+    ];
+    switch (taskType) {
+      case "plugin":
+        parts.push(plugin_type_instruction.join("\n"));
+        break;
+      case "data_model":
+        parts.push(data_model_type_instruction.join("\n"));
+        break;
+      case "feature": {
+        parts.push(feature_type_instruction.join("\n"));
+        parts.push(task_planning_rules.join("\n\n"));
+        const vtRules = await viewtemplate_planning_rules(this.installedNames);
+        if (vtRules) parts.push(vtRules);
+        break;
+      }
+      default:
+        throw new Error(`Unknown taskType: ${taskType}`);
+    }
+    parts.push(task_planning_closing.join("\n\n"));
     return parts.join("\n\n");
   }
 
@@ -446,8 +543,11 @@ class PromptGenerator {
    * Prompt sent to the agent that executes a single task.
    * @param {"plugin"|"data_model"|"feature"} taskType
    * @param {string} description  Task description from the plan.
+   * @param {string[]} [topics]  Task's topics - narrows the rules included, omit for the full set.
+   * @param {string} [name]  Task's own snake_case name from the plan - an unambiguous anchor
+   *   when the description's prose doesn't spell out an exact entity name.
    */
-  taskExecPrompt(taskType, description) {
+  taskExecPrompt(taskType, description, topics, name) {
     const parts = [
       `You are engaged in building the following application:\n\n${this.spec?.body?.specification}`,
       taskType === TaskType.PLUGIN
@@ -463,19 +563,31 @@ class PromptGenerator {
     if (this.installedPluginsSection) parts.push(this.installedPluginsSection);
     if (taskType === TaskType.FEATURE && this.allTables.length) {
       parts.push(
-        `The database already contains the following tables:\n\n${flatTablesList(
+        `The database already contains the following tables:\n\n${describePlanningTables(
           this.allTables
         )}`
       );
     }
+    if (taskType === TaskType.FEATURE && this.entitiesSection) {
+      parts.push(
+        `${this.entitiesSection}\n\nThis list is current as of now - you do not ` +
+          `need to call list_entities to re-check it. Only call list_entities if ` +
+          `you need entities of a type not covered above.`
+      );
+    }
     if (taskType === TaskType.FEATURE) {
-      parts.push(implementation_rules.join("\n\n"));
-      parts.push(feature_exec_rules.join("\n\n"));
+      parts.push(joinRules(implementation_rules, topics));
+      parts.push(joinRules(feature_exec_rules, topics));
     } else if (taskType === TaskType.DATA_MODEL) {
       parts.push(data_model_exec_rules.join("\n\n"));
     }
-    parts.push(exec_tool_call_rule);
-    if (description) parts.push(`Your task now is:\n${description}`);
+    parts.push(exec_tool_call_rule, exec_final_create_check_rule);
+    if (description) {
+      const taskLabel = name
+        ? `Task ID: ${name} (this task's own name, not an existing view/page name).\n`
+        : "";
+      parts.push(`Your task now is:\n${taskLabel}${description}`);
+    }
     return parts.filter(Boolean).join("\n\n");
   }
 
@@ -484,7 +596,7 @@ class PromptGenerator {
    * @param {string} errorText       JSON-stringified error object.
    * @param {string} [entityConfigSection]  Pre-built config excerpt for the affected entity.
    */
-  errorPrompt(errorText, entityConfigSection = "") {
+  async errorPrompt(errorText, entityConfigSection = "") {
     const parts = [
       `Fix a bug in the following Saltcorn application.\n\n${this.spec?.body?.specification}`,
     ];
@@ -496,10 +608,10 @@ class PromptGenerator {
           this.allReqs.map((r) => `* ${r.body.requirement}`).join("\n")
       );
     parts.push(saltcorn_description.join("\n\n"));
-    parts.push(implementation_rules.join("\n\n"));
+    parts.push(joinRules(implementation_rules));
     parts.push(fieldview_selection_rules.join("\n\n"));
     parts.push(
-      `The database has the following tables:\n\n${flatTablesList(
+      `The database has the following tables:\n\n${describePlanningTables(
         this.allTables
       )}`
     );
@@ -511,6 +623,8 @@ class PromptGenerator {
     );
     if (availableSection) parts.push(availableSection);
     parts.push(task_planning_rules.join("\n\n"));
+    const vtRulesErr = await viewtemplate_planning_rules(this.installedNames);
+    if (vtRulesErr) parts.push(vtRulesErr);
     parts.push(
       `The following error occurred in the application:\n\`\`\`\n${errorText}\n\`\`\``
     );
@@ -582,7 +696,7 @@ class PromptGenerator {
    * @param {{ title: string, description: string, urlSection?: string,
    *           feedbackResearchSection?: string, newRequirements?: object[] }} opts
    */
-  feedbackPrompt({
+  async feedbackPrompt({
     title,
     description,
     urlSection = "",
@@ -611,7 +725,7 @@ class PromptGenerator {
       );
     parts.push(saltcorn_description.join("\n\n"));
     parts.push(
-      `The database has already been built. The following tables are now present in the database:\n\n${flatTablesList(
+      `The database has already been built. The following tables are now present in the database:\n\n${describePlanningTables(
         this.allTables
       )}\n\n` +
         `The plan should outline continued development of the application on top of this database.`
@@ -624,6 +738,8 @@ class PromptGenerator {
     );
     if (availableSection) parts.push(availableSection);
     parts.push(task_planning_rules.join("\n\n"));
+    const vtRulesFeedback = await viewtemplate_planning_rules(this.installedNames);
+    if (vtRulesFeedback) parts.push(vtRulesFeedback);
     parts.push(task_planning_closing.join("\n\n"));
     parts.push(
       "Important overrides for feedback tasks:\n" +

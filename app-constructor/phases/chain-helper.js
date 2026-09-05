@@ -11,7 +11,7 @@ const {
 } = require("../common");
 const { task_tool } = require("../tools");
 const { runTask } = require("../run_task");
-const { PromptGenerator } = require("../prompt-generator");
+const { PromptGenerator } = require("../prompts/prompt-generator");
 const {
   emitChainUpdate,
   emitOverviewUpdate,
@@ -61,6 +61,7 @@ class ChainHelper {
    * @param {number} phaseIdx - phase index
    * @param {string} taskType - task type to check
    * @param {string} pt - project type namespace
+   * @returns {Promise<{hasTasks: boolean, markedEmpty: boolean}>} hasTasks - tasks of this type exist; markedEmpty - generation ran and found none
    */
   static async typeGenerationState(phaseIdx, taskType, pt) {
     const tasks = await MetaData.find({ type: pt, name: "task" });
@@ -70,11 +71,13 @@ class ChainHelper {
         taskType
       ).length > 0;
     let markedEmpty = false;
-    if (!hasTasks && (taskType === "plugin" || taskType === "data_model")) {
+    if (!hasTasks) {
       const markerName =
         taskType === "plugin"
           ? "phase_plugin_generated"
-          : "phase_data_model_generated";
+          : taskType === "data_model"
+          ? "phase_data_model_generated"
+          : "phase_feature_generated";
       const markers = await MetaData.find({ type: pt, name: markerName });
       markedEmpty = markers.some((m) => m.body?.phase_idx === phaseIdx);
     }
@@ -106,12 +109,11 @@ class ChainHelper {
         {
           tools: [task_tool],
           ...tool_choice("plan_tasks"),
-          systemPrompt:
-            "You are a project manager planning implementation tasks for a Saltcorn application. " +
-            "Each task must map to a concrete deliverable (a view, page, trigger, or schema change). " +
-            "Keep tasks small and focused.",
+          systemPrompt: await generator.taskPlanSystemPrompt(taskType),
         }
       );
+      const toolCalls =
+        typeof answer?.getToolCalls === "function" ? answer.getToolCalls() : [];
 
       // If cancelled while the LLM was running, bail out without creating tasks
       const stillActive = await MetaData.findOne({
@@ -123,9 +125,8 @@ class ChainHelper {
         return { failed: false, cancelled: true };
       }
 
-      if (typeof answer?.getToolCalls !== "function")
-        throw new Error(missingToolCallError());
-      const tc = answer.getToolCalls()[0];
+      if (!toolCalls.length) throw new Error(missingToolCallError());
+      const tc = toolCalls[0];
 
       // Remove existing tasks of the relevant type(s) before storing new ones
       const existing = await MetaData.find({
@@ -137,29 +138,29 @@ class ChainHelper {
       );
       for (const t of tasksOfType(phaseTasks, taskType)) await t.delete();
 
-      // Clear any existing "no tasks needed" markers for this phase
-      if (taskType === "plugin") {
-        const oldMarkers = await MetaData.find({
-          type: pt,
-          name: "phase_plugin_generated",
-        });
-        for (const m of oldMarkers.filter(
-          (m) => m.body?.phase_idx === phase.idx
-        ))
-          await m.delete();
-      } else if (taskType === "data_model") {
-        const oldMarkers = await MetaData.find({
-          type: pt,
-          name: "phase_data_model_generated",
-        });
-        for (const m of oldMarkers.filter(
-          (m) => m.body?.phase_idx === phase.idx
-        ))
-          await m.delete();
-      }
+      // Clear any existing "no tasks needed" marker for this phase
+      const markerName =
+        taskType === "plugin"
+          ? "phase_plugin_generated"
+          : taskType === "data_model"
+          ? "phase_data_model_generated"
+          : "phase_feature_generated";
+      const oldMarkers = await MetaData.find({ type: pt, name: markerName });
+      for (const m of oldMarkers.filter((m) => m.body?.phase_idx === phase.idx))
+        await m.delete();
 
       const projectId = Number(pt.split(":")[1]);
-      for (const task of tc.input.tasks)
+      // Only save tasks of the requested type - the model can leak other-typed tasks in.
+      const matched = tc.input.tasks.filter((t) => t.task_type === taskType);
+      const leaked = tc.input.tasks.filter((t) => t.task_type !== taskType);
+      if (leaked.length)
+        getState().log(
+          2,
+          `ChainHelper.generateTasks: dropping ${leaked.length} task(s) not of type ` +
+            `"${taskType}" from a ${taskType} plan_tasks call:`,
+          leaked.map((t) => `${t.name} (${t.task_type})`)
+        );
+      for (const task of matched)
         await MetaData.create({
           type: pt,
           name: "task",
@@ -175,28 +176,24 @@ class ChainHelper {
       await ChainHelper.clearStaleMarker(phase.idx, pt);
 
       // If generation produced 0 tasks, record that it was considered
-      if (
-        taskType === "plugin" &&
-        tc.input.tasks.filter((t) => t.task_type === "plugin").length === 0
-      ) {
+      if (matched.length === 0)
         await MetaData.create({
           type: pt,
-          name: "phase_plugin_generated",
+          name: markerName,
           body: { phase_idx: phase.idx },
           user_id: userId,
         });
-      }
-      if (
-        taskType === "data_model" &&
-        tc.input.tasks.filter((t) => t.task_type === "data_model").length === 0
-      ) {
-        await MetaData.create({
-          type: pt,
-          name: "phase_data_model_generated",
-          body: { phase_idx: phase.idx },
-          user_id: userId,
-        });
-      }
+
+      await MetaData.create({
+        type: pt,
+        name: "progress",
+        body: {
+          text: `Generated ${matched.length} ${taskType} task(s) for this phase.`,
+          phase_idx: phase.idx,
+          token_usage: answer?.total_usage || null,
+        },
+        user_id: userId,
+      });
     } catch (err) {
       const activeOnErr = await MetaData.findOne({
         type: pt,
@@ -518,6 +515,7 @@ class ChainHelper {
       });
       if (!chain || chain.body.stopped) {
         if (chain) await chain.delete();
+        if (chain?.body.phaseIdx != null) emitChainUpdate(chain.body.phaseIdx);
         emitOverviewUpdate(pt);
         return;
       }
@@ -549,6 +547,7 @@ class ChainHelper {
         // The phase failed - stop "Run all phases" here too.
         const chainOnAbort = await MetaData.findOne({ id: chain.id });
         if (chainOnAbort) await chainOnAbort.delete();
+        emitChainUpdate(idx);
         emitOverviewUpdate(pt);
         return;
       }
@@ -556,6 +555,7 @@ class ChainHelper {
       const chainAfter = await MetaData.findOne({ id: chain.id });
       if (!chainAfter || chainAfter.body.stopped) {
         if (chainAfter) await chainAfter.delete();
+        emitChainUpdate(idx);
         emitOverviewUpdate(pt);
         return;
       }
