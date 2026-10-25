@@ -3,7 +3,15 @@ const WorkflowStep = require("@saltcorn/data/models/workflow_step");
 const Trigger = require("@saltcorn/data/models/trigger");
 const Table = require("@saltcorn/data/models/table");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
-const { a, pre, script, div, domReady } = require("@saltcorn/markup/tags");
+const {
+  a,
+  pre,
+  code,
+  script,
+  div,
+  domReady,
+  escape,
+} = require("@saltcorn/markup/tags");
 const { fieldProperties } = require("../common");
 
 const table_triggers = ["Insert", "Update", "Delete", "Validate"];
@@ -485,7 +493,7 @@ class GenerateWorkflow {
             trigger_table ? ` on ${trigger_table}` : ""
           }`
         ) +
-        pre({ class: "mermaid" }, mmdia) +
+        pre(code({ class: "language-mermaid mermaid" }, escape(mmdia))) +
         script(
           domReady(`
           ensure_script_loaded("/static_assets/"+_sc_version_tag+"/mermaid.min.js", () => {
